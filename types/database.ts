@@ -6,7 +6,7 @@ export type TodoStatus = 'open' | 'done' | 'dismissed'
 export type ChatRole = 'user' | 'assistant'
 
 // Citation object stored in chat_messages.citations (jsonb)
-export interface Citation {
+export type Citation = {
   chunk_id: string
   meeting_id: string
   start_ms: number
@@ -17,7 +17,11 @@ export interface Citation {
 // Row shapes — what you get back from SELECT *
 // ---------------------------------------------------------------------------
 
-export interface Meeting {
+// Use `type` aliases (not `interface`) for Row shapes so that when supabase-js v2
+// intersects them with `Record<string, unknown>` in its TablesAndViews computation,
+// TypeScript can correctly resolve property types via the intersection.
+// With `interface`, the column resolver fails and returns SelectQueryError.
+export type Meeting = {
   id: string
   user_id: string
   title: string
@@ -33,7 +37,7 @@ export interface Meeting {
   updated_at: string
 }
 
-export interface TranscriptSegment {
+export type TranscriptSegment = {
   id: string
   meeting_id: string
   segment_index: number
@@ -44,7 +48,7 @@ export interface TranscriptSegment {
   created_at: string
 }
 
-export interface TranscriptChunk {
+export type TranscriptChunk = {
   id: string
   meeting_id: string
   chunk_index: number
@@ -57,7 +61,7 @@ export interface TranscriptChunk {
   created_at: string
 }
 
-export interface Todo {
+export type Todo = {
   id: string
   meeting_id: string
   content: string
@@ -69,7 +73,7 @@ export interface Todo {
   updated_at: string
 }
 
-export interface CalendarSuggestion {
+export type CalendarSuggestion = {
   id: string
   meeting_id: string
   title: string
@@ -80,7 +84,7 @@ export interface CalendarSuggestion {
   created_at: string
 }
 
-export interface ChatSession {
+export type ChatSession = {
   id: string
   user_id: string
   meeting_id: string | null
@@ -89,7 +93,7 @@ export interface ChatSession {
   updated_at: string
 }
 
-export interface ChatMessage {
+export type ChatMessage = {
   id: string
   session_id: string
   role: ChatRole
@@ -121,7 +125,8 @@ export interface ChatMessage {
 // ---------------------------------------------------------------------------
 
 // Minimum shape required by supabase-js GenericTable constraint.
-// All our table types already have these fields, so the intersection is a no-op.
+// All our table types already satisfy these fields; the intersection is a no-op
+// on named table access but adds the required index signature to the Tables object.
 type NoRelationships = never[]
 type MinTableShape = {
   Row: Record<string, unknown>
@@ -129,8 +134,6 @@ type MinTableShape = {
   Update: Record<string, unknown>
   Relationships: NoRelationships
 }
-// Minimum shape required by supabase-js GenericView constraint.
-type MinViewShape = { Row: Record<string, unknown>; Relationships: NoRelationships }
 
 export interface Database {
   public: {
@@ -248,11 +251,13 @@ export interface Database {
         Relationships: NoRelationships
       }
     } & { [tableName: string]: MinTableShape }
-    // No views in this schema. Must still satisfy Record<string, GenericView>
-    // (required by GenericSchema). MinViewShape is compatible with all table types
-    // so the intersection in TablesAndViews<Schema> = Tables & Views does not
-    // collapse any table type to never.
-    Views: { [viewName: string]: MinViewShape }
+    // No views in this schema.
+    // supabase CLI generates `{ [_ in never]: never }` for empty views. This is
+    // NOT the same as `{}` or `Record<never, never>` — as a mapped type it satisfies
+    // the GenericSchema `Views: Record<string, GenericView>` constraint vacuously,
+    // while `Tables & { [_ in never]: never }` = `Tables` (identity intersection),
+    // so the table types are preserved unchanged.
+    Views: { [_ in never]: never }
     Functions: {
       match_transcript_chunks: {
         Args: {
