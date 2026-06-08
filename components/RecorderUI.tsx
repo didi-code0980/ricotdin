@@ -1,8 +1,11 @@
 'use client'
 
 import type { CSSProperties } from 'react'
+import Link from 'next/link'
+import { useRef } from 'react'
 import { useRecorder } from '@/lib/audio/useRecorder'
 import { checkRecordingSupport } from '@/lib/audio/support'
+import { useUpload } from '@/lib/upload/useUpload'
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60).toString().padStart(2, '0')
@@ -26,6 +29,9 @@ export default function RecorderUI() {
   } = useRecorder()
 
   const { missingCapabilities } = checkRecordingSupport()
+  const { state: uploadState, meetingId, error: uploadError, upload, reset: resetUpload } = useUpload()
+  // Capture startedAt when recording begins so we pass the right timestamp
+  const startedAtRef = useRef<string | null>(null)
 
   // ── Unsupported browser ────────────────────────────────────────────────
   if (!supported) {
@@ -56,7 +62,13 @@ export default function RecorderUI() {
       {/* ── Controls ──────────────────────────────────────────────────── */}
       <div style={S.row}>
         {state === 'idle' && (
-          <button style={S.btnGreen} onClick={() => void start()}>
+          <button
+            style={S.btnGreen}
+            onClick={() => {
+              startedAtRef.current = new Date().toISOString()
+              void start()
+            }}
+          >
             ● Start
           </button>
         )}
@@ -71,7 +83,14 @@ export default function RecorderUI() {
         )}
 
         {(state === 'stopped' || state === 'error') && (
-          <button style={S.btnGrey} onClick={reset}>
+          <button
+            style={S.btnGrey}
+            onClick={() => {
+              reset()
+              resetUpload()
+              startedAtRef.current = null
+            }}
+          >
             ↺ Reset
           </button>
         )}
@@ -110,6 +129,53 @@ export default function RecorderUI() {
               </span>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ── Save recording ───────────────────────────────────────────── */}
+      {state === 'stopped' && blob && (
+        <div style={{ marginTop: 16, borderTop: '1px solid #eee', paddingTop: 16 }}>
+          {uploadState === 'idle' && (
+            <button
+              style={S.btnBlue}
+              onClick={() => {
+                void upload(blob, {
+                  durationSeconds: elapsedSeconds,
+                  startedAt: startedAtRef.current ?? new Date().toISOString(),
+                  mimeType: mimeType ?? undefined,
+                })
+              }}
+            >
+              ↑ Save recording
+            </button>
+          )}
+
+          {uploadState === 'uploading' && (
+            <p style={{ color: '#555', fontSize: 14, margin: 0 }}>
+              Uploading… please wait
+            </p>
+          )}
+
+          {uploadState === 'error' && (
+            <div style={S.err}>
+              ✗ {uploadError}
+              <button
+                style={{ ...S.btnGrey, marginLeft: 12, fontSize: 13, padding: '5px 14px' }}
+                onClick={resetUpload}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {uploadState === 'done' && meetingId && (
+            <div style={S.success}>
+              ✓ Saved!{' '}
+              <Link href="/meetings" style={S.link}>
+                View all meetings →
+              </Link>
+            </div>
+          )}
         </div>
       )}
 
@@ -205,6 +271,24 @@ const S: Record<string, CSSProperties> = {
     padding: '10px 14px',
     marginBottom: 12,
     color: '#b00020',
+    fontSize: 14,
+  },
+  btnBlue: {
+    padding: '9px 22px',
+    background: '#0066cc',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 6,
+    cursor: 'pointer',
+    fontSize: 15,
+    fontWeight: 600,
+  },
+  success: {
+    background: '#f0fff4',
+    border: '1px solid #2da44e',
+    borderRadius: 6,
+    padding: '10px 14px',
+    color: '#1a7f37',
     fontSize: 14,
   },
   link: {

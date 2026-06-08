@@ -103,70 +103,156 @@ export interface ChatMessage {
 // createClient<Database>() gives column-level type inference on all queries.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// supabase-js v2 generic type compatibility notes
+//
+// supabase-js v2 checks `Database['public'] extends GenericSchema` where:
+//   GenericSchema = { Tables: Record<string, GenericTable>; Views: Record<string, GenericView>; Functions: ... }
+//
+// Problem: TypeScript's conditional-type `extends` check does NOT treat a
+// named-property object type (e.g. `{ meetings: X }`) as satisfying
+// `Record<string, GenericTable>`, even if each named property extends GenericTable.
+// The check requires an explicit index signature.
+//
+// Fix: intersect the named Tables object with an index-signature type whose value
+// type is compatible with (i.e. not narrower than) our specific table shapes.
+// This preserves the per-table named types for IDE autocomplete while letting the
+// generic constraint pass. Same treatment for Views.
+// ---------------------------------------------------------------------------
+
+// Minimum shape required by supabase-js GenericTable constraint.
+// All our table types already have these fields, so the intersection is a no-op.
+type NoRelationships = never[]
+type MinTableShape = {
+  Row: Record<string, unknown>
+  Insert: Record<string, unknown>
+  Update: Record<string, unknown>
+  Relationships: NoRelationships
+}
+// Minimum shape required by supabase-js GenericView constraint.
+type MinViewShape = { Row: Record<string, unknown>; Relationships: NoRelationships }
+
 export interface Database {
   public: {
+    // Intersection with `{ [k: string]: MinTableShape }` adds the index signature that
+    // supabase-js needs to satisfy `Record<string, GenericTable>`.
     Tables: {
       meetings: {
         Row: Meeting
-        Insert: Omit<Meeting, 'id' | 'created_at' | 'updated_at'> & {
+        // Nullable DB columns omit correctly — required only: user_id.
+        // title/status have DB defaults so are optional here.
+        Insert: {
           id?: string
+          user_id: string
+          title?: string
+          status?: MeetingStatus
+          audio_path?: string | null
+          duration_seconds?: number | null
+          language?: string | null
+          summary?: string | null
+          notes?: string | null
+          error_message?: string | null
+          started_at?: string | null
           created_at?: string
           updated_at?: string
         }
         Update: Partial<Meeting>
+        Relationships: NoRelationships
       }
       transcript_segments: {
         Row: TranscriptSegment
-        Insert: Omit<TranscriptSegment, 'id' | 'created_at'> & {
+        Insert: {
           id?: string
+          meeting_id: string
+          segment_index: number
+          speaker?: string | null
+          start_ms: number
+          end_ms: number
+          text: string
           created_at?: string
         }
         Update: Partial<TranscriptSegment>
+        Relationships: NoRelationships
       }
       transcript_chunks: {
         Row: TranscriptChunk
-        Insert: Omit<TranscriptChunk, 'id' | 'created_at'> & {
+        Insert: {
           id?: string
+          meeting_id: string
+          chunk_index: number
+          content: string
+          embedding: number[]
+          start_ms?: number | null
+          end_ms?: number | null
+          token_count?: number | null
           created_at?: string
         }
         Update: Partial<TranscriptChunk>
+        Relationships: NoRelationships
       }
       todos: {
         Row: Todo
-        Insert: Omit<Todo, 'id' | 'created_at' | 'updated_at'> & {
+        Insert: {
           id?: string
+          meeting_id: string
+          content: string
+          assignee?: string | null
+          due_date?: string | null
+          status?: TodoStatus
+          source_segment_id?: string | null
           created_at?: string
           updated_at?: string
         }
         Update: Partial<Todo>
+        Relationships: NoRelationships
       }
       calendar_suggestions: {
         Row: CalendarSuggestion
-        Insert: Omit<CalendarSuggestion, 'id' | 'created_at'> & {
+        Insert: {
           id?: string
+          meeting_id: string
+          title: string
+          proposed_at?: string | null
+          raw_mention?: string | null
+          source_segment_id?: string | null
+          dismissed?: boolean
           created_at?: string
         }
         Update: Partial<CalendarSuggestion>
+        Relationships: NoRelationships
       }
       chat_sessions: {
         Row: ChatSession
-        Insert: Omit<ChatSession, 'id' | 'created_at' | 'updated_at'> & {
+        Insert: {
           id?: string
+          user_id: string
+          meeting_id?: string | null
+          title?: string | null
           created_at?: string
           updated_at?: string
         }
         Update: Partial<ChatSession>
+        Relationships: NoRelationships
       }
       chat_messages: {
         Row: ChatMessage
-        Insert: Omit<ChatMessage, 'id' | 'created_at'> & {
+        Insert: {
           id?: string
+          session_id: string
+          role: ChatRole
+          content: string
+          citations?: Citation[]
           created_at?: string
         }
         Update: Partial<ChatMessage>
+        Relationships: NoRelationships
       }
-    }
-    Views: Record<string, never>
+    } & { [tableName: string]: MinTableShape }
+    // No views in this schema. Must still satisfy Record<string, GenericView>
+    // (required by GenericSchema). MinViewShape is compatible with all table types
+    // so the intersection in TablesAndViews<Schema> = Tables & Views does not
+    // collapse any table type to never.
+    Views: { [viewName: string]: MinViewShape }
     Functions: {
       match_transcript_chunks: {
         Args: {
