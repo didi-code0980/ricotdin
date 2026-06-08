@@ -141,7 +141,7 @@ npm run test       # run tests (not yet configured)
 ## 11. Build order (current plan)
 
 0. ~~Setup: scaffold Next.js+TS, apply `schema.sql`, verify Supabase + Gemini connectivity.~~ **DONE** (Phase 0 complete — `npm run dev` serves placeholder; `npm run check` verifies both credentials)
-1. **Recording** (highest technical risk — validate audio capture first).
+1. ~~**Recording** (highest technical risk — validate audio capture first).~~ **DONE** (Phase 1 complete — `/record` page; mic + display audio mixed via Web Audio API; `useRecorder` hook; unsupported-browser + no-system-audio warnings; Chrome/Edge only)
 2. Upload + storage (presigned URL, `meetings` row).
 3. **Processing pipeline** (Gemini service layer, JSON output, chunking, retry, embeddings).
 4. Results UI (summary / note / transcript / todos).
