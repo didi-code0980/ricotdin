@@ -16,6 +16,21 @@ dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') })
 import { generateText } from '../lib/gemini/client.js'
 import { createServerClient } from '../lib/supabase/server.js'
 
+function checkRequiredEnv(): boolean {
+  const required = [
+    'GEMINI_API_KEY',
+    'NEXT_PUBLIC_SUPABASE_URL',
+    'SUPABASE_SERVICE_ROLE_KEY',
+  ]
+  const missing = required.filter((k) => !process.env[k])
+  if (missing.length > 0) {
+    console.error('\n✗ Missing env vars:', missing.join(', '))
+    console.error('  → Fill them in .env.local (use .env.example as the template)')
+    return false
+  }
+  return true
+}
+
 async function checkGemini(): Promise<void> {
   console.log('\n--- Gemini ---')
   try {
@@ -54,7 +69,13 @@ async function checkSupabase(): Promise<void> {
   }
 }
 
-console.log('Running connectivity checks…')
-await checkGemini()
-await checkSupabase()
-console.log('\nDone.')
+void (async () => {
+  console.log('Running connectivity checks…')
+  if (!checkRequiredEnv()) {
+    process.exitCode = 1
+    return
+  }
+  await checkGemini()
+  await checkSupabase()
+  console.log('\nDone.')
+})()
