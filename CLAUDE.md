@@ -126,6 +126,34 @@ npm run check      # connectivity check: Gemini + Supabase (reads .env.local)
 npm run test       # run tests (not yet configured)
 ```
 
+## 9a. Manual Supabase dashboard actions required
+
+Before Phase 2 features work end-to-end, you must do the following once in the
+Supabase dashboard:
+
+1. **Create a private Storage bucket named `recordings`**
+   - Dashboard → Storage → New bucket → Name: `recordings` → uncheck "Public bucket" → Save
+   - The server route checks for this bucket on every upload and returns 503 with a
+     clear message if it is missing.
+
+2. **Enable Anonymous sign-ins**
+   - Dashboard → Authentication → Providers → Anonymous sign-ins → Enable
+   - This is TEMPORARY; Phase 7 replaces it with real login (email/password or OAuth).
+   - The anonymous session provides a real `auth.uid()` so RLS policies work correctly.
+
+## 9b. Anonymous auth — TEMPORARY note
+
+The app currently uses Supabase's anonymous sign-in (`supabase.auth.signInAnonymously()`)
+to give each browser session a real `auth.uid()`. This is initialized in
+`components/AuthBootstrap.tsx` (mounted in root layout) and in
+`lib/supabase/auth.ts` (`ensureAnonymousSession()`).
+
+**This is intentional and temporary.** Phase 7 replaces it with real auth
+(email/password or OAuth). Until then:
+- Keep `SUPABASE_SERVICE_ROLE_KEY` server-only; anonymous JWTs only flow to/from
+  the browser client and the `/api` route handlers that validate them via the anon key.
+- Do not remove anonymous sign-in until Phase 7 is complete.
+
 ## 10. Working agreement (how to collaborate with me)
 
 - Work in **small increments**, one clear goal per change, each with a concrete
@@ -142,7 +170,7 @@ npm run test       # run tests (not yet configured)
 
 0. ~~Setup: scaffold Next.js+TS, apply `schema.sql`, verify Supabase + Gemini connectivity.~~ **DONE** (Phase 0 complete — `npm run dev` serves placeholder; `npm run check` verifies both credentials)
 1. ~~**Recording** (highest technical risk — validate audio capture first).~~ **DONE** (Phase 1 complete — `/record` page; mic + display audio mixed via Web Audio API; `useRecorder` hook; unsupported-browser + no-system-audio warnings; Chrome/Edge only)
-2. Upload + storage (presigned URL, `meetings` row).
+2. ~~**Upload + storage** (presigned URL, `meetings` row).~~ **DONE** (Phase 2 complete — anonymous auth bootstrap; server routes POST /api/meetings + POST /api/meetings/:id/uploaded; direct browser→Storage upload via signed URL; meeting list `/meetings`; placeholder detail `/meetings/[id]`. Requires dashboard: create `recordings` bucket + enable Anonymous sign-ins — see section 9a.)
 3. **Processing pipeline** (Gemini service layer, JSON output, chunking, retry, embeddings).
 4. Results UI (summary / note / transcript / todos).
 5. RAG chatbot (RPC search + grounded answers with citations).
