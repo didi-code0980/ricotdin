@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { createClient } from '@supabase/supabase-js'
+import { processMeeting } from '@/lib/pipeline/processMeeting'
 import type { Database } from '@/types/database'
 
 const BUCKET = 'recordings'
@@ -86,6 +87,11 @@ export async function POST(
     }
   }
 
-  // Meeting stays at status='pending'. Phase 3 will set it to 'processing'/'done'/'failed'.
+  // Auto-trigger the processing pipeline (fire and forget).
+  // processMeeting() is idempotent — if already processing/done it exits early.
+  void processMeeting(meetingId).catch((err: unknown) => {
+    console.error('[uploaded] processMeeting fire-and-forget error:', err)
+  })
+
   return NextResponse.json({ ok: true, meetingId })
 }

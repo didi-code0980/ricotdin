@@ -2,24 +2,29 @@
 
 import type { CSSProperties } from 'react'
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { browserClient } from '@/lib/supabase/browser'
 import { ensureAnonymousSession } from '@/lib/supabase/auth'
-import type { Meeting } from '@/types/database'
+import type { Meeting, MeetingStatus } from '@/types/database'
 
 type LoadState = 'loading' | 'ready' | 'error'
+
+// Poll while any meeting is in an in-flight state
+const POLL_INTERVAL_MS = 3_000
+const IN_FLIGHT: MeetingStatus[] = ['pending', 'processing']
 
 export default function MeetingsPage() {
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [error, setError] = useState<string | null>(null)
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     let cancelled = false
 
-    async function load() {
+    async function load(silent = false) {
       try {
-        await ensureAnonymousSession()
+        if (!silent) await ensureAnonymousSession()
         const { data, error: dbError } = await browserClient
           .from('meetings')
           .select('*')
@@ -27,8 +32,15 @@ export default function MeetingsPage() {
 
         if (cancelled) return
         if (dbError) throw new Error(dbError.message)
-        setMeetings((data as Meeting[]) ?? [])
+        const rows = (data as Meeting[]) ?? []
+        setMeetings(rows)
         setLoadState('ready')
+
+        // Schedule next poll if any meeting is still in-flight
+        const hasInFlight = rows.some((m) => IN_FLIGHT.includes(m.status))
+        if (hasInFlight) {
+          pollRef.current = setTimeout(() => { void load(true) }, POLL_INTERVAL_MS)
+        }
       } catch (err) {
         if (cancelled) return
         setError(err instanceof Error ? err.message : 'Failed to load meetings.')
@@ -37,7 +49,10 @@ export default function MeetingsPage() {
     }
 
     void load()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      if (pollRef.current) clearTimeout(pollRef.current)
+    }
   }, [])
 
   return (

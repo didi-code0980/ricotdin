@@ -12,13 +12,19 @@ export const GEMINI_MODEL = 'gemini-2.5-flash' as const
 export const GEMINI_EMBEDDING_MODEL = 'gemini-embedding-001' as const
 export const EMBEDDING_DIMENSION = 768 as const
 
-function getClient(): GoogleGenAI {
+// Exported so that other modules in /lib/gemini/ can obtain a configured client
+// without importing @google/genai directly.  Nothing outside /lib/gemini/ should
+// import the SDK — use the service functions (transcribeAudio, embedChunks, …).
+export function getAIClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY is not set. Add it to .env.local (server only).')
   }
   return new GoogleGenAI({ apiKey })
 }
+
+// Keep the private alias for the existing generateText helper below.
+const getClient = getAIClient
 
 /**
  * Send a plain text prompt to Gemini and return the text response.

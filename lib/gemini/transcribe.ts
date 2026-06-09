@@ -1,0 +1,174 @@
+// SERVER ONLY — reads GEMINI_API_KEY. Import only from /app/api or server /lib.
+//
+// Step A of the pipeline: upload audio via the Gemini Files API, call Flash in
+// JSON mode for full-meeting transcription with speaker diarization, validate
+// the result with Zod, delete the uploaded file, and return TranscriptResult.
+
+import { Type, type Schema, type Part } from '@google/genai'
+import { getAIClient, GEMINI_MODEL } from './client'
+import { retryWithBackoff } from './retry'
+import { PipelineError } from './errors'
+import {
+  GeminiTranscriptSchema,
+  type TranscriptResult,
+} from '@/types/pipeline'
+
+// ---------------------------------------------------------------------------
+// Gemini response schema (JSON Schema passed to the API)
+// ---------------------------------------------------------------------------
+
+const TRANSCRIPT_RESPONSE_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    language: { type: Type.STRING, description: 'BCP-47 language code, e.g. "en" or "vi"' },
+    segments: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          speaker: { type: Type.STRING, description: 'Speaker label, e.g. "Speaker 1"' },
+          start_s: { type: Type.NUMBER, description: 'Segment start time in seconds' },
+          end_s: { type: Type.NUMBER, description: 'Segment end time in seconds' },
+          text: { type: Type.STRING, description: 'Verbatim transcript text' },
+        },
+        required: ['speaker', 'start_s', 'end_s', 'text'],
+      },
+    },
+  },
+  required: ['language', 'segments'],
+}
+
+// ---------------------------------------------------------------------------
+// Prompt
+// ---------------------------------------------------------------------------
+
+const TRANSCRIBE_PROMPT = `Transcribe this meeting audio in full detail.
+
+For each segment of speech:
+- Identify each distinct speaker as "Speaker 1", "Speaker 2", etc. (speaker diarization)
+- Provide start and end timestamps in seconds as decimal numbers (e.g. 12.5)
+- Transcribe the text verbatim — do not paraphrase or summarize
+
+The "language" field should be the BCP-47 primary language code (e.g. "en", "vi", "fr").
+Include ALL speech in the recording — skip nothing.
+
+Note: timestamps are approximate estimates. Provide them even when uncertain.`
+
+const TRANSCRIBE_PROMPT_STRICT = TRANSCRIBE_PROMPT +
+  '\n\nReturn ONLY valid JSON. No markdown, no code fences, no explanation.'
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function stripFences(raw: string): string {
+  return raw
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim()
+}
+
+function parseResult(raw: string): TranscriptResult {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(stripFences(raw))
+  } catch {
+    throw new PipelineError(
+      `Gemini transcript: JSON.parse failed. First 300 chars: ${raw.slice(0, 300)}`,
+    )
+  }
+
+  const result = GeminiTranscriptSchema.safeParse(parsed)
+  if (!result.success) {
+    throw new PipelineError(
+      `Gemini transcript: schema validation failed: ${result.error.message}`,
+    )
+  }
+
+  const { language, segments } = result.data
+  return {
+    language,
+    // Convert seconds → ms. Gemini timestamps are approximate; treat gracefully.
+    segments: segments.map((s) => ({
+      speaker: s.speaker || 'Speaker',
+      start_ms: Math.round(s.start_s * 1000),
+      end_ms: Math.round(s.end_s * 1000),
+      text: s.text,
+    })),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Upload `audioPath` to the Gemini Files API, transcribe with speaker labels
+ * and timestamps, validate, then delete the remote file.
+ *
+ * @param audioPath  Absolute path to the audio file on disk.
+ * @param mimeType   MIME type of the audio (defaults to 'audio/webm').
+ */
+export async function transcribeAudio(
+  audioPath: string,
+  mimeType = 'audio/webm',
+): Promise<TranscriptResult> {
+  const ai = getAIClient()
+
+  // 1. Upload to Gemini Files API (temporary staging, ~48h retention)
+  console.log(`[transcribe] uploading ${audioPath} (${mimeType})`)
+  const geminiFile = await retryWithBackoff(() =>
+    ai.files.upload({
+      file: audioPath,
+      config: { mimeType, displayName: 'meeting-audio' },
+    }),
+  )
+
+  if (!geminiFile.uri) {
+    throw new PipelineError('Gemini file upload succeeded but returned no URI')
+  }
+
+  const filePart: Part = {
+    fileData: { fileUri: geminiFile.uri, mimeType: geminiFile.mimeType ?? mimeType },
+  }
+
+  try {
+    // 2. First transcription attempt
+    console.log('[transcribe] calling Gemini Flash for transcription')
+    const response = await retryWithBackoff(() =>
+      ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: [filePart, { text: TRANSCRIBE_PROMPT }],
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: TRANSCRIPT_RESPONSE_SCHEMA,
+        },
+      }),
+    )
+
+    try {
+      return parseResult(response.text ?? '')
+    } catch (parseErr) {
+      // 3. Retry once with a stricter prompt if parsing failed
+      console.warn('[transcribe] first parse failed; retrying with strict prompt:', parseErr)
+      const response2 = await retryWithBackoff(() =>
+        ai.models.generateContent({
+          model: GEMINI_MODEL,
+          contents: [filePart, { text: TRANSCRIBE_PROMPT_STRICT }],
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: TRANSCRIPT_RESPONSE_SCHEMA,
+          },
+        }),
+      )
+      return parseResult(response2.text ?? '')
+    }
+  } finally {
+    // 4. Delete the uploaded file. It auto-expires in ~48h, but be proactive.
+    if (geminiFile.name) {
+      ai.files.delete({ name: geminiFile.name }).catch((err: unknown) => {
+        console.warn('[transcribe] failed to delete Gemini file:', err)
+      })
+    }
+  }
+}
