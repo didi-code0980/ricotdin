@@ -19,24 +19,9 @@ import { analyzeTranscript } from '@/lib/gemini/analyze'
 import { embedChunks } from '@/lib/gemini/embed'
 import { chunkSegments } from './chunk'
 import { transcribeWithChunking } from './audioChunk'
+import { assertTranscriptHasSpeech, assertAnalysisHasContent } from './guards'
 
 const BUCKET = 'recordings'
-
-// Infer audio MIME type from storage path extension.
-function mimeTypeFromPath(path: string): string {
-  const ext = extname(path).toLowerCase()
-  const map: Record<string, string> = {
-    '.webm': 'audio/webm',
-    '.mp4': 'audio/mp4',
-    '.ogg': 'audio/ogg',
-    '.wav': 'audio/wav',
-    '.mp3': 'audio/mpeg',
-    '.m4a': 'audio/mp4',
-    '.flac': 'audio/flac',
-    '.aac': 'audio/aac',
-  }
-  return map[ext] ?? 'audio/webm'
-}
 
 /**
  * Process a meeting end-to-end:
@@ -85,7 +70,8 @@ export async function processMeeting(meetingId: string): Promise<void> {
       throw new Error(`Storage download failed: ${dlError?.message ?? 'no data'}`)
     }
 
-    // Write to a temp file so the Gemini Files API can read it from disk
+    // Write to a temp file so the ffmpeg transcode can read it from disk.
+    // The extension is preserved so ffmpeg can auto-detect the input format.
     const ext = extname(audioPath) || '.webm'
     tmpAudioPath = join(tmpdir(), `meeting-${randomUUID()}${ext}`)
     const audioBuffer = Buffer.from(await audioBlob.arrayBuffer())
@@ -93,21 +79,22 @@ export async function processMeeting(meetingId: string): Promise<void> {
     console.log(`[pipeline] ${meetingId}: audio written to ${tmpAudioPath} (${audioBuffer.length} bytes)`)
 
     // ── Step A: Transcription ─────────────────────────────────────────────
-    // Uses chunked transcription for long recordings (>28 min); single-file
-    // path for short ones. chunkDir holds ffmpeg output (cleaned up in finally).
-    const mimeType = mimeTypeFromPath(audioPath)
+    // transcribeWithChunking handles:
+    //   - webm→mp3 transcode (required: Gemini does not support WebM)
+    //   - long-audio splitting when duration > 28 min
+    // chunkDir holds all ffmpeg output and is cleaned up in the finally block.
     const durationSecs = claimed.duration_seconds ?? 0
     chunkDir = join(tmpdir(), `meeting-${meetingId}-chunks`)
-    const transcript = await transcribeWithChunking(
-      tmpAudioPath,
-      mimeType,
-      durationSecs,
-      chunkDir,
-    )
+    const transcript = await transcribeWithChunking(tmpAudioPath, durationSecs, chunkDir)
     console.log(
       `[pipeline] ${meetingId}: transcript done — ` +
         `${transcript.segments.length} segments, language=${transcript.language}`,
     )
+
+    // Guard: reject empty transcripts immediately rather than marking 'done'
+    // with zero content. Gemini returns an empty result when it cannot decode
+    // the audio (e.g. unsupported format, silent file, API error).
+    assertTranscriptHasSpeech(transcript)
 
     // Insert transcript_segments and build segment-index → row-id map
     const segmentRows = transcript.segments.map((s, idx) => ({
@@ -143,6 +130,10 @@ export async function processMeeting(meetingId: string): Promise<void> {
       `[pipeline] ${meetingId}: analysis done — ` +
         `${analysis.todos.length} todos, ${analysis.calendar_suggestions.length} calendar suggestions`,
     )
+
+    // Guard: reject if Gemini returned neither summary nor notes. This catches
+    // API failures that produce a structurally valid but semantically empty result.
+    assertAnalysisHasContent(analysis)
 
     // Update summary + notes on the meetings row
     await db
@@ -217,7 +208,9 @@ export async function processMeeting(meetingId: string): Promise<void> {
       .eq('id', meetingId)
     throw err
   } finally {
-    // Clean up temp files regardless of success/failure
+    // Clean up temp files regardless of success/failure.
+    // tmpAudioPath: the downloaded source file (e.g. .webm)
+    // chunkDir: all ffmpeg output (transcoded mp3 + any chunk files)
     if (tmpAudioPath) {
       unlink(tmpAudioPath).catch((e: unknown) => {
         console.warn('[pipeline] failed to delete temp audio file:', e)
