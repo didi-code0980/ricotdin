@@ -9,16 +9,16 @@
 // server (npm start). If the server restarts mid-job, the meeting is left in
 // status='processing'; trigger a re-run manually via POST /api/meetings/:id/process.
 
-import { writeFile, unlink } from 'node:fs/promises'
+import { writeFile, unlink, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, extname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
 import { createServerClient } from '@/lib/supabase/server'
-import { transcribeAudio } from '@/lib/gemini/transcribe'
 import { analyzeTranscript } from '@/lib/gemini/analyze'
 import { embedChunks } from '@/lib/gemini/embed'
 import { chunkSegments } from './chunk'
+import { transcribeWithChunking } from './audioChunk'
 
 const BUCKET = 'recordings'
 
@@ -67,6 +67,7 @@ export async function processMeeting(meetingId: string): Promise<void> {
 
   console.log(`[pipeline] ${meetingId}: starting processing`)
   let tmpAudioPath: string | null = null
+  let chunkDir: string | null = null
 
   try {
     // ── Download audio from Supabase Storage ──────────────────────────────
@@ -92,8 +93,17 @@ export async function processMeeting(meetingId: string): Promise<void> {
     console.log(`[pipeline] ${meetingId}: audio written to ${tmpAudioPath} (${audioBuffer.length} bytes)`)
 
     // ── Step A: Transcription ─────────────────────────────────────────────
+    // Uses chunked transcription for long recordings (>28 min); single-file
+    // path for short ones. chunkDir holds ffmpeg output (cleaned up in finally).
     const mimeType = mimeTypeFromPath(audioPath)
-    const transcript = await transcribeAudio(tmpAudioPath, mimeType)
+    const durationSecs = claimed.duration_seconds ?? 0
+    chunkDir = join(tmpdir(), `meeting-${meetingId}-chunks`)
+    const transcript = await transcribeWithChunking(
+      tmpAudioPath,
+      mimeType,
+      durationSecs,
+      chunkDir,
+    )
     console.log(
       `[pipeline] ${meetingId}: transcript done — ` +
         `${transcript.segments.length} segments, language=${transcript.language}`,
@@ -207,10 +217,15 @@ export async function processMeeting(meetingId: string): Promise<void> {
       .eq('id', meetingId)
     throw err
   } finally {
-    // Clean up the local temp audio file regardless of success/failure
+    // Clean up temp files regardless of success/failure
     if (tmpAudioPath) {
       unlink(tmpAudioPath).catch((e: unknown) => {
-        console.warn('[pipeline] failed to delete temp file:', e)
+        console.warn('[pipeline] failed to delete temp audio file:', e)
+      })
+    }
+    if (chunkDir) {
+      rm(chunkDir, { recursive: true, force: true }).catch((e: unknown) => {
+        console.warn('[pipeline] failed to delete chunk dir:', e)
       })
     }
   }
