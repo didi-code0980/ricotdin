@@ -91,6 +91,10 @@ function parseResult(raw: string): TranscriptResult {
   }
 
   const { language, segments } = result.data
+  console.log(`[transcribe] parsed: language=${language}, segments=${segments.length}`)
+  if (segments.length === 0) {
+    console.warn('[transcribe] Gemini returned 0 segments — audio may be silent, too short, or in an unsupported codec')
+  }
   return {
     language,
     // Convert seconds → ms. Gemini timestamps are approximate; treat gracefully.

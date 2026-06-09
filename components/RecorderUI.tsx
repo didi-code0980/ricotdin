@@ -2,7 +2,7 @@
 
 import type { CSSProperties } from 'react'
 import Link from 'next/link'
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRecorder } from '@/lib/audio/useRecorder'
 import { checkRecordingSupport } from '@/lib/audio/support'
 import { useUpload } from '@/lib/upload/useUpload'
@@ -28,7 +28,8 @@ export default function RecorderUI() {
     reset,
   } = useRecorder()
 
-  const { missingCapabilities } = checkRecordingSupport()
+  const [missingCapabilities, setMissingCapabilities] = useState<string[]>([])
+  useEffect(() => { setMissingCapabilities(checkRecordingSupport().missingCapabilities) }, [])
   const { state: uploadState, meetingId, error: uploadError, upload, reset: resetUpload } = useUpload()
   // Capture startedAt when recording begins so we pass the right timestamp
   const startedAtRef = useRef<string | null>(null)

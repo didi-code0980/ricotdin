@@ -1,26 +1,17 @@
 'use client'
 
-// dynamic({ ssr: false }) ensures RecorderUI and all its browser-API calls
-// (window.MediaRecorder, AudioContext, etc.) are only evaluated in the browser.
-// This avoids hydration mismatches; 'use client' here is required for ssr:false.
-import dynamic from 'next/dynamic'
-
-const RecorderUI = dynamic(() => import('@/components/RecorderUI'), {
-  ssr: false,
-  loading: () => (
-    <p
-      style={{
-        fontFamily: 'system-ui, sans-serif',
-        textAlign: 'center',
-        color: '#888',
-      }}
-    >
-      Loading recorder…
-    </p>
-  ),
-})
+// RecorderUI is imported synchronously so it goes into this page's bundle —
+// no second network request, no dynamic chunk that a reverse proxy can silently drop.
+// Client-only rendering is gated by `mounted` (useEffect fires only in the browser).
+// The SSR guards in support.ts + useEffect pattern in useRecorder prevent any
+// window/navigator access on the server.
+import { useEffect, useState } from 'react'
+import RecorderUI from '@/components/RecorderUI'
 
 export default function RecordPage() {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+
   return (
     <main
       style={{
@@ -46,7 +37,19 @@ export default function RecordPage() {
         into a single file · check the browser console for{' '}
         <code>[Recorder]</code> logs
       </p>
-      <RecorderUI />
+      {mounted ? (
+        <RecorderUI />
+      ) : (
+        <p
+          style={{
+            fontFamily: 'system-ui, sans-serif',
+            textAlign: 'center',
+            color: '#888',
+          }}
+        >
+          Loading recorder…
+        </p>
+      )}
     </main>
   )
 }

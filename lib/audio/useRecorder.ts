@@ -47,7 +47,11 @@ export function useRecorder(): UseRecorderReturn {
   // without relying on a potentially stale state closure.
   const objectUrlRef = useRef<string | null>(null)
 
-  const supported = isRecordingSupported()
+  // useEffect: guaranteed to run only in the browser, never during SSR.
+  // Initial false matches the server render (support.ts guards return false on server),
+  // so there is no hydration mismatch. The effect fires after mount and sets the real value.
+  const [supported, setSupported] = useState(false)
+  useEffect(() => { setSupported(isRecordingSupported()) }, [])
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 

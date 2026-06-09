@@ -1,13 +1,17 @@
-// Long-audio transcoding and chunking for Gemini.
+// Audio transcoding and chunking for Gemini.
 //
-// Gemini's audio understanding does NOT support WebM. All audio is transcoded
-// to mp3 (mono, 16kHz, 64kbps) via ffmpeg before upload — either as a single
-// file (short recordings) or as segmented mp3 chunks in one ffmpeg pass (long
-// recordings). Both paths decode the source exactly once; no double-decode.
+// Gemini natively supports audio/webm (and mp4, wav, ogg, flac, etc.), so
+// ffmpeg is OPTIONAL for short recordings. When available, we transcode to
+// mp3 (mono 16kHz 64kbps) because it's smaller — useful for large files and
+// free-tier quota. When ffmpeg is absent, the original webm is sent directly.
+//
+// For long recordings (> 28 min) ffmpeg IS required: Gemini has a per-request
+// audio limit and the file must be split into chunks before uploading.
 //
 // The tmpDir passed by processMeeting owns all intermediate files; the caller's
 // finally block cleans the whole directory after processing.
 
+import { extname } from 'node:path'
 import { transcribeAudio } from '@/lib/gemini/transcribe'
 import { isFfmpegAvailable, transcodeForGemini, transcodeAndChunk } from '@/lib/audio/transcode'
 import { PipelineError } from '@/lib/gemini/errors'
@@ -20,12 +24,29 @@ const LONG_AUDIO_THRESHOLD_SECS = 28 * 60
 // Each chunk is ~25 minutes — headroom for encoding variances.
 const CHUNK_DURATION_SECS = 25 * 60
 
+function mimeTypeFromPath(path: string): string {
+  const ext = extname(path).toLowerCase()
+  const map: Record<string, string> = {
+    '.webm': 'audio/webm',
+    '.mp4': 'audio/mp4',
+    '.ogg': 'audio/ogg',
+    '.wav': 'audio/wav',
+    '.mp3': 'audio/mpeg',
+    '.m4a': 'audio/mp4',
+    '.flac': 'audio/flac',
+    '.aac': 'audio/aac',
+  }
+  return map[ext] ?? 'audio/webm'
+}
+
 /**
  * Transcribe the audio at `audioPath` (any format, typically .webm from the browser).
  *
- * • Short recordings (≤ 28 min): transcode webm→mp3, single Gemini call.
- * • Long recordings (> 28 min): transcode + split in one ffmpeg pass, transcribe
- *   each mp3 chunk, stitch segments back together with corrected time offsets.
+ * • Short recordings (≤ 28 min): transcode to mp3 if ffmpeg is available
+ *   (smaller upload); otherwise send the original file directly — Gemini
+ *   supports audio/webm natively.
+ * • Long recordings (> 28 min): requires ffmpeg. Transcode + split in one
+ *   pass, transcribe each chunk, stitch segments with corrected time offsets.
  *
  * @param audioPath       Absolute path to the source audio file (e.g. .webm).
  * @param durationSeconds Known duration in seconds (0 = unknown → short path).
@@ -37,11 +58,18 @@ export async function transcribeWithChunking(
   tmpDir: string,
 ): Promise<TranscriptResult> {
   if (durationSeconds <= LONG_AUDIO_THRESHOLD_SECS) {
+    if (await isFfmpegAvailable()) {
+      console.log(
+        `[audioChunk] duration ${Math.round(durationSeconds / 60)}m — transcoding to mp3`,
+      )
+      const mp3Path = await transcodeForGemini(audioPath, tmpDir)
+      return transcribeAudio(mp3Path, 'audio/mp3')
+    }
+    const mimeType = mimeTypeFromPath(audioPath)
     console.log(
-      `[audioChunk] duration ${Math.round(durationSeconds / 60)}m — transcoding webm→mp3`,
+      `[audioChunk] duration ${Math.round(durationSeconds / 60)}m — sending ${mimeType} directly (ffmpeg not installed)`,
     )
-    const mp3Path = await transcodeForGemini(audioPath, tmpDir)
-    return transcribeAudio(mp3Path, 'audio/mp3')
+    return transcribeAudio(audioPath, mimeType)
   }
 
   console.log(
@@ -52,7 +80,7 @@ export async function transcribeWithChunking(
     throw new PipelineError(
       `Recording is ${Math.round(durationSeconds / 60)} minutes, which exceeds the ` +
         `30-minute per-request limit for Gemini audio. ` +
-        `Install ffmpeg to enable automatic splitting and transcoding of long recordings. ` +
+        `Install ffmpeg to enable automatic splitting of long recordings. ` +
         `(ffmpeg was not found in PATH)`,
     )
   }
@@ -81,9 +109,6 @@ export async function transcribeWithChunking(
       })
     }
 
-    // Timestamps within each chunk are relative to its start. Offset the next
-    // chunk by one configured chunk duration. This is an approximation but
-    // Gemini timestamps are already approximate, so it's fine for MVP.
     offsetMs += CHUNK_DURATION_SECS * 1_000
   }
 

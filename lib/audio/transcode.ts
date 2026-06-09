@@ -1,13 +1,12 @@
 // SERVER ONLY — ffmpeg helpers for audio transcoding and segmentation.
 //
-// Gemini's audio understanding does NOT support WebM (the browser's default
-// recording format). All recordings must be transcoded to a supported format
-// before upload. We target MP3 at mono 16kHz / 64kbps because Gemini
-// downsamples to ~16kbps mono internally anyway — lossless quality (FLAC) is
-// wasted. MP3 is broadly supported and keeps file sizes small.
+// Gemini natively supports audio/webm, so transcoding is optional for short
+// recordings. When ffmpeg IS available we transcode to MP3 (mono 16kHz 64kbps)
+// to reduce upload size — Gemini downsamples internally anyway. For long
+// recordings ffmpeg is required to split the file into per-request chunks.
 //
 // Two public entry points:
-//   transcodeForGemini   — single-file transcode  (short recordings)
+//   transcodeForGemini   — single-file transcode  (short recordings, optional)
 //   transcodeAndChunk    — transcode + segment in ONE ffmpeg pass  (long recordings)
 //
 // Both paths decode the source exactly once; the caller cleans up output files.

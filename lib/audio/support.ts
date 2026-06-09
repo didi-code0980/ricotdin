@@ -11,7 +11,7 @@ const PREFERRED_MIME_TYPES = [
 
 /** Returns the best supported audio mime type, or '' if none found. */
 export function getSupportedMimeType(): string {
-  if (!('MediaRecorder' in window)) return ''
+  if (typeof window === 'undefined' || !('MediaRecorder' in window)) return ''
   for (const type of PREFERRED_MIME_TYPES) {
     if (MediaRecorder.isTypeSupported(type)) return type
   }
@@ -32,6 +32,8 @@ export interface SupportCheck {
  * runtime warning after capture, not here.
  */
 export function checkRecordingSupport(): SupportCheck {
+  if (typeof window === 'undefined') return { supported: false, missingCapabilities: [] }
+
   const missing: string[] = []
 
   if (!navigator.mediaDevices?.getDisplayMedia) {

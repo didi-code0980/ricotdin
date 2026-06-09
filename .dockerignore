@@ -1,0 +1,21 @@
+# Dependencies — reinstalled inside the image
+node_modules
+
+# Build output — produced inside the image
+.next
+out
+
+# Secrets — must NEVER be baked into the image
+.env
+.env.*
+.env.local
+.env.production
+
+# Git history
+.git
+.gitignore
+
+# Editor / OS noise
+.DS_Store
+*.log
+npm-debug.log*

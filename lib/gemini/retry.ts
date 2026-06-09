@@ -4,9 +4,9 @@
 
 import { PipelineError } from './errors'
 
-const MAX_RETRIES = 5
+const MAX_RETRIES = 8
 const BASE_DELAY_MS = 1_000
-const MAX_DELAY_MS = 60_000
+const MAX_DELAY_MS = 120_000
 
 function isRetryable(err: unknown): boolean {
   if (err instanceof Error) {
@@ -35,8 +35,5 @@ export async function retryWithBackoff<T>(fn: () => Promise<T>): Promise<T> {
   }
   const msg =
     lastErr instanceof Error ? lastErr.message : String(lastErr)
-  throw new PipelineError(
-    `Gemini call failed after ${MAX_RETRIES + 1} attempts: ${msg}`,
-    lastErr,
-  )
+  throw new PipelineError(`Gemini call failed after ${MAX_RETRIES + 1} attempts: ${msg}`, lastErr)
 }

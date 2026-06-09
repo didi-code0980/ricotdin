@@ -19,7 +19,7 @@ import { analyzeTranscript } from '@/lib/gemini/analyze'
 import { embedChunks } from '@/lib/gemini/embed'
 import { chunkSegments } from './chunk'
 import { transcribeWithChunking } from './audioChunk'
-import { assertTranscriptHasSpeech, assertAnalysisHasContent } from './guards'
+import { assertAnalysisHasContent } from './guards'
 
 const BUCKET = 'recordings'
 
@@ -80,8 +80,8 @@ export async function processMeeting(meetingId: string): Promise<void> {
 
     // ── Step A: Transcription ─────────────────────────────────────────────
     // transcribeWithChunking handles:
-    //   - webm→mp3 transcode (required: Gemini does not support WebM)
-    //   - long-audio splitting when duration > 28 min
+    //   - optional webm→mp3 transcode when ffmpeg is available (smaller upload)
+    //   - long-audio splitting when duration > 28 min (requires ffmpeg)
     // chunkDir holds all ffmpeg output and is cleaned up in the finally block.
     const durationSecs = claimed.duration_seconds ?? 0
     chunkDir = join(tmpdir(), `meeting-${meetingId}-chunks`)
@@ -91,10 +91,22 @@ export async function processMeeting(meetingId: string): Promise<void> {
         `${transcript.segments.length} segments, language=${transcript.language}`,
     )
 
-    // Guard: reject empty transcripts immediately rather than marking 'done'
-    // with zero content. Gemini returns an empty result when it cannot decode
-    // the audio (e.g. unsupported format, silent file, API error).
-    assertTranscriptHasSpeech(transcript)
+    // Empty transcript: audio was silent, too short, or the codec was
+    // unrecognised. Mark the meeting done with a clear note so the user sees
+    // a readable state instead of a failure. No segments/todos/embeddings to insert.
+    if (transcript.segments.length === 0) {
+      await db
+        .from('meetings')
+        .update({
+          status: 'done',
+          summary: 'No speech detected in this recording.',
+          notes: '',
+          language: transcript.language,
+        })
+        .eq('id', meetingId)
+      console.log(`[pipeline] ${meetingId}: done (empty transcript — no speech detected)`)
+      return
+    }
 
     // Insert transcript_segments and build segment-index → row-id map
     const segmentRows = transcript.segments.map((s, idx) => ({
