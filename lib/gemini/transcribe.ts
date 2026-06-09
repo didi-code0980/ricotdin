@@ -4,6 +4,7 @@
 // JSON mode for full-meeting transcription with speaker diarization, validate
 // the result with Zod, delete the uploaded file, and return TranscriptResult.
 
+import { stat } from 'node:fs/promises'
 import { Type, type Schema, type Part } from '@google/genai'
 import { getAIClient, GEMINI_MODEL } from './client'
 import { retryWithBackoff } from './retry'
@@ -12,6 +13,10 @@ import {
   GeminiTranscriptSchema,
   type TranscriptResult,
 } from '@/types/pipeline'
+
+// Set GEMINI_DEBUG=1 to log raw API responses and uploaded file metadata.
+// Useful for diagnosing empty transcripts or unexpected Gemini output.
+const GEMINI_DEBUG = process.env.GEMINI_DEBUG === '1'
 
 // ---------------------------------------------------------------------------
 // Gemini response schema (JSON Schema passed to the API)
@@ -116,7 +121,15 @@ export async function transcribeAudio(
   const ai = getAIClient()
 
   // 1. Upload to Gemini Files API (temporary staging, ~48h retention)
-  console.log(`[transcribe] uploading ${audioPath} (${mimeType})`)
+  if (GEMINI_DEBUG) {
+    const fileInfo = await stat(audioPath).catch(() => null)
+    console.log(
+      `[transcribe:debug] uploading — path=${audioPath} mime=${mimeType}` +
+        (fileInfo ? ` size=${fileInfo.size}bytes` : ' (stat failed)'),
+    )
+  } else {
+    console.log(`[transcribe] uploading ${audioPath} (${mimeType})`)
+  }
   const geminiFile = await retryWithBackoff(() =>
     ai.files.upload({
       file: audioPath,
@@ -146,6 +159,13 @@ export async function transcribeAudio(
       }),
     )
 
+    if (GEMINI_DEBUG) {
+      console.log(
+        `[transcribe:debug] raw response text (first 800 chars): ` +
+          (response.text ?? '(empty)').slice(0, 800),
+      )
+    }
+
     try {
       return parseResult(response.text ?? '')
     } catch (parseErr) {
@@ -161,6 +181,12 @@ export async function transcribeAudio(
           },
         }),
       )
+      if (GEMINI_DEBUG) {
+        console.log(
+          `[transcribe:debug] retry raw response text (first 800 chars): ` +
+            (response2.text ?? '(empty)').slice(0, 800),
+        )
+      }
       return parseResult(response2.text ?? '')
     }
   } finally {
