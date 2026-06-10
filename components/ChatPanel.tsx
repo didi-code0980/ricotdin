@@ -2,7 +2,7 @@
 
 import type { CSSProperties } from 'react'
 import { useState, useEffect, useRef } from 'react'
-import { ensureAnonymousSession } from '@/lib/supabase/auth'
+import { getAccessToken } from '@/lib/supabase/auth'
 import { browserClient } from '@/lib/supabase/browser'
 import type { ChatMessage, Citation } from '@/types/database'
 
@@ -63,7 +63,8 @@ export default function ChatPanel({
     setMessages((prev) => [...prev, optimistic])
 
     try {
-      const token = await ensureAnonymousSession()
+      const token = await getAccessToken()
+      if (!token) { setError('Not signed in.'); return }
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: {

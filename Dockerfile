@@ -34,7 +34,7 @@ RUN npm run build
 FROM node:20-alpine AS runner
 WORKDIR /app
 
-RUN apk add --no-cache nginx
+RUN apk add --no-cache nginx ffmpeg
 
 ENV NODE_ENV=production
 # Next.js standalone server reads PORT at startup

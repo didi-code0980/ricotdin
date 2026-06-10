@@ -7,7 +7,7 @@ import { useParams } from 'next/navigation'
 import ReactMarkdown from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
 import { browserClient } from '@/lib/supabase/browser'
-import { ensureAnonymousSession } from '@/lib/supabase/auth'
+import { getAccessToken } from '@/lib/supabase/auth'
 import ChatPanel from '@/components/ChatPanel'
 import type {
   Meeting,
@@ -112,8 +112,6 @@ export default function MeetingDetailPage() {
 
     async function load(silent = false) {
       try {
-        if (!silent) await ensureAnonymousSession()
-
         const { data: meeting, error: meetErr } = await browserClient
           .from('meetings')
           .select('*')
@@ -197,7 +195,8 @@ export default function MeetingDetailPage() {
 
     async function fetchUrl() {
       try {
-        const token = await ensureAnonymousSession()
+        const token = await getAccessToken()
+      if (!token) return
         const res = await fetch(`/api/audio-url/${meetingId}`, {
           headers: { Authorization: `Bearer ${token}` },
         })
@@ -250,7 +249,8 @@ export default function MeetingDetailPage() {
     const next: TodoStatus = current === 'done' ? 'open' : 'done'
     setTodoStatuses((prev) => ({ ...prev, [todoId]: next }))
     try {
-      const token = await ensureAnonymousSession()
+      const token = await getAccessToken()
+      if (!token) return
       const res = await fetch(`/api/todos/${todoId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -265,7 +265,8 @@ export default function MeetingDetailPage() {
   async function dismissCalSug(suggestionId: string) {
     setDismissedIds((prev) => new Set([...prev, suggestionId]))
     try {
-      const token = await ensureAnonymousSession()
+      const token = await getAccessToken()
+      if (!token) return
       const res = await fetch(`/api/calendar-suggestions/${suggestionId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -284,7 +285,8 @@ export default function MeetingDetailPage() {
   async function dismissTodo(todoId: string) {
     setDismissedTodoIds((prev) => new Set([...prev, todoId]))
     try {
-      const token = await ensureAnonymousSession()
+      const token = await getAccessToken()
+      if (!token) return
       const res = await fetch(`/api/todos/${todoId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -302,7 +304,8 @@ export default function MeetingDetailPage() {
 
   async function downloadIcs(suggestionId: string, title: string) {
     try {
-      const token = await ensureAnonymousSession()
+      const token = await getAccessToken()
+      if (!token) return
       const res = await fetch(`/api/calendar-suggestions/${suggestionId}/ics`, {
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -325,7 +328,8 @@ export default function MeetingDetailPage() {
   async function rerunProcessing() {
     setRerunning(true)
     try {
-      const token = await ensureAnonymousSession()
+      const token = await getAccessToken()
+      if (!token) return
       const res = await fetch(`/api/meetings/${meetingId}/process`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },

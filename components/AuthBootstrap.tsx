@@ -1,17 +1,6 @@
-'use client'
-
-// TEMPORARY — see lib/supabase/auth.ts. Replaced by real auth in Phase 7.
-// Silently establishes an anonymous Supabase session on first page load so
-// auth.uid() is always set and RLS works correctly.
-
-import { useEffect } from 'react'
-import { ensureAnonymousSession } from '@/lib/supabase/auth'
-
+// Removed in Phase 7 — replaced by real auth (login/register pages + session guard).
+// This file is kept to avoid breaking any stray imports during the transition.
+// Safe to delete after verifying no imports remain.
 export function AuthBootstrap() {
-  useEffect(() => {
-    void ensureAnonymousSession().catch((err: unknown) => {
-      console.error('[Auth] Failed to establish session:', err)
-    })
-  }, [])
   return null
 }

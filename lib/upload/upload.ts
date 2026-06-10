@@ -2,7 +2,7 @@
 // All functions run in the browser only — do not import from server code.
 
 import { browserClient } from '@/lib/supabase/browser'
-import { ensureAnonymousSession } from '@/lib/supabase/auth'
+import { getAccessToken } from '@/lib/supabase/auth'
 
 const BUCKET = 'recordings'
 
@@ -27,7 +27,8 @@ export async function uploadRecording(
   blob: Blob,
   meta: RecordingMeta,
 ): Promise<UploadResult> {
-  const token = await ensureAnonymousSession()
+  const token = await getAccessToken()
+  if (!token) throw new UploadError('Not authenticated. Please sign in.', 'auth')
 
   // Step 1: create meeting row + signed upload URL
   const createRes = await fetch('/api/meetings', {

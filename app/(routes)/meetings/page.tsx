@@ -4,7 +4,6 @@ import type { CSSProperties } from 'react'
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 import { browserClient } from '@/lib/supabase/browser'
-import { ensureAnonymousSession } from '@/lib/supabase/auth'
 import type { Meeting, MeetingStatus } from '@/types/database'
 
 type LoadState = 'loading' | 'ready' | 'error'
@@ -24,7 +23,6 @@ export default function MeetingsPage() {
 
     async function load(silent = false) {
       try {
-        if (!silent) await ensureAnonymousSession()
         const { data, error: dbError } = await browserClient
           .from('meetings')
           .select('*')

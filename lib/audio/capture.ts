@@ -50,7 +50,7 @@ export async function startCapture(): Promise<CaptureStreams> {
     const constraints: DisplayMediaConstraints = {
       video: true,            // required to trigger the OS sharing picker
       audio: true,            // request tab/system audio — user must tick the checkbox
-      preferCurrentTab: true, // Chrome 107+: default picker to current tab
+      preferCurrentTab: false, // Chrome 107+: default picker to current tab
     }
     displayStream = await navigator.mediaDevices.getDisplayMedia(constraints)
   } catch (err) {
