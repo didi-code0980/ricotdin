@@ -1,6 +1,7 @@
-// TypeScript types mirroring the Postgres schema (schema.sql).
+// TypeScript types mirroring the Postgres schema (schema.sql + migrations/).
 // Keep in sync with any schema migrations.
 
+export type UserRole = 'user' | 'admin'
 export type MeetingStatus = 'pending' | 'processing' | 'done' | 'failed'
 export type TodoStatus = 'open' | 'done' | 'dismissed'
 export type ChatRole = 'user' | 'assistant'
@@ -16,6 +17,13 @@ export type Citation = {
 // ---------------------------------------------------------------------------
 // Row shapes — what you get back from SELECT *
 // ---------------------------------------------------------------------------
+
+export type Profile = {
+  id: string       // same UUID as auth.users.id
+  username: string // unique, lowercase, 3-30 chars [a-z0-9_-]
+  role: UserRole
+  created_at: string
+}
 
 // Use `type` aliases (not `interface`) for Row shapes so that when supabase-js v2
 // intersects them with `Record<string, unknown>` in its TablesAndViews computation,
@@ -140,6 +148,17 @@ export interface Database {
     // Intersection with `{ [k: string]: MinTableShape }` adds the index signature that
     // supabase-js needs to satisfy `Record<string, GenericTable>`.
     Tables: {
+      profiles: {
+        Row: Profile
+        Insert: {
+          id: string
+          username: string
+          role?: UserRole
+          created_at?: string
+        }
+        Update: Partial<Profile>
+        Relationships: NoRelationships
+      }
       meetings: {
         Row: Meeting
         // Nullable DB columns omit correctly — required only: user_id.
