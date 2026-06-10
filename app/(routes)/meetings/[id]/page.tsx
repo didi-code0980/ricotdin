@@ -8,6 +8,7 @@ import ReactMarkdown from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
 import { browserClient } from '@/lib/supabase/browser'
 import { ensureAnonymousSession } from '@/lib/supabase/auth'
+import ChatPanel from '@/components/ChatPanel'
 import type {
   Meeting,
   MeetingStatus,
@@ -15,6 +16,7 @@ import type {
   Todo,
   TodoStatus,
   CalendarSuggestion,
+  Citation,
 } from '@/types/database'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -231,6 +233,18 @@ export default function MeetingDetailPage() {
     setTimeout(() => setHighlightedSegIndex(null), 2_000)
   }
 
+  function handleCitationClick(citation: Citation, segments: TranscriptSegment[]) {
+    // Find the transcript segment nearest to the citation's start_ms and scroll to it
+    if (segments.length === 0) return
+    const nearest = segments.reduce((best, seg) =>
+      Math.abs(seg.start_ms - citation.start_ms) < Math.abs(best.start_ms - citation.start_ms)
+        ? seg
+        : best,
+    )
+    seekTo(citation.start_ms)
+    scrollToSegment(nearest.id, segments)
+  }
+
   async function toggleTodo(todoId: string, current: TodoStatus) {
     const next: TodoStatus = current === 'done' ? 'open' : 'done'
     setTodoStatuses((prev) => ({ ...prev, [todoId]: next }))
@@ -337,6 +351,7 @@ export default function MeetingDetailPage() {
             onDismissCalSug={dismissCalSug}
             onSeekTo={seekTo}
             onScrollToSegment={(segId) => scrollToSegment(segId, data.segments)}
+            onCitationClick={(c) => handleCitationClick(c, data.segments)}
           />
         )}
       </main>
@@ -448,13 +463,14 @@ interface DoneViewProps {
   onDismissCalSug: (id: string) => void
   onSeekTo: (ms: number) => void
   onScrollToSegment: (segmentId: string | null) => void
+  onCitationClick: (citation: Citation) => void
 }
 
 function DoneView({
   meeting, segments, todos, calSugs,
   todoStatuses, dismissedIds,
   audioUrl, audioRef, highlightedSegIndex,
-  onToggleTodo, onDismissCalSug, onSeekTo, onScrollToSegment,
+  onToggleTodo, onDismissCalSug, onSeekTo, onScrollToSegment, onCitationClick,
 }: DoneViewProps) {
   const activeSugs = calSugs.filter((c) => !dismissedIds.has(c.id))
 
@@ -599,22 +615,13 @@ function DoneView({
         )}
       </SectionCard>
 
-      {/* Chat placeholder — Phase 5 */}
-      <div style={{ ...S.card, background: '#fafafa', marginBottom: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-          <div>
-            <p style={{ margin: '0 0 4px', fontWeight: 600, color: '#666', fontSize: 14 }}>
-              Ask about this meeting
-            </p>
-            <p style={{ margin: 0, fontSize: 13, color: '#aaa' }}>
-              AI-powered Q&amp;A over the transcript — coming in Phase 5.
-            </p>
-          </div>
-          <button style={S.chatDisabledBtn} disabled title="Coming soon">
-            Ask a question
-          </button>
-        </div>
-      </div>
+      {/* Chat — Phase 5 */}
+      <SectionCard label="Ask about this meeting">
+        <ChatPanel
+          meetingId={meeting.id}
+          onCitationClick={onCitationClick}
+        />
+      </SectionCard>
     </div>
   )
 }
@@ -904,16 +911,6 @@ const S: Record<string, CSSProperties> = {
     fontSize: 14,
     fontWeight: 600,
     textDecoration: 'none',
-  },
-  chatDisabledBtn: {
-    padding: '9px 18px',
-    background: '#f5f5f5',
-    border: '1px solid #e8e8e8',
-    borderRadius: 6,
-    fontSize: 14,
-    color: '#ccc',
-    cursor: 'not-allowed',
-    flexShrink: 0,
   },
   audioSkel: {
     height: 42,

@@ -60,6 +60,28 @@ export default function RecorderUI() {
     <div style={S.card}>
       <h2 style={{ marginTop: 0 }}>Recorder</h2>
 
+      {/* ── Pre-start instructions ────────────────────────────────────── */}
+      {state === 'idle' && (
+        <div style={S.info}>
+          <strong>Audio-only recording</strong>
+          <ul style={{ margin: '6px 0 0', paddingLeft: '1.4em', lineHeight: 1.7 }}>
+            <li>
+              Captures your <strong>microphone</strong> mixed with{' '}
+              <strong>tab or window audio</strong>. Video is{' '}
+              <strong>never recorded or saved</strong> — it only triggers the
+              browser&apos;s sharing dialog.
+            </li>
+            <li>
+              In the dialog: choose <em>This Tab</em> (recommended on Chrome),
+              then tick{' '}
+              <strong>&ldquo;Share tab audio&rdquo;</strong> /
+              &ldquo;Share audio&rdquo; before clicking Share. Without that
+              checkbox only your mic is recorded.
+            </li>
+          </ul>
+        </div>
+      )}
+
       {/* ── Controls ──────────────────────────────────────────────────── */}
       <div style={S.row}>
         {state === 'idle' && (
@@ -255,6 +277,16 @@ const S: Record<string, CSSProperties> = {
     borderRadius: 6,
     cursor: 'pointer',
     fontSize: 15,
+  },
+  info: {
+    background: '#f0f7ff',
+    border: '1px solid #b8d4f5',
+    borderRadius: 6,
+    padding: '10px 14px',
+    marginBottom: 14,
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: '#1a3a5c',
   },
   warn: {
     background: '#fff8e1',

@@ -59,9 +59,14 @@ export default function MeetingsPage() {
     <main style={S.main}>
       <div style={S.header}>
         <h1 style={{ margin: 0 }}>Meetings</h1>
-        <Link href="/record" style={S.btnNew}>
-          + New recording
-        </Link>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <Link href="/chat" style={S.btnSecondary}>
+            Chat
+          </Link>
+          <Link href="/record" style={S.btnNew}>
+            + New recording
+          </Link>
+        </div>
       </div>
 
       {loadState === 'loading' && (
@@ -167,6 +172,16 @@ const S: Record<string, CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: '1.5rem',
+  },
+  btnSecondary: {
+    padding: '8px 18px',
+    background: '#fff',
+    color: '#0066cc',
+    border: '1px solid #d0d0d0',
+    borderRadius: 6,
+    textDecoration: 'none',
+    fontSize: 14,
+    fontWeight: 500,
   },
   btnNew: {
     padding: '8px 18px',

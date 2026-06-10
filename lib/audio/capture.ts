@@ -20,17 +20,21 @@ export interface RecorderKit {
   mimeType: string
 }
 
+// DisplayMediaStreamOptions doesn't include the Chrome 107+ preferCurrentTab hint.
+type DisplayMediaConstraints = DisplayMediaStreamOptions & { preferCurrentTab?: boolean }
+
 /**
  * Acquire mic + display streams.
  *
  * Design notes:
  * - Mic is requested first so the user sees a familiar permission prompt before
  *   the display picker appears.
- * - getDisplayMedia requires video:true to show the OS sharing picker; we keep
- *   the video track alive only long enough to listen for the 'ended' event
- *   (fired when the user clicks "Stop sharing" in the browser bar). The track
- *   is stopped in cleanup() inside useRecorder — not here — so the hook can
- *   attach the listener before the track disappears.
+ * - getDisplayMedia requires video:true to open the OS sharing picker.
+ *   preferCurrentTab:true (Chrome 107+) defaults the picker to the current tab,
+ *   which is the most reliable source of tab audio on Windows and macOS.
+ * - Video tracks are stopped immediately after the picker closes — they are only
+ *   needed to trigger the sharing dialog. The audio track(s) remain live for
+ *   mixing, and their 'ended' event fires when the user clicks "Stop sharing".
  * - If the user denies or cancels either permission, the other stream is
  *   cleaned up before rethrowing.
  */
@@ -43,14 +47,21 @@ export async function startCapture(): Promise<CaptureStreams> {
 
   let displayStream: MediaStream
   try {
-    displayStream = await navigator.mediaDevices.getDisplayMedia({
-      video: true,   // required to show the OS sharing picker
-      audio: true,   // request system/tab audio — user may or may not grant it
-    })
+    const constraints: DisplayMediaConstraints = {
+      video: true,            // required to trigger the OS sharing picker
+      audio: true,            // request tab/system audio — user must tick the checkbox
+      preferCurrentTab: true, // Chrome 107+: default picker to current tab
+    }
+    displayStream = await navigator.mediaDevices.getDisplayMedia(constraints)
   } catch (err) {
     micStream.getTracks().forEach((t) => t.stop())
     throw err
   }
+
+  // Discard video tracks immediately — we only needed them to open the picker.
+  // Audio tracks stay live: they are mixed into the recording and their 'ended'
+  // event fires when the user clicks "Stop sharing" in the browser bar.
+  displayStream.getVideoTracks().forEach((t) => t.stop())
 
   return { micStream, displayStream }
 }
