@@ -41,6 +41,7 @@ export type Meeting = {
   notes: string | null
   error_message: string | null
   started_at: string | null
+  pinned_at: string | null
   created_at: string
   updated_at: string
 }
@@ -175,6 +176,7 @@ export interface Database {
           notes?: string | null
           error_message?: string | null
           started_at?: string | null
+          pinned_at?: string | null
           created_at?: string
           updated_at?: string
         }

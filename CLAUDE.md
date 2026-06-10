@@ -82,6 +82,19 @@ Schema is in `schema.sql` (Postgres + pgvector). Key tables:
 (embeddings for RAG), `todos`, `calendar_suggestions`, `chat_sessions`,
 `chat_messages`. RAG retrieval is the `match_transcript_chunks` RPC.
 
+**`meetings` additional columns (via migrations):**
+- `pinned_at timestamptz NULL` (migration 004) — null = not pinned. Set to `now()` to pin.
+  List sort: `pinned_at DESC NULLS LAST, created_at DESC` (pinned first, most-recently-pinned on top).
+  Index: `meetings_user_pin_sort ON meetings (user_id, pinned_at DESC NULLS LAST, created_at DESC)`.
+
+**Delete rule:** when deleting a meeting, the server route (`DELETE /api/meetings/:id`)
+MUST attempt to remove `meetings.audio_path` from Supabase Storage (bucket `recordings`)
+using the service-role client BEFORE deleting the row. Storage delete failure is logged
+and surfaced as a `warning` field in the response, but the row delete always proceeds
+(no half-state). All child rows are removed by `ON DELETE CASCADE` on the DB side
+(transcript_segments, transcript_chunks, todos, calendar_suggestions, chat_sessions,
+chat_messages).
+
 Rules:
 - RLS is ON. The browser uses the anon key (RLS-scoped to the logged-in user).
 - The **server pipeline uses the service role key** (bypasses RLS) for background writes.
@@ -148,6 +161,9 @@ Supabase dashboard:
    - Then: Dashboard → Authentication → Hooks → Custom Access Token →
      select `public.custom_access_token_hook` and save.
 
+4. **Apply Phase 8 migration:**
+   - `migrations/004_meetings_pinned.sql` — adds `pinned_at` column + sort index to `meetings`.
+
 ## 9b. Auth/roles — Phase 7 design
 
 **Role storage (NEVER in user_metadata):**
@@ -212,5 +228,6 @@ The `prevent_role_escalation` trigger is a belt-and-suspenders backup.
 5. ~~**RAG chatbot** (RPC search + grounded answers with citations).~~ **DONE** (Phase 5 complete — full RAG pipeline: `lib/rag/retrieve.ts` embeds query + calls `match_transcript_chunks` RPC with user-scoped client (RLS enforces ownership); `lib/gemini/answer.ts` generates grounded JSON answer with citation validation (invented chunk_ids dropped); `POST /api/chat` route manages sessions + persists messages + streams through the full pipeline; `ChatPanel` component with optimistic UI, citation chips, session history; chat enabled in meeting detail (`/meetings/[id]`); cross-meeting `/chat` page; `Chat` button in meetings list. 12 new unit tests in `tests/rag.test.ts`. New files: `lib/supabase/user-client.ts`, `lib/rag/retrieve.ts`, `lib/gemini/answer.ts`, `app/api/chat/route.ts`, `components/ChatPanel.tsx`, `app/(routes)/chat/page.tsx`.)
 6. ~~**Calendar suggestions + todos surfaced in UI** (`.ics` download).~~ **DONE** (Phase 6 complete — pure RFC 5545 ICS builder in `lib/ics/index.ts` (no deps; escaping, folding, UTC); `GET /api/calendar-suggestions/[id]/ics` with ownership check, 422 on null proposed_at (never fabricate a datetime); meeting detail UI: `.ics` download button (fetch+blob with Bearer token) when proposed_at is set, disabled span when null; todo dismiss button (PATCH status=dismissed, optimistic); metadata row always shown with "No due date" when null; past-due date styled orange/amber with ⚠ prefix; helper text on calendar section ("no automatic syncing"); 30 new unit tests in `tests/ics.test.ts`. No Google Calendar OAuth, no auto-creating events, no reminders — post-MVP only.)
 7. ~~**Auth, hardening, deploy**~~ **DONE** (Phase 7 complete — email+password registration/login; username-OR-email login (server-side username→email lookup, never exposed to client); two roles: 'user' (default) and 'admin'; role stored ONLY in `app_metadata` + `profiles` table, NEVER in `user_metadata`; custom access token hook injects `user_role` JWT claim for RLS; column-level privilege blocks normal users from changing their own role; belt-and-suspenders trigger `prevent_role_escalation`; `/admin` page with user list, role toggle, ban/unban — all server-enforced (403 for non-admins); `scripts/seed-admin.ts` for initial admin bootstrap; `lib/auth/validate.ts` with 24 unit tests. Dashboard steps: apply migrations 001–003, enable custom access token hook, disable anonymous sign-ins.)
+8. ~~**Meeting list actions** (pin, rename, delete)~~ **DONE** (Phase 8 complete — `pinned_at timestamptz null` column on meetings (migration 004) with composite sort index; list sort: pinned-first (most-recently-pinned on top), then created_at desc; per-row pin toggle (📌, optimistic), inline rename (optimistic, Enter to save / Escape to cancel), delete with confirmation dialog ("This permanently deletes the meeting…"); `DELETE /api/meetings/:id` removes audio from Storage before the row delete — Storage failure is logged + warned but does not block the row delete; `PATCH /api/meetings/:id` for rename; `PATCH /api/meetings/:id/pin` for pin toggle; all routes ownership-checked server-side. Apply migration 004 in Supabase dashboard.)
 
 Keep this section in sync with actual progress; mark phases done as we go.
