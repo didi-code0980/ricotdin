@@ -1,101 +1,28 @@
-// PATCH /api/admin/users/[id]
 // DELETE /api/admin/users/[id]
 //
-// PATCH body: { role?: 'user' | 'admin', banned?: boolean }
-//   - Updates app_metadata.role and syncs to profiles.role (keeping them in sync).
-// DELETE: disables the account (bans the user; data is retained).
+// Permanently deletes a user. Steps:
+//   1. Verify caller is admin.
+//   2. Self-delete and last-admin guards.
+//   3. Collect audio_path values from all of the target's meetings.
+//   4. Delete those Storage objects (service role). Failures are logged +
+//      returned as warnings; they do NOT abort the user delete.
+//   5. auth.admin.deleteUser() — CASCADE on auth.users removes profiles and
+//      meetings (and all their children: transcript_segments, transcript_chunks,
+//      todos, calendar_suggestions, chat_sessions, chat_messages).
 //
-// SECURITY: requires admin role on the CALLER; checked server-side.
-// SECURITY: an admin cannot demote themselves (to avoid lock-out).
+// GUARDS:
+//   - Cannot delete your own account.
+//   - Cannot delete the last remaining admin.
+//
+// SECURITY: requires admin role on caller (server-side).
+// SECURITY: service role key stays server-only.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth/server'
-import type { UserRole } from '@/types/database'
+import { guardDelete } from '@/lib/admin/guards'
 
-const VALID_ROLES: UserRole[] = ['user', 'admin']
-
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  let caller
-  try {
-    caller = await requireAdmin(req)
-  } catch (res) {
-    return res as NextResponse
-  }
-
-  const { id: targetId } = await params
-
-  let body: { role?: string; banned?: boolean }
-  try {
-    body = (await req.json()) as typeof body
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 })
-  }
-
-  const db = createServerClient()
-  const updates: Record<string, unknown> = {}
-
-  // ── Role change ────────────────────────────────────────────────────────────
-  if (body.role !== undefined) {
-    if (!VALID_ROLES.includes(body.role as UserRole)) {
-      return NextResponse.json(
-        { error: `Role must be one of: ${VALID_ROLES.join(', ')}.` },
-        { status: 422 },
-      )
-    }
-
-    // Admins cannot demote themselves to prevent accidental lock-out
-    if (targetId === caller.id && body.role !== 'admin') {
-      return NextResponse.json(
-        { error: 'You cannot change your own role.' },
-        { status: 400 },
-      )
-    }
-
-    // Update app_metadata (source of truth for JWT claims)
-    const { error: metaErr } = await db.auth.admin.updateUserById(targetId, {
-      app_metadata: { role: body.role },
-    })
-    if (metaErr) {
-      console.error('[admin/users] updateUserById (role) failed:', metaErr.message)
-      return NextResponse.json({ error: 'Failed to update role.' }, { status: 500 })
-    }
-
-    // Sync profiles.role so the display table stays consistent
-    const { error: profileErr } = await db
-      .from('profiles')
-      .update({ role: body.role as UserRole })
-      .eq('id', targetId)
-
-    if (profileErr) {
-      console.error('[admin/users] profiles.role sync failed:', profileErr.message)
-      // Non-fatal — app_metadata is the authoritative source; profiles is display only
-    }
-
-    updates.role = body.role
-  }
-
-  // ── Ban / unban ────────────────────────────────────────────────────────────
-  if (body.banned !== undefined) {
-    if (targetId === caller.id) {
-      return NextResponse.json({ error: 'You cannot ban yourself.' }, { status: 400 })
-    }
-    const banDuration = body.banned ? '876600h' : 'none' // ~100 years = effectively permanent
-    const { error: banErr } = await db.auth.admin.updateUserById(targetId, {
-      ban_duration: banDuration,
-    })
-    if (banErr) {
-      console.error('[admin/users] updateUserById (ban) failed:', banErr.message)
-      return NextResponse.json({ error: 'Failed to update ban status.' }, { status: 500 })
-    }
-    updates.banned = body.banned
-  }
-
-  return NextResponse.json({ updated: updates })
-}
+const BUCKET = 'recordings'
 
 export async function DELETE(
   req: NextRequest,
@@ -109,18 +36,61 @@ export async function DELETE(
   }
 
   const { id: targetId } = await params
+  const db = createServerClient()
 
-  if (targetId === caller.id) {
-    return NextResponse.json({ error: 'You cannot delete your own account.' }, { status: 400 })
+  // Fetch target role for guard evaluation
+  const { data: targetProfile } = await db
+    .from('profiles')
+    .select('role')
+    .eq('id', targetId)
+    .maybeSingle()
+
+  if (!targetProfile) {
+    return NextResponse.json({ error: 'User not found.' }, { status: 404 })
   }
 
-  const db = createServerClient()
-  const { error } = await db.auth.admin.deleteUser(targetId)
+  // Count all admins for last-admin guard
+  const { count: adminCount } = await db
+    .from('profiles')
+    .select('*', { count: 'exact', head: true })
+    .eq('role', 'admin')
 
-  if (error) {
-    console.error('[admin/users] deleteUser failed:', error.message)
+  const guard = guardDelete(caller.id, targetId, targetProfile.role, adminCount ?? 0)
+  if (!guard.ok) {
+    return NextResponse.json({ error: guard.message }, { status: guard.status })
+  }
+
+  // Collect audio paths from all of the target's meetings before deleting
+  const { data: meetings } = await db
+    .from('meetings')
+    .select('audio_path')
+    .eq('user_id', targetId)
+
+  const audioPaths = (meetings ?? [])
+    .map((m) => m.audio_path)
+    .filter((p): p is string => typeof p === 'string')
+
+  // Delete Storage objects. Failure here is non-fatal — log + warn but proceed.
+  const storageWarnings: string[] = []
+  if (audioPaths.length > 0) {
+    const { error: storageErr } = await db.storage.from(BUCKET).remove(audioPaths)
+    if (storageErr) {
+      const msg = `Audio storage cleanup failed (${audioPaths.length} file(s)): ${storageErr.message}`
+      console.warn('[admin/delete] ' + msg)
+      storageWarnings.push(msg)
+    }
+  }
+
+  // Delete the user — CASCADE handles profiles, meetings, and all child rows
+  const { error: deleteErr } = await db.auth.admin.deleteUser(targetId)
+  if (deleteErr) {
+    console.error('[admin/delete] deleteUser failed:', deleteErr.message)
     return NextResponse.json({ error: 'Failed to delete user.' }, { status: 500 })
   }
 
-  return NextResponse.json({ deleted: targetId })
+  return NextResponse.json({
+    ok: true,
+    deleted: targetId,
+    ...(storageWarnings.length > 0 ? { storageWarnings } : {}),
+  })
 }
