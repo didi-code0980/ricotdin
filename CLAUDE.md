@@ -136,23 +136,59 @@ Supabase dashboard:
    - The server route checks for this bucket on every upload and returns 503 with a
      clear message if it is missing.
 
-2. **Enable Anonymous sign-ins**
-   - Dashboard → Authentication → Providers → Anonymous sign-ins → Enable
-   - This is TEMPORARY; Phase 7 replaces it with real login (email/password or OAuth).
-   - The anonymous session provides a real `auth.uid()` so RLS policies work correctly.
+2. ~~**Enable Anonymous sign-ins**~~ **Phase 7 complete — disable this now.**
+   - Dashboard → Authentication → Providers → Anonymous sign-ins → **Disable**
+   - Real email+password auth is in place. Existing anonymous-user test data is
+     orphaned — wipe it with `DELETE FROM auth.users WHERE is_anonymous = true`.
 
-## 9b. Anonymous auth — TEMPORARY note
+3. **Apply Phase 7 migrations** (run in the SQL editor in order):
+   - `migrations/001_profiles.sql` — profiles table + RLS + role-escalation trigger
+   - `migrations/002_jwt_hook.sql` — custom access token hook function
+   - `migrations/003_rls_owner_or_admin.sql` — owner-or-admin RLS on all tables
+   - Then: Dashboard → Authentication → Hooks → Custom Access Token →
+     select `public.custom_access_token_hook` and save.
 
-The app currently uses Supabase's anonymous sign-in (`supabase.auth.signInAnonymously()`)
-to give each browser session a real `auth.uid()`. This is initialized in
-`components/AuthBootstrap.tsx` (mounted in root layout) and in
-`lib/supabase/auth.ts` (`ensureAnonymousSession()`).
+## 9b. Auth/roles — Phase 7 design
 
-**This is intentional and temporary.** Phase 7 replaces it with real auth
-(email/password or OAuth). Until then:
-- Keep `SUPABASE_SERVICE_ROLE_KEY` server-only; anonymous JWTs only flow to/from
-  the browser client and the `/api` route handlers that validate them via the anon key.
-- Do not remove anonymous sign-in until Phase 7 is complete.
+**Role storage (NEVER in user_metadata):**
+- Role is stored in `auth.users.app_metadata.role` (service-role-writable only).
+- Also mirrored in `public.profiles.role` (display/join; kept in sync by server routes).
+- `user_metadata` is user-writable via the SDK → NEVER store role there.
+
+**JWT claim injection:**
+- `migrations/002_jwt_hook.sql` registers `public.custom_access_token_hook`.
+- The hook copies `app_metadata.role` → `user_role` JWT claim on every token issue.
+- RLS policies read `auth.jwt()->>'user_role'` (no per-query subquery).
+- Dashboard step: Authentication → Hooks → Custom Access Token → enable the function.
+
+**Username → email login flow (server-side only):**
+- `POST /api/auth/login` accepts `{ identifier, password }`.
+- If `identifier` contains `@` → treat as email.
+- Otherwise → service-role lookup: `profiles WHERE username = normalize(identifier)`,
+  then `auth.admin.getUserById(profile.id)` to get the email.
+- `signInWithPassword(resolvedEmail, password)` is called on the server.
+- The mapping is NEVER exposed to the client; generic errors are returned on failure.
+
+**Registration:**
+- `POST /api/auth/register` creates the user via `auth.admin.createUser` with
+  `app_metadata: { role: 'user' }`. Client cannot choose a role.
+- Profile row is inserted immediately after; on failure the auth user is cleaned up.
+
+**RLS: OWNER-OR-ADMIN:**
+- All tables use `auth.uid() = owner_id OR auth.jwt()->>'user_role' = 'admin'`.
+- Server pipeline still uses the service role key (bypasses RLS entirely).
+
+**Admin seed script:**
+```
+npx tsx scripts/seed-admin.ts <email>
+```
+Reads `.env.local`, sets `app_metadata.role='admin'` and syncs `profiles.role`.
+Run once for the first admin account; use `/admin` UI for subsequent changes.
+
+**Column-level privilege:**
+`REVOKE UPDATE ON profiles FROM authenticated; GRANT UPDATE(username) ON profiles TO authenticated;`
+Normal users literally cannot UPDATE the `role` column from the browser.
+The `prevent_role_escalation` trigger is a belt-and-suspenders backup.
 
 ## 10. Working agreement (how to collaborate with me)
 
@@ -175,6 +211,6 @@ to give each browser session a real `auth.uid()`. This is initialized in
 4. ~~**Results UI** (summary / note / transcript / todos).~~ **DONE** (Phase 4 complete — full meeting detail page at `/meetings/[id]`; state machine: loading → inflight (polls 3s) | failed (re-run button) | done; sections: header, audio player via signed URL, summary, markdown notes (react-markdown + rehype-sanitize), todos with optimistic checkbox toggle, calendar suggestions with dismiss, full transcript with speaker-grouped segments and mm:ss timestamps that seek the audio player; chat placeholder. New routes: GET /api/audio-url/:id, PATCH /api/todos/:id, PATCH /api/calendar-suggestions/:id.)
 5. ~~**RAG chatbot** (RPC search + grounded answers with citations).~~ **DONE** (Phase 5 complete — full RAG pipeline: `lib/rag/retrieve.ts` embeds query + calls `match_transcript_chunks` RPC with user-scoped client (RLS enforces ownership); `lib/gemini/answer.ts` generates grounded JSON answer with citation validation (invented chunk_ids dropped); `POST /api/chat` route manages sessions + persists messages + streams through the full pipeline; `ChatPanel` component with optimistic UI, citation chips, session history; chat enabled in meeting detail (`/meetings/[id]`); cross-meeting `/chat` page; `Chat` button in meetings list. 12 new unit tests in `tests/rag.test.ts`. New files: `lib/supabase/user-client.ts`, `lib/rag/retrieve.ts`, `lib/gemini/answer.ts`, `app/api/chat/route.ts`, `components/ChatPanel.tsx`, `app/(routes)/chat/page.tsx`.)
 6. ~~**Calendar suggestions + todos surfaced in UI** (`.ics` download).~~ **DONE** (Phase 6 complete — pure RFC 5545 ICS builder in `lib/ics/index.ts` (no deps; escaping, folding, UTC); `GET /api/calendar-suggestions/[id]/ics` with ownership check, 422 on null proposed_at (never fabricate a datetime); meeting detail UI: `.ics` download button (fetch+blob with Bearer token) when proposed_at is set, disabled span when null; todo dismiss button (PATCH status=dismissed, optimistic); metadata row always shown with "No due date" when null; past-due date styled orange/amber with ⚠ prefix; helper text on calendar section ("no automatic syncing"); 30 new unit tests in `tests/ics.test.ts`. No Google Calendar OAuth, no auto-creating events, no reminders — post-MVP only.)
-7. Auth, hardening, deploy (+ a cron ping to keep Supabase from auto-pausing).
+7. ~~**Auth, hardening, deploy**~~ **DONE** (Phase 7 complete — email+password registration/login; username-OR-email login (server-side username→email lookup, never exposed to client); two roles: 'user' (default) and 'admin'; role stored ONLY in `app_metadata` + `profiles` table, NEVER in `user_metadata`; custom access token hook injects `user_role` JWT claim for RLS; column-level privilege blocks normal users from changing their own role; belt-and-suspenders trigger `prevent_role_escalation`; `/admin` page with user list, role toggle, ban/unban — all server-enforced (403 for non-admins); `scripts/seed-admin.ts` for initial admin bootstrap; `lib/auth/validate.ts` with 24 unit tests. Dashboard steps: apply migrations 001–003, enable custom access token hook, disable anonymous sign-ins.)
 
 Keep this section in sync with actual progress; mark phases done as we go.
