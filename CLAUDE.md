@@ -206,6 +206,53 @@ Run once for the first admin account; use `/admin` UI for subsequent changes.
 Normal users literally cannot UPDATE the `role` column from the browser.
 The `prevent_role_escalation` trigger is a belt-and-suspenders backup.
 
+## 9c. Admin user-management design (Phase 9)
+
+All operations use the **Supabase Auth Admin API** (`auth.admin.*`) with the **service
+role key** (server-side only). `auth.users` is not queryable from the browser.
+
+**Endpoints:**
+- `GET /api/admin/users?page&perPage&search` — paginated list with email, username, role,
+  disabled status, meeting_count, last_sign_in_at, created_at. Up to 1000 users fetched
+  from Admin API; search + pagination applied server-side.
+- `PATCH /api/admin/users/:id/role` — change role to `'user'` or `'admin'`.
+- `PATCH /api/admin/users/:id/status` — `{ disabled: boolean }` → enable/disable via
+  `ban_duration = '876600h'` (disable) or `'none'` (enable).
+- `POST /api/admin/users/:id/reset-password` — `auth.admin.generateLink({ type: 'recovery' })`
+  triggers a recovery email. Requires SMTP configured in Supabase project settings.
+  Does NOT set a password directly.
+- `DELETE /api/admin/users/:id` — collects `audio_path` from all user meetings, deletes
+  Storage objects (service role), then `auth.admin.deleteUser()`. DB rows cascade.
+
+**Role sync rule:** every role change must update BOTH:
+1. `auth.users.app_metadata.role` (Admin API → JWT source of truth)
+2. `public.profiles.role` (display table)
+Do not update one without the other. If the auth update succeeds but profiles sync fails,
+log a warning (app_metadata is authoritative; profiles will be corrected on next change).
+
+**Role change timing:** the new role takes effect on the target user's **next token
+refresh**. There is an inherent delay; advise the user to sign out and back in to see
+their new role reflected immediately.
+
+**Guards** (pure functions in `lib/admin/guards.ts`, tested in `tests/admin-guards.test.ts`):
+- `checkAdminRole(appMetadata)` — used by `requireAdmin`; returns `false` → HTTP 403.
+- Self-action: admins cannot demote, disable, or delete **themselves**.
+- Last-admin: cannot demote, disable, or delete the **last remaining admin**.
+  Admin count is read from `profiles WHERE role = 'admin'` (kept in sync).
+
+**Storage cleanup on user delete:**
+Before `auth.admin.deleteUser`, gather all `meetings.audio_path` for the target user
+and call `storage.from('recordings').remove(paths)`. Storage failures are logged and
+returned as `storageWarnings[]` but never abort the user delete. DB rows cascade via
+the `auth.users → profiles` and `auth.users → meetings` FK `ON DELETE CASCADE`.
+
+**UI at `/admin`:**
+- Shows current admin's row with a "You" badge; self-action buttons are disabled.
+- Client-side search by email/username; pagination at 20 per page.
+- Role change and status toggle are optimistic with revert on error.
+- Delete and password-reset open confirmation dialogs before running.
+- Global success/error banners with dismiss.
+
 ## 10. Working agreement (how to collaborate with me)
 
 - Work in **small increments**, one clear goal per change, each with a concrete
@@ -229,5 +276,6 @@ The `prevent_role_escalation` trigger is a belt-and-suspenders backup.
 6. ~~**Calendar suggestions + todos surfaced in UI** (`.ics` download).~~ **DONE** (Phase 6 complete — pure RFC 5545 ICS builder in `lib/ics/index.ts` (no deps; escaping, folding, UTC); `GET /api/calendar-suggestions/[id]/ics` with ownership check, 422 on null proposed_at (never fabricate a datetime); meeting detail UI: `.ics` download button (fetch+blob with Bearer token) when proposed_at is set, disabled span when null; todo dismiss button (PATCH status=dismissed, optimistic); metadata row always shown with "No due date" when null; past-due date styled orange/amber with ⚠ prefix; helper text on calendar section ("no automatic syncing"); 30 new unit tests in `tests/ics.test.ts`. No Google Calendar OAuth, no auto-creating events, no reminders — post-MVP only.)
 7. ~~**Auth, hardening, deploy**~~ **DONE** (Phase 7 complete — email+password registration/login; username-OR-email login (server-side username→email lookup, never exposed to client); two roles: 'user' (default) and 'admin'; role stored ONLY in `app_metadata` + `profiles` table, NEVER in `user_metadata`; custom access token hook injects `user_role` JWT claim for RLS; column-level privilege blocks normal users from changing their own role; belt-and-suspenders trigger `prevent_role_escalation`; `/admin` page with user list, role toggle, ban/unban — all server-enforced (403 for non-admins); `scripts/seed-admin.ts` for initial admin bootstrap; `lib/auth/validate.ts` with 24 unit tests. Dashboard steps: apply migrations 001–003, enable custom access token hook, disable anonymous sign-ins.)
 8. ~~**Meeting list actions** (pin, rename, delete)~~ **DONE** (Phase 8 complete — `pinned_at timestamptz null` column on meetings (migration 004) with composite sort index; list sort: pinned-first (most-recently-pinned on top), then created_at desc; per-row pin toggle (📌, optimistic), inline rename (optimistic, Enter to save / Escape to cancel), delete with confirmation dialog ("This permanently deletes the meeting…"); `DELETE /api/meetings/:id` removes audio from Storage before the row delete — Storage failure is logged + warned but does not block the row delete; `PATCH /api/meetings/:id` for rename; `PATCH /api/meetings/:id/pin` for pin toggle; all routes ownership-checked server-side. Apply migration 004 in Supabase dashboard.)
+9. ~~**Admin user management**~~ **DONE** (Phase 9 complete — full `/admin` user-management UI + 5 API routes; all routes server-enforced by `requireAdmin` (reads `app_metadata.role`); pure guard functions in `lib/admin/guards.ts` + 21 unit tests; user list with pagination+search+meeting_count+last_sign_in_at; `PATCH /api/admin/users/:id/role` keeps app_metadata+profiles in sync; last-admin guard on demotion/disable/delete; `PATCH /api/admin/users/:id/status` enables/disables via ban_duration; `POST /api/admin/users/:id/reset-password` uses `auth.admin.generateLink({ type: 'recovery' })`; `DELETE /api/admin/users/:id` cleans up Storage audio files before deleting the auth user; UI shows "You" badge on self-row, disables self-action buttons, optimistic role/status updates with revert, confirmation dialogs for delete + password reset. See section 9c for full design.)
 
 Keep this section in sync with actual progress; mark phases done as we go.
