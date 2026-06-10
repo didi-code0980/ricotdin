@@ -92,6 +92,7 @@ export default function MeetingDetailPage() {
   const [data, setData] = useState<PageData>({ tag: 'loading' })
   const [todoStatuses, setTodoStatuses] = useState<Record<string, TodoStatus>>({})
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set())
+  const [dismissedTodoIds, setDismissedTodoIds] = useState<Set<string>>(new Set())
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const [highlightedSegIndex, setHighlightedSegIndex] = useState<number | null>(null)
   const [rerunning, setRerunning] = useState(false)
@@ -280,6 +281,47 @@ export default function MeetingDetailPage() {
     }
   }
 
+  async function dismissTodo(todoId: string) {
+    setDismissedTodoIds((prev) => new Set([...prev, todoId]))
+    try {
+      const token = await ensureAnonymousSession()
+      const res = await fetch(`/api/todos/${todoId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ status: 'dismissed' }),
+      })
+      if (!res.ok) throw new Error('dismiss failed')
+    } catch {
+      setDismissedTodoIds((prev) => {
+        const s = new Set(prev)
+        s.delete(todoId)
+        return s
+      })
+    }
+  }
+
+  async function downloadIcs(suggestionId: string, title: string) {
+    try {
+      const token = await ensureAnonymousSession()
+      const res = await fetch(`/api/calendar-suggestions/${suggestionId}/ics`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) return
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = title.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase().slice(0, 60) || 'event'
+      a.download += '.ics'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch {
+      // Silent — user can retry
+    }
+  }
+
   async function rerunProcessing() {
     setRerunning(true)
     try {
@@ -344,11 +386,14 @@ export default function MeetingDetailPage() {
             calSugs={data.calSugs}
             todoStatuses={todoStatuses}
             dismissedIds={dismissedIds}
+            dismissedTodoIds={dismissedTodoIds}
             audioUrl={audioUrl}
             audioRef={audioRef}
             highlightedSegIndex={highlightedSegIndex}
             onToggleTodo={toggleTodo}
+            onDismissTodo={dismissTodo}
             onDismissCalSug={dismissCalSug}
+            onDownloadIcs={downloadIcs}
             onSeekTo={seekTo}
             onScrollToSegment={(segId) => scrollToSegment(segId, data.segments)}
             onCitationClick={(c) => handleCitationClick(c, data.segments)}
@@ -456,11 +501,14 @@ interface DoneViewProps {
   calSugs: CalendarSuggestion[]
   todoStatuses: Record<string, TodoStatus>
   dismissedIds: Set<string>
+  dismissedTodoIds: Set<string>
   audioUrl: string | null
   audioRef: RefObject<HTMLAudioElement | null>
   highlightedSegIndex: number | null
   onToggleTodo: (id: string, current: TodoStatus) => void
+  onDismissTodo: (id: string) => void
   onDismissCalSug: (id: string) => void
+  onDownloadIcs: (id: string, title: string) => void
   onSeekTo: (ms: number) => void
   onScrollToSegment: (segmentId: string | null) => void
   onCitationClick: (citation: Citation) => void
@@ -468,11 +516,12 @@ interface DoneViewProps {
 
 function DoneView({
   meeting, segments, todos, calSugs,
-  todoStatuses, dismissedIds,
+  todoStatuses, dismissedIds, dismissedTodoIds,
   audioUrl, audioRef, highlightedSegIndex,
-  onToggleTodo, onDismissCalSug, onSeekTo, onScrollToSegment, onCitationClick,
+  onToggleTodo, onDismissTodo, onDismissCalSug, onDownloadIcs, onSeekTo, onScrollToSegment, onCitationClick,
 }: DoneViewProps) {
   const activeSugs = calSugs.filter((c) => !dismissedIds.has(c.id))
+  const activeTodos = todos.filter((t) => !dismissedTodoIds.has(t.id))
 
   return (
     <div>
@@ -520,14 +569,22 @@ function DoneView({
       )}
 
       {/* Action items */}
-      <SectionCard label={`Action items${todos.length > 0 ? ` (${todos.length})` : ''}`}>
-        {todos.length === 0 ? (
-          <p style={S.empty}>No action items were found in this meeting.</p>
+      <SectionCard label={`Action items${activeTodos.length > 0 ? ` (${activeTodos.length})` : ''}`}>
+        {activeTodos.length === 0 ? (
+          <p style={S.empty}>
+            {todos.length > 0
+              ? 'All action items have been dismissed.'
+              : 'No action items were found in this meeting.'}
+          </p>
         ) : (
           <ul style={S.plainList}>
-            {todos.map((todo) => {
+            {activeTodos.map((todo) => {
               const status = todoStatuses[todo.id] ?? todo.status
               const isDone = status === 'done'
+              const isPastDue =
+                !isDone &&
+                !!todo.due_date &&
+                todo.due_date < new Date().toISOString().slice(0, 10)
               return (
                 <li key={todo.id} className="todo-row" style={S.todoRow}>
                   <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', flex: 1 }}>
@@ -541,24 +598,36 @@ function DoneView({
                       <span style={{ color: isDone ? '#aaa' : '#111', textDecoration: isDone ? 'line-through' : 'none', fontSize: 14, lineHeight: 1.5 }}>
                         {todo.content}
                       </span>
-                      {(todo.assignee || todo.due_date) && (
-                        <span style={{ display: 'block', fontSize: 12, color: '#777', marginTop: 3 }}>
-                          {todo.assignee && <>@{todo.assignee}</>}
-                          {todo.assignee && todo.due_date && ' · '}
-                          {todo.due_date && <>Due {todo.due_date}</>}
-                        </span>
-                      )}
+                      <span style={{ display: 'block', fontSize: 12, color: '#777', marginTop: 3 }}>
+                        {todo.assignee && <><span style={{ color: '#555' }}>@{todo.assignee}</span>{' · '}</>}
+                        {todo.due_date ? (
+                          <span style={{ color: isPastDue ? '#b45309' : '#777', fontWeight: isPastDue ? 600 : 400 }}>
+                            {isPastDue ? '⚠ ' : ''}Due {todo.due_date}
+                          </span>
+                        ) : (
+                          <span style={{ color: '#bbb' }}>No due date</span>
+                        )}
+                      </span>
                     </span>
                   </label>
-                  {todo.source_segment_id && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, alignItems: 'flex-end', flexShrink: 0 }}>
+                    {todo.source_segment_id && (
+                      <button
+                        style={S.citationBtn}
+                        title="Jump to this moment in the transcript"
+                        onClick={() => onScrollToSegment(todo.source_segment_id)}
+                      >
+                        ↗ source
+                      </button>
+                    )}
                     <button
-                      style={S.citationBtn}
-                      title="Jump to this moment in the transcript"
-                      onClick={() => onScrollToSegment(todo.source_segment_id)}
+                      style={S.dismissBtn}
+                      title="Dismiss this action item"
+                      onClick={() => onDismissTodo(todo.id)}
                     >
-                      ↗ source
+                      Dismiss
                     </button>
-                  )}
+                  </div>
                 </li>
               )
             })}
@@ -569,6 +638,9 @@ function DoneView({
       {/* Calendar suggestions */}
       {activeSugs.length > 0 && (
         <SectionCard label={`Events mentioned (${activeSugs.length})`}>
+          <p style={{ fontSize: 12, color: '#999', margin: '0 0 10px' }}>
+            These events were auto-detected from the transcript. Download a .ics file to add one to your calendar — no automatic syncing.
+          </p>
           <ul style={S.plainList}>
             {activeSugs.map((sug) => (
               <li key={sug.id} className="cal-row" style={S.calRow}>
@@ -584,14 +656,23 @@ function DoneView({
                   )}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end', flexShrink: 0 }}>
-                  {/* Phase 6 placeholder — .ics download not yet built */}
-                  <span
-                    title="Calendar export coming in a future update (Phase 6)"
-                    aria-disabled="true"
-                    style={S.calDisabledBtn}
-                  >
-                    + Add to calendar
-                  </span>
+                  {sug.proposed_at ? (
+                    <button
+                      style={S.calDownloadBtn}
+                      title="Download .ics to add to Google Calendar, Apple Calendar, or Outlook"
+                      onClick={() => onDownloadIcs(sug.id, sug.title)}
+                    >
+                      ↓ Download .ics
+                    </button>
+                  ) : (
+                    <span
+                      title="No specific date/time detected — add this event to your calendar manually"
+                      aria-disabled="true"
+                      style={S.calDisabledBtn}
+                    >
+                      + Add to calendar
+                    </span>
+                  )}
                   <button style={S.dismissBtn} onClick={() => onDismissCalSug(sug.id)}>
                     Dismiss
                   </button>
@@ -866,6 +947,16 @@ const S: Record<string, CSSProperties> = {
     gap: 12,
     padding: '12px 0',
     borderBottom: '1px solid #f2f2f2',
+  },
+  calDownloadBtn: {
+    fontSize: 12,
+    padding: '4px 10px',
+    borderRadius: 4,
+    border: '1px solid #1a7f37',
+    color: '#1a7f37',
+    cursor: 'pointer',
+    background: '#f0fff4',
+    fontWeight: 500,
   },
   calDisabledBtn: {
     display: 'inline-block',
