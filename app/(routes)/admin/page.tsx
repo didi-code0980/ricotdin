@@ -1,7 +1,6 @@
 'use client'
 
 import type { CSSProperties } from 'react'
-import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { browserClient } from '@/lib/supabase/browser'
@@ -61,22 +60,15 @@ export default function AdminPage() {
   useEffect(() => {
     async function init() {
       const role = await getCurrentRole()
-      if (role !== 'admin') {
-        setForbidden(true)
-        setLoading(false)
-        return
-      }
-      // Get current user ID to highlight own row
+      if (role !== 'admin') { setForbidden(true); setLoading(false); return }
       const { data: { session } } = await browserClient.auth.getSession()
       setCurrentUserId(session?.user.id ?? null)
-
       await fetchUsers()
       setLoading(false)
     }
     void init()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Client-side search + pagination
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
     if (!q) return users
@@ -88,10 +80,7 @@ export default function AdminPage() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE))
   const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE)
 
-  function handleSearch(value: string) {
-    setSearch(value)
-    setPage(1) // reset to first page on new search
-  }
+  function handleSearch(value: string) { setSearch(value); setPage(1) }
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
@@ -99,11 +88,8 @@ export default function AdminPage() {
     const token = await getAccessToken()
     if (!token) return
     setError(null); setSuccess(null); setBusyId(user.id)
-
     const prevRole = user.role
-    // Optimistic update
     setUsers((prev) => prev.map((u) => u.id === user.id ? { ...u, role: newRole } : u))
-
     try {
       const res = await fetch(`/api/admin/users/${user.id}/role`, {
         method: 'PATCH',
@@ -129,11 +115,9 @@ export default function AdminPage() {
     const token = await getAccessToken()
     if (!token) return
     setError(null); setSuccess(null); setBusyId(user.id)
-
     const prevDisabled = user.disabled
     const newDisabled = !user.disabled
     setUsers((prev) => prev.map((u) => u.id === user.id ? { ...u, disabled: newDisabled } : u))
-
     try {
       const res = await fetch(`/api/admin/users/${user.id}/status`, {
         method: 'PATCH',
@@ -145,9 +129,7 @@ export default function AdminPage() {
         setUsers((prev) => prev.map((u) => u.id === user.id ? { ...u, disabled: prevDisabled } : u))
         setError(data.error ?? 'Failed to update account status.')
       } else {
-        setSuccess(
-          `${user.email ?? user.username} has been ${newDisabled ? 'disabled' : 're-enabled'}.`,
-        )
+        setSuccess(`${user.email ?? user.username} has been ${newDisabled ? 'disabled' : 're-enabled'}.`)
       }
     } catch {
       setUsers((prev) => prev.map((u) => u.id === user.id ? { ...u, disabled: prevDisabled } : u))
@@ -160,9 +142,7 @@ export default function AdminPage() {
   async function sendPasswordReset(user: AdminUser) {
     const token = await getAccessToken()
     if (!token) return
-    setConfirm(null)
-    setError(null); setSuccess(null); setBusyId(user.id)
-
+    setConfirm(null); setError(null); setSuccess(null); setBusyId(user.id)
     try {
       const res = await fetch(`/api/admin/users/${user.id}/reset-password`, {
         method: 'POST',
@@ -184,9 +164,7 @@ export default function AdminPage() {
   async function deleteUser(user: AdminUser) {
     const token = await getAccessToken()
     if (!token) return
-    setConfirm(null)
-    setError(null); setSuccess(null); setBusyId(user.id)
-
+    setConfirm(null); setError(null); setSuccess(null); setBusyId(user.id)
     try {
       const res = await fetch(`/api/admin/users/${user.id}`, {
         method: 'DELETE',
@@ -198,9 +176,7 @@ export default function AdminPage() {
       } else {
         setUsers((prev) => prev.filter((u) => u.id !== user.id))
         const warn = data.storageWarnings?.join(' ')
-        setSuccess(
-          `${user.email ?? user.username} has been deleted.${warn ? ` Warning: ${warn}` : ''}`,
-        )
+        setSuccess(`${user.email ?? user.username} has been deleted.${warn ? ` Warning: ${warn}` : ''}`)
       }
     } catch {
       setError('Network error — please try again.')
@@ -211,25 +187,21 @@ export default function AdminPage() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  if (loading) return <main style={S.main}><p style={S.muted}>Loading…</p></main>
+  if (loading) return <div style={S.page}><p style={S.muted}>Loading…</p></div>
 
   if (forbidden) {
     return (
-      <main style={S.main}>
+      <div style={S.page}>
         <div style={S.errBanner}>403 — You do not have permission to view this page.</div>
-        <Link href="/meetings" style={{ color: '#0066cc', fontSize: 14 }}>← Back to meetings</Link>
-      </main>
+      </div>
     )
   }
 
   return (
-    <main style={S.main}>
-      {/* Header */}
-      <div style={S.header}>
-        <div>
-          <Link href="/meetings" style={S.back}>← Meetings</Link>
-          <h1 style={S.h1}>Admin — User Management</h1>
-        </div>
+    <div style={S.page}>
+      {/* Page heading */}
+      <div style={S.pageHeader}>
+        <h1 style={S.h1}>User Management</h1>
         <span style={S.adminBadge}>Admin only</span>
       </div>
 
@@ -278,17 +250,11 @@ export default function AdminPage() {
               return (
                 <tr key={u.id} style={u.disabled ? S.disabledRow : undefined}>
                   <td style={S.td}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <div>
-                        <div style={{ fontWeight: 500, fontSize: 13 }}>
-                          {u.email ?? '—'}
-                          {isMe && <span style={S.youBadge}>You</span>}
-                        </div>
-                        {u.username && (
-                          <div style={{ fontSize: 12, color: '#888' }}>@{u.username}</div>
-                        )}
-                      </div>
+                    <div style={{ fontWeight: 500, fontSize: 13 }}>
+                      {u.email ?? '—'}
+                      {isMe && <span style={S.youBadge}>You</span>}
                     </div>
+                    {u.username && <div style={{ fontSize: 12, color: '#888' }}>@{u.username}</div>}
                   </td>
                   <td style={S.td}>
                     <span style={u.role === 'admin' ? S.roleAdmin : S.roleUser}>{u.role}</span>
@@ -305,54 +271,26 @@ export default function AdminPage() {
                   <td style={S.td}>{formatDate(u.created_at)}</td>
                   <td style={S.td}>
                     <div style={S.actionsCell}>
-                      {/* Role toggle */}
                       {u.role === 'user' ? (
-                        <button
-                          style={S.btn}
-                          disabled={busyId === u.id}
-                          onClick={() => { void changeRole(u, 'admin') }}
-                          title="Promote to admin"
-                        >
+                        <button style={S.btn} disabled={busyId === u.id} onClick={() => { void changeRole(u, 'admin') }}>
                           Make admin
                         </button>
                       ) : (
-                        <button
-                          style={S.btn}
-                          disabled={busyId === u.id || isMe}
-                          title={isMe ? 'Cannot demote yourself' : 'Demote to user'}
-                          onClick={() => { void changeRole(u, 'user') }}
-                        >
+                        <button style={S.btn} disabled={busyId === u.id || isMe} title={isMe ? 'Cannot demote yourself' : ''} onClick={() => { void changeRole(u, 'user') }}>
                           Make user
                         </button>
                       )}
-
-                      {/* Enable / Disable */}
                       <button
                         style={{ ...S.btn, color: u.disabled ? '#166534' : '#92400e' }}
                         disabled={busyId === u.id || isMe}
-                        title={isMe ? 'Cannot disable yourself' : u.disabled ? 'Re-enable account' : 'Disable account'}
                         onClick={() => { void toggleStatus(u) }}
                       >
                         {u.disabled ? 'Enable' : 'Disable'}
                       </button>
-
-                      {/* Password reset */}
-                      <button
-                        style={S.btn}
-                        disabled={busyId === u.id || !u.email}
-                        title={!u.email ? 'No email address' : 'Send password reset email'}
-                        onClick={() => setConfirm({ type: 'reset-password', user: u })}
-                      >
+                      <button style={S.btn} disabled={busyId === u.id || !u.email} onClick={() => setConfirm({ type: 'reset-password', user: u })}>
                         Reset pwd
                       </button>
-
-                      {/* Delete */}
-                      <button
-                        style={{ ...S.btn, color: '#991b1b' }}
-                        disabled={busyId === u.id || isMe}
-                        title={isMe ? 'Cannot delete yourself' : 'Delete user permanently'}
-                        onClick={() => setConfirm({ type: 'delete', user: u })}
-                      >
+                      <button style={{ ...S.btn, color: '#991b1b' }} disabled={busyId === u.id || isMe} onClick={() => setConfirm({ type: 'delete', user: u })}>
                         Delete
                       </button>
                     </div>
@@ -362,7 +300,6 @@ export default function AdminPage() {
             })}
           </tbody>
         </table>
-
         {paginated.length === 0 && (
           <p style={{ ...S.muted, padding: '16px 12px' }}>
             {search ? 'No users match your search.' : 'No users found.'}
@@ -373,21 +310,9 @@ export default function AdminPage() {
       {/* Pagination */}
       {totalPages > 1 && (
         <div style={S.pagination}>
-          <button
-            style={S.pageBtn}
-            disabled={page <= 1}
-            onClick={() => setPage((p) => p - 1)}
-          >
-            ← Prev
-          </button>
+          <button style={S.pageBtn} disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>← Prev</button>
           <span style={S.pageLabel}>Page {page} of {totalPages}</span>
-          <button
-            style={S.pageBtn}
-            disabled={page >= totalPages}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            Next →
-          </button>
+          <button style={S.pageBtn} disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>Next →</button>
         </div>
       )}
 
@@ -399,18 +324,13 @@ export default function AdminPage() {
               <>
                 <h3 style={S.dialogTitle}>Delete user?</h3>
                 <p style={S.dialogBody}>
-                  <strong>{confirm.user.email ?? confirm.user.username}</strong>
-                  <br />
+                  <strong>{confirm.user.email ?? confirm.user.username}</strong><br />
                   This permanently deletes the account and all their meetings, transcripts,
                   todos, and recordings. This can&apos;t be undone.
                 </p>
                 <div style={S.dialogActions}>
                   <button style={S.btn} onClick={() => setConfirm(null)}>Cancel</button>
-                  <button
-                    style={S.deleteBtn}
-                    disabled={busyId === confirm.user.id}
-                    onClick={() => { void deleteUser(confirm.user) }}
-                  >
+                  <button style={S.deleteBtn} disabled={busyId === confirm.user.id} onClick={() => { void deleteUser(confirm.user) }}>
                     Delete permanently
                   </button>
                 </div>
@@ -419,17 +339,12 @@ export default function AdminPage() {
               <>
                 <h3 style={S.dialogTitle}>Send password reset?</h3>
                 <p style={S.dialogBody}>
-                  A password-recovery email will be sent to{' '}
-                  <strong>{confirm.user.email}</strong>.
+                  A password-recovery email will be sent to <strong>{confirm.user.email}</strong>.
                   The user will choose a new password via the link in that email.
                 </p>
                 <div style={S.dialogActions}>
                   <button style={S.btn} onClick={() => setConfirm(null)}>Cancel</button>
-                  <button
-                    style={S.primaryBtn}
-                    disabled={busyId === confirm.user.id}
-                    onClick={() => { void sendPasswordReset(confirm.user) }}
-                  >
+                  <button style={S.primaryBtn} disabled={busyId === confirm.user.id} onClick={() => { void sendPasswordReset(confirm.user) }}>
                     Send reset email
                   </button>
                 </div>
@@ -438,28 +353,25 @@ export default function AdminPage() {
           </div>
         </div>
       )}
-    </main>
+    </div>
   )
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short', day: 'numeric', year: 'numeric',
-  })
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 
 const S: Record<string, CSSProperties> = {
-  main: { fontFamily: 'system-ui, sans-serif', maxWidth: 1100, margin: '0 auto', padding: '2rem 1rem' },
-  header: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.5rem' },
-  back: { display: 'block', color: '#0066cc', textDecoration: 'none', fontSize: 13, marginBottom: 6 },
-  h1: { margin: 0, fontSize: 20, fontWeight: 700 },
+  page: { padding: '28px 32px', maxWidth: 1100 },
+  pageHeader: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 },
+  h1: { margin: 0, fontSize: 20, fontWeight: 700, color: '#0f172a' },
   adminBadge: {
-    fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',
-    background: '#fee2e2', color: '#991b1b', padding: '3px 8px', borderRadius: 99, marginTop: 4,
+    fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+    background: '#fee2e2', color: '#991b1b', padding: '3px 8px', borderRadius: 99,
   },
   muted: { color: '#888', fontSize: 14 },
   errBanner: {
@@ -472,69 +384,43 @@ const S: Record<string, CSSProperties> = {
     background: '#f0fff4', border: '1px solid #1a7f37', borderRadius: 6,
     padding: '10px 14px', color: '#166534', fontSize: 14, marginBottom: 12,
   },
-  dismissBtn: {
-    background: 'none', border: 'none', cursor: 'pointer', fontSize: 14,
-    color: 'inherit', opacity: 0.6, padding: '0 2px',
-  },
+  dismissBtn: { background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'inherit', opacity: 0.6, padding: '0 2px' },
   toolbar: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 },
   searchInput: {
     flex: 1, maxWidth: 320, fontSize: 13, padding: '6px 10px',
     border: '1px solid #d0d0d0', borderRadius: 6, outline: 'none',
   },
   countLabel: { fontSize: 13, color: '#888' },
-  tableWrap: { overflowX: 'auto' },
+  tableWrap: { overflowX: 'auto', background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0' },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
   th: {
-    textAlign: 'left', padding: '8px 10px', fontWeight: 600, whiteSpace: 'nowrap',
-    background: '#f8f8f8', borderBottom: '2px solid #eee', color: '#333',
+    textAlign: 'left', padding: '10px 12px', fontWeight: 600, whiteSpace: 'nowrap',
+    background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: 12,
   },
-  td: { padding: '9px 10px', borderBottom: '1px solid #f0f0f0', verticalAlign: 'middle' },
-  disabledRow: { opacity: 0.55 },
+  td: { padding: '10px 12px', borderBottom: '1px solid #f1f5f9', verticalAlign: 'middle' },
+  disabledRow: { opacity: 0.5 },
   youBadge: {
     display: 'inline-block', marginLeft: 6, fontSize: 10, fontWeight: 700,
     background: '#dbeafe', color: '#1d4ed8', padding: '1px 6px', borderRadius: 99,
     textTransform: 'uppercase', letterSpacing: '0.04em',
   },
-  roleAdmin: {
-    display: 'inline-block', fontSize: 11, fontWeight: 700,
-    background: '#dbeafe', color: '#1d4ed8', padding: '2px 7px', borderRadius: 99,
-  },
-  roleUser: {
-    display: 'inline-block', fontSize: 11, fontWeight: 600,
-    background: '#f0f0f0', color: '#555', padding: '2px 7px', borderRadius: 99,
-  },
-  statusActive: { fontSize: 12, color: '#166534' },
+  roleAdmin: { display: 'inline-block', fontSize: 11, fontWeight: 700, background: '#dbeafe', color: '#1d4ed8', padding: '2px 7px', borderRadius: 99 },
+  roleUser:  { display: 'inline-block', fontSize: 11, fontWeight: 600, background: '#f0f0f0', color: '#555', padding: '2px 7px', borderRadius: 99 },
+  statusActive:   { fontSize: 12, color: '#166534' },
   statusDisabled: { fontSize: 12, color: '#991b1b' },
   actionsCell: { display: 'flex', gap: 4, flexWrap: 'wrap' },
   btn: {
     fontSize: 11, padding: '3px 8px', border: '1px solid #d0d0d0',
-    borderRadius: 5, background: '#fff', cursor: 'pointer', color: '#333',
-    whiteSpace: 'nowrap',
+    borderRadius: 5, background: '#fff', cursor: 'pointer', color: '#333', whiteSpace: 'nowrap',
   },
   pagination: { display: 'flex', alignItems: 'center', gap: 12, marginTop: 16, justifyContent: 'center' },
-  pageBtn: {
-    fontSize: 13, padding: '5px 14px', border: '1px solid #d0d0d0',
-    borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#333',
-  },
+  pageBtn: { fontSize: 13, padding: '5px 14px', border: '1px solid #d0d0d0', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#333' },
   pageLabel: { fontSize: 13, color: '#555' },
-  // Dialog
-  overlay: {
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
-  },
-  dialog: {
-    background: '#fff', borderRadius: 10, padding: '24px 28px',
-    maxWidth: 430, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
-  },
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 },
+  dialog: { background: '#fff', borderRadius: 10, padding: '24px 28px', maxWidth: 430, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' },
   dialogTitle: { margin: '0 0 12px', fontSize: 17, fontWeight: 700, color: '#111' },
   dialogBody: { margin: '0 0 20px', fontSize: 14, color: '#444', lineHeight: 1.6 },
   dialogActions: { display: 'flex', gap: 8, justifyContent: 'flex-end' },
-  deleteBtn: {
-    fontSize: 13, padding: '7px 16px', background: '#dc2626', color: '#fff',
-    border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600,
-  },
-  primaryBtn: {
-    fontSize: 13, padding: '7px 16px', background: '#1a7f37', color: '#fff',
-    border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600,
-  },
+  deleteBtn: { fontSize: 13, padding: '7px 16px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600 },
+  primaryBtn: { fontSize: 13, padding: '7px 16px', background: '#1a7f37', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600 },
 }

@@ -1,6 +1,5 @@
 'use client'
 
-import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getCurrentRole, getAccessToken } from '@/lib/supabase/auth'
 
@@ -208,14 +207,13 @@ export default function PipelinePage() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  if (loading) return <main style={S.main}><p style={S.muted}>Loading…</p></main>
+  if (loading) return <div style={S.page}><p style={S.muted}>Loading…</p></div>
 
   if (forbidden) {
     return (
-      <main style={S.main}>
+      <div style={S.page}>
         <div style={S.errBanner}>403 — You do not have permission to view this page.</div>
-        <Link href="/meetings" style={{ color: '#0066cc', fontSize: 14 }}>← Back to meetings</Link>
-      </main>
+      </div>
     )
   }
 
@@ -224,20 +222,11 @@ export default function PipelinePage() {
   const totalPages = Math.max(1, Math.ceil(total / PER_PAGE))
 
   return (
-    <main style={S.main}>
-      {/* Header */}
-      <div style={S.header}>
-        <div>
-          <Link href="/meetings" style={S.back}>← Meetings</Link>
-          <h1 style={S.h1}>Admin — Pipeline Monitor</h1>
-        </div>
+    <div style={S.page}>
+      {/* Page heading */}
+      <div style={S.pageHeader}>
+        <h1 style={S.h1}>Pipeline Monitor</h1>
         <span style={S.adminBadge}>Admin only</span>
-      </div>
-
-      {/* Sub-nav */}
-      <div style={S.subnav}>
-        <Link href="/admin" style={S.subnavLink}>Users</Link>
-        <span style={{ ...S.subnavLink, ...S.subnavActive }}>Pipeline</span>
       </div>
 
       {/* Banners */}
@@ -431,27 +420,20 @@ export default function PipelinePage() {
           </div>
         </div>
       )}
-    </main>
+    </div>
   )
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 const S: Record<string, React.CSSProperties> = {
-  main: { maxWidth: 1100, margin: '0 auto', padding: '24px 20px', fontFamily: 'system-ui, sans-serif' },
-  header: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 },
-  back: { display: 'block', fontSize: 13, color: '#555', textDecoration: 'none', marginBottom: 4 },
-  h1: { margin: 0, fontSize: 22, fontWeight: 700, color: '#111' },
+  page: { padding: '28px 32px', maxWidth: 1100 },
+  pageHeader: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 },
+  h1: { margin: 0, fontSize: 20, fontWeight: 700, color: '#0f172a' },
   adminBadge: {
-    fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',
-    background: '#fee2e2', color: '#991b1b', padding: '3px 8px', borderRadius: 99, marginTop: 4,
+    fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+    background: '#fee2e2', color: '#991b1b', padding: '3px 8px', borderRadius: 99,
   },
-  subnav: { display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid #eee', paddingBottom: 8 },
-  subnavLink: {
-    fontSize: 13, padding: '4px 12px', borderRadius: 6, textDecoration: 'none',
-    color: '#555', background: 'none',
-  },
-  subnavActive: { background: '#1d4ed8', color: '#fff', fontWeight: 600 },
   errBanner: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     background: '#fff0f0', border: '1px solid #f55', borderRadius: 6,
@@ -482,13 +464,13 @@ const S: Record<string, React.CSSProperties> = {
   },
   filterBtnActive: { background: '#1d4ed8', color: '#fff', borderColor: '#1d4ed8', fontWeight: 600 },
   muted: { color: '#9ca3af', fontSize: 13 },
-  tableWrap: { overflowX: 'auto' },
+  tableWrap: { overflowX: 'auto', background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0' },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
   th: {
-    textAlign: 'left', padding: '8px 10px', fontWeight: 600, whiteSpace: 'nowrap',
-    background: '#f8f8f8', borderBottom: '2px solid #eee', color: '#333',
+    textAlign: 'left', padding: '10px 12px', fontWeight: 600, whiteSpace: 'nowrap',
+    background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: 12,
   },
-  td: { padding: '9px 10px', borderBottom: '1px solid #f0f0f0', verticalAlign: 'middle' },
+  td: { padding: '10px 12px', borderBottom: '1px solid #f1f5f9', verticalAlign: 'middle' },
   failedRow: { background: '#fff8f8' },
   statusBadge: {
     display: 'inline-block', fontSize: 11, fontWeight: 700,

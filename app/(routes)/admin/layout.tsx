@@ -1,0 +1,263 @@
+'use client'
+
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import {
+  Shield,
+  Users,
+  Activity,
+  BarChart2,
+  FileText,
+  ArrowLeft,
+} from 'lucide-react'
+
+// ── Nav item definition ───────────────────────────────────────────────────────
+
+type NavItem = {
+  label: string
+  href: string
+  icon: React.ReactNode
+  soon?: boolean
+}
+
+const NAV: NavItem[] = [
+  { label: 'Users',     href: '/admin',          icon: <Users    size={16} /> },
+  { label: 'Pipeline',  href: '/admin/pipeline', icon: <Activity size={16} /> },
+  { label: 'Usage',     href: '/admin/usage',    icon: <BarChart2 size={16} />, soon: true },
+  { label: 'Audit Log', href: '/admin/audit',    icon: <FileText size={16} />, soon: true },
+]
+
+// ── Sidebar ───────────────────────────────────────────────────────────────────
+
+function Sidebar() {
+  const pathname = usePathname()
+
+  function isActive(href: string) {
+    if (href === '/admin') return pathname === '/admin'
+    return pathname.startsWith(href)
+  }
+
+  return (
+    <aside style={S.sidebar}>
+      {/* Brand */}
+      <div style={S.brand}>
+        <div style={S.brandIcon}>
+          <Shield size={18} color="#93c5fd" />
+        </div>
+        <div>
+          <div style={S.brandName}>Ricotdin</div>
+          <div style={S.brandSub}>Admin Panel</div>
+        </div>
+      </div>
+
+      <div style={S.divider} />
+
+      {/* Navigation */}
+      <nav style={S.nav}>
+        <p style={S.navSection}>Navigation</p>
+        {NAV.map((item) => {
+          const active = !item.soon && isActive(item.href)
+          return item.soon ? (
+            <div key={item.href} style={S.navItemDisabled} title="Coming soon">
+              <span style={S.navIcon}>{item.icon}</span>
+              <span style={S.navLabel}>{item.label}</span>
+              <span style={S.soonBadge}>Soon</span>
+            </div>
+          ) : (
+            <Link
+              key={item.href}
+              href={item.href}
+              style={active ? { ...S.navItem, ...S.navItemActive } : S.navItem}
+            >
+              {active && <span style={S.activeBar} />}
+              <span style={S.navIcon}>{item.icon}</span>
+              <span style={S.navLabel}>{item.label}</span>
+            </Link>
+          )
+        })}
+      </nav>
+
+      {/* Footer */}
+      <div style={S.footer}>
+        <div style={S.divider} />
+        <Link href="/meetings" style={S.backLink}>
+          <ArrowLeft size={14} />
+          Back to app
+        </Link>
+      </div>
+    </aside>
+  )
+}
+
+// ── Layout ────────────────────────────────────────────────────────────────────
+
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={S.shell}>
+      <Sidebar />
+      <main style={S.content}>
+        {children}
+      </main>
+    </div>
+  )
+}
+
+// ── Styles ────────────────────────────────────────────────────────────────────
+
+const S: Record<string, React.CSSProperties> = {
+  // Layout shell
+  shell: {
+    display: 'flex',
+    minHeight: '100vh',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    background: '#f1f5f9',
+  },
+  content: {
+    flex: 1,
+    overflow: 'auto',
+    minWidth: 0,
+  },
+
+  // Sidebar
+  sidebar: {
+    width: 240,
+    minWidth: 240,
+    background: '#0f172a',
+    display: 'flex',
+    flexDirection: 'column',
+    minHeight: '100vh',
+    position: 'sticky',
+    top: 0,
+    height: '100vh',
+  },
+
+  // Brand area
+  brand: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '20px 18px 18px',
+  },
+  brandIcon: {
+    width: 34,
+    height: 34,
+    background: '#1e3a5f',
+    borderRadius: 8,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  brandName: {
+    fontSize: 14,
+    fontWeight: 700,
+    color: '#f1f5f9',
+    letterSpacing: '0.02em',
+  },
+  brandSub: {
+    fontSize: 10,
+    color: '#64748b',
+    fontWeight: 500,
+    letterSpacing: '0.06em',
+    textTransform: 'uppercase',
+    marginTop: 1,
+  },
+
+  // Divider
+  divider: {
+    height: 1,
+    background: '#1e293b',
+    margin: '0 16px',
+  },
+
+  // Nav
+  nav: {
+    flex: 1,
+    padding: '16px 0',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+  },
+  navSection: {
+    fontSize: 10,
+    fontWeight: 600,
+    color: '#475569',
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    margin: '0 0 6px',
+    padding: '0 18px',
+  },
+  navItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '9px 18px',
+    borderRadius: 0,
+    textDecoration: 'none',
+    color: '#94a3b8',
+    fontSize: 13,
+    fontWeight: 500,
+    position: 'relative',
+    transition: 'background 0.12s, color 0.12s',
+    cursor: 'pointer',
+  },
+  navItemActive: {
+    background: '#1e293b',
+    color: '#e2e8f0',
+  },
+  navItemDisabled: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '9px 18px',
+    color: '#334155',
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: 'not-allowed',
+    userSelect: 'none',
+  },
+  activeBar: {
+    position: 'absolute',
+    left: 0,
+    top: 4,
+    bottom: 4,
+    width: 3,
+    background: '#3b82f6',
+    borderRadius: '0 2px 2px 0',
+  },
+  navIcon: {
+    display: 'flex',
+    alignItems: 'center',
+    flexShrink: 0,
+    opacity: 0.8,
+  },
+  navLabel: {
+    flex: 1,
+  },
+  soonBadge: {
+    fontSize: 9,
+    fontWeight: 700,
+    letterSpacing: '0.06em',
+    textTransform: 'uppercase',
+    background: '#1e293b',
+    color: '#475569',
+    padding: '2px 6px',
+    borderRadius: 99,
+    border: '1px solid #273549',
+  },
+
+  // Footer
+  footer: {
+    padding: '0 0 8px',
+  },
+  backLink: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '12px 18px',
+    color: '#475569',
+    textDecoration: 'none',
+    fontSize: 12,
+    fontWeight: 500,
+  },
+}
