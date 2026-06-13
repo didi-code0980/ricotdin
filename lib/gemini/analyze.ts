@@ -1,4 +1,4 @@
-// SERVER ONLY — reads GEMINI_API_KEY. Import only from /app/api or server /lib.
+// SERVER ONLY — reads Gemini API keys. Import only from /app/api or server /lib.
 //
 // Step B of the pipeline: pass the transcript text to Gemini Flash (text-only,
 // cheap) and extract summary, meeting notes, todos, and calendar suggestions.
@@ -7,8 +7,8 @@
 
 import { Type, type Schema } from '@google/genai'
 import { log } from '@/lib/logger'
-import { getAIClient, GEMINI_MODEL } from './client'
-import { retryWithBackoff } from './retry'
+import { GEMINI_MODEL } from './client'
+import { geminiPool } from './pool'
 import { PipelineError } from './errors'
 import {
   GeminiAnalysisSchema,
@@ -157,39 +157,38 @@ function parseResult(raw: string): AnalysisResult {
 export async function analyzeTranscript(
   transcript: TranscriptResult,
 ): Promise<AnalysisResult> {
-  const ai = getAIClient()
-
   if (transcript.segments.length === 0) {
     return { summary: '', notes_markdown: '', todos: [], calendar_suggestions: [] }
   }
 
   log(`[analyze] analysing transcript with ${transcript.segments.length} segments`)
 
-  const response = await retryWithBackoff(() =>
-    ai.models.generateContent({
+  return geminiPool.call(async (ai) => {
+    const response = await ai.models.generateContent({
       model: GEMINI_MODEL,
       contents: buildPrompt(transcript.segments),
       config: {
         responseMimeType: 'application/json',
         responseSchema: ANALYSIS_RESPONSE_SCHEMA,
       },
-    }),
-  )
+    })
 
-  try {
-    return parseResult(response.text ?? '')
-  } catch (parseErr) {
-    console.warn('[analyze] first parse failed; retrying with strict prompt:', parseErr)
-    const response2 = await retryWithBackoff(() =>
-      ai.models.generateContent({
+    try {
+      return parseResult(response.text ?? '')
+    } catch (parseErr) {
+      // Prompt-level retry with a stricter instruction on the same key.
+      // PipelineError from parseResult is 'bad-request' in the pool, so a
+      // second parse failure surfaces immediately without key rotation.
+      console.warn('[analyze] first parse failed; retrying with strict prompt:', parseErr)
+      const response2 = await ai.models.generateContent({
         model: GEMINI_MODEL,
         contents: buildPrompt(transcript.segments, true),
         config: {
           responseMimeType: 'application/json',
           responseSchema: ANALYSIS_RESPONSE_SCHEMA,
         },
-      }),
-    )
-    return parseResult(response2.text ?? '')
-  }
+      })
+      return parseResult(response2.text ?? '')
+    }
+  })
 }

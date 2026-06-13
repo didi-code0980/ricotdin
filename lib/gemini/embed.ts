@@ -1,15 +1,17 @@
-// SERVER ONLY — reads GEMINI_API_KEY. Import only from /app/api or server /lib.
+// SERVER ONLY — reads Gemini API keys. Import only from /app/api or server /lib.
 //
 // Batched text embedding using gemini-embedding-001 at 768 dimensions (must
 // match the vector(768) column in transcript_chunks and EMBEDDING_DIMENSION).
+//
+// Each batch is a separate geminiPool.call() so a 429 on batch N doesn't
+// force re-embedding batches 0..N-1.
 
 import { log } from '@/lib/logger'
-import { getAIClient, GEMINI_EMBEDDING_MODEL, EMBEDDING_DIMENSION } from './client'
-import { retryWithBackoff } from './retry'
+import { GEMINI_EMBEDDING_MODEL, EMBEDDING_DIMENSION } from './client'
+import { geminiPool } from './pool'
 import { PipelineError } from './errors'
 
 // Gemini embedding API batch limit (conservative — free tier may be lower).
-// Each call embeds up to this many texts; we loop for larger inputs.
 const BATCH_SIZE = 100
 
 /**
@@ -19,7 +21,6 @@ const BATCH_SIZE = 100
 export async function embedChunks(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return []
 
-  const ai = getAIClient()
   const all: number[][] = []
 
   for (let i = 0; i < texts.length; i += BATCH_SIZE) {
@@ -29,7 +30,7 @@ export async function embedChunks(texts: string[]): Promise<number[][]> {
         `(${batch.length} chunks, total so far ${i})`,
     )
 
-    const response = await retryWithBackoff(() =>
+    const response = await geminiPool.call(ai =>
       ai.models.embedContent({
         model: GEMINI_EMBEDDING_MODEL,
         contents: batch,

@@ -1,14 +1,20 @@
-// SERVER ONLY — reads GEMINI_API_KEY. Import only from /app/api or server /lib.
+// SERVER ONLY — reads Gemini API keys. Import only from /app/api or server /lib.
 //
 // Step A of the pipeline: upload audio via the Gemini Files API, call Flash in
 // JSON mode for full-meeting transcription with speaker diarization, validate
 // the result with Zod, delete the uploaded file, and return TranscriptResult.
+//
+// The entire upload → generate → delete sequence runs inside a single
+// geminiPool.call() so the same API key is used throughout. Gemini Files are
+// scoped to the key that uploaded them — rotating mid-session would break access.
+// If a transport error occurs at any point the pool retries the whole sequence
+// with the next available key (including re-uploading the file).
 
 import { stat } from 'node:fs/promises'
 import { log } from '@/lib/logger'
 import { Type, type Schema, type Part } from '@google/genai'
-import { getAIClient, GEMINI_MODEL } from './client'
-import { retryWithBackoff } from './retry'
+import { GEMINI_MODEL } from './client'
+import { geminiPool } from './pool'
 import { PipelineError } from './errors'
 import {
   GeminiTranscriptSchema,
@@ -123,83 +129,82 @@ export async function transcribeAudio(
   audioPath: string,
   mimeType = 'audio/webm',
 ): Promise<TranscriptResult> {
-  const ai = getAIClient()
+  return geminiPool.call(async (ai) => {
+    // 1. Upload to Gemini Files API (temporary staging, ~48h retention)
+    if (GEMINI_DEBUG) {
+      const fileInfo = await stat(audioPath).catch(() => null)
+      log(
+        `[transcribe:debug] uploading — path=${audioPath} mime=${mimeType}` +
+          (fileInfo ? ` size=${fileInfo.size}bytes` : ' (stat failed)'),
+      )
+    } else {
+      log(`[transcribe] uploading ${audioPath} (${mimeType})`)
+    }
 
-  // 1. Upload to Gemini Files API (temporary staging, ~48h retention)
-  if (GEMINI_DEBUG) {
-    const fileInfo = await stat(audioPath).catch(() => null)
-    log(
-      `[transcribe:debug] uploading — path=${audioPath} mime=${mimeType}` +
-        (fileInfo ? ` size=${fileInfo.size}bytes` : ' (stat failed)'),
-    )
-  } else {
-    log(`[transcribe] uploading ${audioPath} (${mimeType})`)
-  }
-  const geminiFile = await retryWithBackoff(() =>
-    ai.files.upload({
+    const geminiFile = await ai.files.upload({
       file: audioPath,
       config: { mimeType, displayName: 'meeting-audio' },
-    }),
-  )
+    })
 
-  if (!geminiFile.uri) {
-    throw new PipelineError('Gemini file upload succeeded but returned no URI')
-  }
+    if (!geminiFile.uri) {
+      throw new PipelineError('Gemini file upload succeeded but returned no URI')
+    }
 
-  const filePart: Part = {
-    fileData: { fileUri: geminiFile.uri, mimeType: geminiFile.mimeType ?? mimeType },
-  }
+    const filePart: Part = {
+      fileData: { fileUri: geminiFile.uri, mimeType: geminiFile.mimeType ?? mimeType },
+    }
 
-  try {
-    // 2. First transcription attempt
-    log('[transcribe] calling Gemini Flash for transcription')
-    const response = await retryWithBackoff(() =>
-      ai.models.generateContent({
+    try {
+      // 2. First transcription attempt
+      log('[transcribe] calling Gemini Flash for transcription')
+      const response = await ai.models.generateContent({
         model: GEMINI_MODEL,
         contents: [filePart, { text: TRANSCRIBE_PROMPT }],
         config: {
           responseMimeType: 'application/json',
           responseSchema: TRANSCRIPT_RESPONSE_SCHEMA,
         },
-      }),
-    )
+      })
 
-    if (GEMINI_DEBUG) {
-      log(
-        `[transcribe:debug] raw response text (first 800 chars): ` +
-          (response.text ?? '(empty)').slice(0, 800),
-      )
-    }
+      if (GEMINI_DEBUG) {
+        log(
+          `[transcribe:debug] raw response text (first 800 chars): ` +
+            (response.text ?? '(empty)').slice(0, 800),
+        )
+      }
 
-    try {
-      return parseResult(response.text ?? '')
-    } catch (parseErr) {
-      // 3. Retry once with a stricter prompt if parsing failed
-      console.warn('[transcribe] first parse failed; retrying with strict prompt:', parseErr)
-      const response2 = await retryWithBackoff(() =>
-        ai.models.generateContent({
+      try {
+        return parseResult(response.text ?? '')
+      } catch (parseErr) {
+        // 3. Retry once with a stricter prompt if parsing failed.
+        // This is a prompt-level retry on the same key — not a transport retry.
+        // PipelineError from parseResult is classified as 'bad-request' by the
+        // pool, so if this second attempt also fails to parse, it surfaces
+        // immediately without further key rotation.
+        console.warn('[transcribe] first parse failed; retrying with strict prompt:', parseErr)
+        const response2 = await ai.models.generateContent({
           model: GEMINI_MODEL,
           contents: [filePart, { text: TRANSCRIBE_PROMPT_STRICT }],
           config: {
             responseMimeType: 'application/json',
             responseSchema: TRANSCRIPT_RESPONSE_SCHEMA,
           },
-        }),
-      )
-      if (GEMINI_DEBUG) {
-        log(
-          `[transcribe:debug] retry raw response text (first 800 chars): ` +
-            (response2.text ?? '(empty)').slice(0, 800),
-        )
+        })
+        if (GEMINI_DEBUG) {
+          log(
+            `[transcribe:debug] retry raw response text (first 800 chars): ` +
+              (response2.text ?? '(empty)').slice(0, 800),
+          )
+        }
+        return parseResult(response2.text ?? '')
       }
-      return parseResult(response2.text ?? '')
+    } finally {
+      // 4. Delete the uploaded file. It auto-expires in ~48h, but be proactive.
+      if (geminiFile.name) {
+        ai.files.delete({ name: geminiFile.name }).catch((err: unknown) => {
+          console.warn('[transcribe] failed to delete Gemini file:', err)
+        })
+      }
     }
-  } finally {
-    // 4. Delete the uploaded file. It auto-expires in ~48h, but be proactive.
-    if (geminiFile.name) {
-      ai.files.delete({ name: geminiFile.name }).catch((err: unknown) => {
-        console.warn('[transcribe] failed to delete Gemini file:', err)
-      })
-    }
-  }
+  })
 }

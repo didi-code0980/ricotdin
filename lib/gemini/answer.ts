@@ -1,4 +1,4 @@
-// SERVER ONLY — reads GEMINI_API_KEY. Import only from /app/api or server /lib.
+// SERVER ONLY — reads Gemini API keys. Import only from /app/api or server /lib.
 //
 // Generates a grounded answer from retrieved transcript chunks.
 // Answers must be based ONLY on the provided context; invented citations are
@@ -6,8 +6,8 @@
 
 import { Type, type Schema } from '@google/genai'
 import { z } from 'zod'
-import { getAIClient, GEMINI_MODEL } from './client'
-import { retryWithBackoff } from './retry'
+import { GEMINI_MODEL } from './client'
+import { geminiPool } from './pool'
 import type { RetrievedChunk } from '@/lib/rag/retrieve'
 import type { ChatRole, Citation } from '@/types/database'
 
@@ -140,10 +140,9 @@ export async function answerWithContext({
   chunks: RetrievedChunk[]
   history?: HistoryMessage[]
 }): Promise<AnswerResult> {
-  const ai = getAIClient()
   const validChunkIds = new Set(chunks.map((c) => c.id))
 
-  const response = await retryWithBackoff(() =>
+  const response = await geminiPool.call(ai =>
     ai.models.generateContent({
       model: GEMINI_MODEL,
       contents: buildPrompt(question, chunks, history.slice(-4)),
