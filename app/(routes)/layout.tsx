@@ -34,6 +34,9 @@ export default function RoutesLayout({ children }: { children: React.ReactNode }
   }, [router])
 
   if (!ready) {
+    // Admin pages have their own loading state — skip the spinner so the
+    // sidebar doesn't flash with a full-screen loader before the page mounts.
+    if (pathname.startsWith('/admin')) return <>{/* admin layout takes over */}</>
     return (
       <div className="min-h-screen bg-b-bg flex items-center justify-center">
         <span className="text-sm text-b-primary font-sans tracking-widest uppercase animate-pulse">
@@ -42,6 +45,10 @@ export default function RoutesLayout({ children }: { children: React.ReactNode }
       </div>
     )
   }
+
+  // Admin pages have their own full-screen layout (dark sidebar shell).
+  // Return children directly so the admin layout renders without the top nav.
+  if (pathname.startsWith('/admin')) return <>{children}</>
 
   async function handleSignOut() {
     await signOut()
