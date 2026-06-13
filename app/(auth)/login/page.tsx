@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { browserClient } from '@/lib/supabase/browser'
 
@@ -11,6 +11,17 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [checking, setChecking] = useState(true)
+
+  useEffect(() => {
+    browserClient.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        router.replace('/meetings')
+      } else {
+        setChecking(false)
+      }
+    })
+  }, [router])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -46,6 +57,8 @@ export default function LoginPage() {
       setLoading(false)
     }
   }
+
+  if (checking) return null
 
   return (
     <div className="w-full max-w-sm">
