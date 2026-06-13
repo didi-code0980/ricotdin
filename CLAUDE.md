@@ -253,6 +253,24 @@ the `auth.users → profiles` and `auth.users → meetings` FK `ON DELETE CASCAD
 - Delete and password-reset open confirmation dialogs before running.
 - Global success/error banners with dismiss.
 
+## 9d. Admin pipeline monitor design (Phase 10a)
+
+**Endpoints (all server-enforced by `requireAdmin`):**
+- `GET /api/admin/pipeline/overview` — aggregate counts (pending/processing/done/failed/stuck) + avg_processing_secs for done meetings. Fetches all `meetings.status + created_at + updated_at` and computes in JS (service role, no RLS).
+- `GET /api/admin/pipeline/jobs?status=&page=&perPage=` — metadata-only paginated list: id, title, status, created_at, updated_at, duration_seconds, error_message, owner_email, owner_username. `status=stuck` = processing older than 15 min. Never exposes summary/notes/transcript content.
+- `POST /api/admin/pipeline/:id/requeue` — safe re-run for failed/stuck meetings. Steps: (1) verify status is failed or processing, (2) delete transcript_segments + todos + calendar_suggestions (transcript_chunks cascade), (3) reset meetings.status='pending' + clear error_message/summary/notes/language, (4) write `meeting.requeue` audit log, (5) fire `processMeeting()` non-awaited. Returns 422 for pending/done meetings.
+
+**Stuck definition:** `status = 'processing' AND updated_at < now() - 15 minutes`.
+
+**Audit log (migration 005):** `audit_logs` table with actor_id, actor_email, action, target_type, target_id, metadata jsonb, ip_address, user_agent. RLS: admin SELECT only; writes via service role. `lib/admin/audit.ts` exports `writeAuditLog()` (fire-and-forget, never throws) and `requestContext()`.
+
+**UI at `/admin/pipeline`:**
+- Status tiles (Pending/Processing/Stuck/Failed/Done + avg duration) — click a tile to filter the table.
+- Filter tabs + job table: Status badge, Meeting title/id, Owner email/username, Created (GMT+7), Duration, Error snippet, Requeue button (enabled for failed/stuck only).
+- "Requeue all stuck/failed" bulk button with confirmation dialog.
+- 10-second auto-poll; re-fetches on filter/page changes.
+- Sub-nav links: Users | Pipeline (extensible for Usage + Audit in later phases).
+
 ## 10. Working agreement (how to collaborate with me)
 
 - Work in **small increments**, one clear goal per change, each with a concrete
@@ -277,5 +295,8 @@ the `auth.users → profiles` and `auth.users → meetings` FK `ON DELETE CASCAD
 7. ~~**Auth, hardening, deploy**~~ **DONE** (Phase 7 complete — email+password registration/login; username-OR-email login (server-side username→email lookup, never exposed to client); two roles: 'user' (default) and 'admin'; role stored ONLY in `app_metadata` + `profiles` table, NEVER in `user_metadata`; custom access token hook injects `user_role` JWT claim for RLS; column-level privilege blocks normal users from changing their own role; belt-and-suspenders trigger `prevent_role_escalation`; `/admin` page with user list, role toggle, ban/unban — all server-enforced (403 for non-admins); `scripts/seed-admin.ts` for initial admin bootstrap; `lib/auth/validate.ts` with 24 unit tests. Dashboard steps: apply migrations 001–003, enable custom access token hook, disable anonymous sign-ins.)
 8. ~~**Meeting list actions** (pin, rename, delete)~~ **DONE** (Phase 8 complete — `pinned_at timestamptz null` column on meetings (migration 004) with composite sort index; list sort: pinned-first (most-recently-pinned on top), then created_at desc; per-row pin toggle (📌, optimistic), inline rename (optimistic, Enter to save / Escape to cancel), delete with confirmation dialog ("This permanently deletes the meeting…"); `DELETE /api/meetings/:id` removes audio from Storage before the row delete — Storage failure is logged + warned but does not block the row delete; `PATCH /api/meetings/:id` for rename; `PATCH /api/meetings/:id/pin` for pin toggle; all routes ownership-checked server-side. Apply migration 004 in Supabase dashboard.)
 9. ~~**Admin user management**~~ **DONE** (Phase 9 complete — full `/admin` user-management UI + 5 API routes; all routes server-enforced by `requireAdmin` (reads `app_metadata.role`); pure guard functions in `lib/admin/guards.ts` + 21 unit tests; user list with pagination+search+meeting_count+last_sign_in_at; `PATCH /api/admin/users/:id/role` keeps app_metadata+profiles in sync; last-admin guard on demotion/disable/delete; `PATCH /api/admin/users/:id/status` enables/disables via ban_duration; `POST /api/admin/users/:id/reset-password` uses `auth.admin.generateLink({ type: 'recovery' })`; `DELETE /api/admin/users/:id` cleans up Storage audio files before deleting the auth user; UI shows "You" badge on self-row, disables self-action buttons, optimistic role/status updates with revert, confirmation dialogs for delete + password reset. See section 9c for full design.)
+10. ~~**Admin operational — Area 1: Pipeline/Job Monitoring**~~ **DONE** (Phase 10a complete — `migrations/005_audit_logs.sql` (admin-readable, service-role writes, 4 indexes); `lib/admin/audit.ts` central `writeAuditLog()` fire-and-forget helper + `requestContext()` IP/UA extractor; `GET /api/admin/pipeline/overview` aggregate counts (pending/processing/done/failed/stuck) + avg_processing_secs; `GET /api/admin/pipeline/jobs?status=&page=&perPage=` metadata-only paginated list with owner email/username — NO transcript/notes content; `POST /api/admin/pipeline/:id/requeue` safe re-run: clears transcript_segments/todos/calendar_suggestions (transcript_chunks cascade), resets status to pending + clears summary/notes/language, writes audit log entry `meeting.requeue`, fires processMeeting() non-awaited; `/admin/pipeline` UI with status tiles (click to filter), filter tabs, jobs table with Requeue button per failed/stuck row, "Requeue all stuck/failed" with confirmation dialog, 10s auto-poll; 11 new unit tests in `tests/admin-pipeline.test.ts` (admin guard 403, requeue eligibility, audit entry structure). Apply migration 005 in Supabase dashboard.)
+
+**Pending — Area 2 (Cost/Quota/Storage) and Area 3 (Audit Log) remain.**
 
 Keep this section in sync with actual progress; mark phases done as we go.

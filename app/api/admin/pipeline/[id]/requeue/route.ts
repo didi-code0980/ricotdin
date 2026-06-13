@@ -1,0 +1,145 @@
+// POST /api/admin/pipeline/:id/requeue
+//
+// Re-trigger processing for a failed or stuck meeting.
+//
+// Safe re-run strategy:
+//   1. Fetch the meeting (admin sees all — service role).
+//   2. Reject if status is 'pending' (already queued) or 'done' (no need).
+//   3. Delete all child rows that the pipeline inserts, so a second run
+//      produces clean output with no duplicates:
+//        transcript_segments → (transcript_chunks cascades automatically)
+//        todos
+//        calendar_suggestions
+//   4. Reset meetings.status to 'pending' and clear error_message / summary /
+//      notes / language so the UI shows a clean in-progress state.
+//   5. Write an audit log entry.
+//   6. Fire processMeeting() in the background (non-awaited).
+//
+// SECURITY: requires admin role (server-enforced via requireAdmin).
+
+import { NextRequest, NextResponse } from 'next/server'
+import { createServerClient } from '@/lib/supabase/server'
+import { requireAdmin } from '@/lib/auth/server'
+import { processMeeting } from '@/lib/pipeline/processMeeting'
+import { writeAuditLog, requestContext } from '@/lib/admin/audit'
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  let actor
+  try {
+    actor = await requireAdmin(req)
+  } catch (res) {
+    return res as NextResponse
+  }
+
+  const { id: meetingId } = await params
+
+  if (!meetingId) {
+    return NextResponse.json({ error: 'Missing meeting id.' }, { status: 400 })
+  }
+
+  const db = createServerClient()
+
+  // Fetch the meeting — service role bypasses RLS, so any meeting is visible.
+  const { data: meeting, error: fetchErr } = await db
+    .from('meetings')
+    .select('id, status, audio_path, user_id')
+    .eq('id', meetingId)
+    .maybeSingle()
+
+  if (fetchErr) {
+    console.error('[admin/pipeline/requeue] fetch failed:', fetchErr.message)
+    return NextResponse.json({ error: 'Failed to fetch meeting.' }, { status: 500 })
+  }
+
+  if (!meeting) {
+    return NextResponse.json({ error: 'Meeting not found.' }, { status: 404 })
+  }
+
+  if (meeting.status === 'pending') {
+    return NextResponse.json(
+      { error: 'Meeting is already queued for processing.' },
+      { status: 422 },
+    )
+  }
+
+  if (meeting.status === 'done') {
+    return NextResponse.json(
+      { error: 'Meeting is already done. Requeue only applies to failed or stuck jobs.' },
+      { status: 422 },
+    )
+  }
+
+  // ── Clear child rows so the pipeline re-runs cleanly ──────────────────────
+  // transcript_chunks has a FK on transcript_segments with ON DELETE CASCADE,
+  // so deleting segments automatically removes their chunks.
+  // We delete todos and calendar_suggestions explicitly.
+
+  const childDeletes = await Promise.allSettled([
+    db.from('transcript_segments').delete().eq('meeting_id', meetingId),
+    db.from('todos').delete().eq('meeting_id', meetingId),
+    db.from('calendar_suggestions').delete().eq('meeting_id', meetingId),
+  ])
+
+  for (const result of childDeletes) {
+    if (result.status === 'rejected') {
+      console.error('[admin/pipeline/requeue] child delete failed:', result.reason)
+      return NextResponse.json(
+        { error: 'Failed to clear prior pipeline output. Requeue aborted.' },
+        { status: 500 },
+      )
+    }
+    const { error } = result.value
+    if (error) {
+      console.error('[admin/pipeline/requeue] child delete error:', error.message)
+      return NextResponse.json(
+        { error: 'Failed to clear prior pipeline output. Requeue aborted.' },
+        { status: 500 },
+      )
+    }
+  }
+
+  // ── Reset meeting status to 'pending' ─────────────────────────────────────
+  const { error: resetErr } = await db
+    .from('meetings')
+    .update({
+      status: 'pending',
+      error_message: null,
+      summary: null,
+      notes: null,
+      language: null,
+    })
+    .eq('id', meetingId)
+
+  if (resetErr) {
+    console.error('[admin/pipeline/requeue] status reset failed:', resetErr.message)
+    return NextResponse.json({ error: 'Failed to reset meeting status.' }, { status: 500 })
+  }
+
+  // ── Audit log ─────────────────────────────────────────────────────────────
+  const { ipAddress, userAgent } = requestContext(req)
+  void writeAuditLog({
+    actorId: actor.id,
+    actorEmail: actor.email ?? '',
+    action: 'meeting.requeue',
+    targetType: 'meeting',
+    targetId: meetingId,
+    metadata: {
+      previous_status: meeting.status,
+      meeting_owner_id: meeting.user_id,
+    },
+    ipAddress,
+    userAgent,
+  })
+
+  // ── Trigger pipeline in the background ────────────────────────────────────
+  // processMeeting() uses an atomic claim guard (.in('status', ['pending', 'failed']))
+  // so it is safe to call without waiting — no double-processing risk.
+  void processMeeting(meetingId).catch((err: unknown) => {
+    console.error('[admin/pipeline/requeue] background processMeeting failed:', err)
+  })
+
+  return NextResponse.json({ ok: true, meetingId })
+}
