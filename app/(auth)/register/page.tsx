@@ -1,6 +1,5 @@
 'use client'
 
-import type { CSSProperties } from 'react'
 import Link from 'next/link'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -38,7 +37,6 @@ export default function RegisterPage() {
       }
 
       if (data.needsLogin) {
-        // Edge case: account created but auto-sign-in failed — go to login
         router.replace('/login')
         return
       }
@@ -62,115 +60,92 @@ export default function RegisterPage() {
   }
 
   return (
-    <div style={S.card}>
-      <h1 style={S.title}>Create account</h1>
-      <p style={S.sub}>Ricotdin Meeting Assistant</p>
+    <div className="w-full max-w-sm">
+      <div className="bg-white rounded-3xl border border-b-border shadow-b-xl p-8">
+        {/* Wordmark */}
+        <div className="mb-6 text-center">
+          <h1 className="font-serif text-3xl font-bold text-b-fg tracking-tight">
+            Ricot<em className="italic text-b-terra">din</em>
+          </h1>
+          <p className="mt-1 text-sm text-b-primary font-sans tracking-widest uppercase">
+            Meeting Assistant
+          </p>
+        </div>
 
-      <form onSubmit={(e) => { void handleSubmit(e) }} style={S.form}>
-        <label style={S.label}>
-          Email
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoComplete="email"
-            autoFocus
-            style={S.input}
-            placeholder="you@example.com"
-          />
-        </label>
+        <p className="text-center font-serif text-xl font-semibold text-b-fg mb-6">
+          Create your account
+        </p>
 
-        <label style={S.label}>
-          Username
-          <input
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            required
-            autoComplete="username"
-            style={S.input}
-            placeholder="3–30 chars: letters, digits, - or _"
-          />
-        </label>
+        <form onSubmit={(e) => { void handleSubmit(e) }} className="flex flex-col gap-4">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold uppercase tracking-widest text-b-fg/70 font-sans">
+              Email
+            </span>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              autoComplete="email"
+              autoFocus
+              className="input-botanical"
+              placeholder="you@example.com"
+            />
+          </label>
 
-        <label style={S.label}>
-          Password
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            autoComplete="new-password"
-            style={S.input}
-            placeholder="At least 8 characters"
-          />
-        </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold uppercase tracking-widest text-b-fg/70 font-sans">
+              Username
+            </span>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+              autoComplete="username"
+              className="input-botanical"
+              placeholder="3–30 chars: letters, digits, - or _"
+            />
+          </label>
 
-        {error && <p style={S.error}>{error}</p>}
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold uppercase tracking-widest text-b-fg/70 font-sans">
+              Password
+            </span>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete="new-password"
+              className="input-botanical"
+              placeholder="At least 8 characters"
+            />
+          </label>
 
-        <button type="submit" disabled={loading} style={S.btn}>
-          {loading ? 'Creating account…' : 'Create account'}
-        </button>
-      </form>
+          {error && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-2xl px-4 py-2.5">
+              {error}
+            </p>
+          )}
 
-      <p style={S.footer}>
-        Already have an account?{' '}
-        <Link href="/login" style={S.link}>
-          Sign in
-        </Link>
-      </p>
+          <button
+            type="submit"
+            disabled={loading}
+            className="btn-primary mt-1 w-full"
+            style={{ opacity: loading ? 0.65 : 1 }}
+          >
+            {loading ? 'Creating account…' : 'Create account'}
+          </button>
+        </form>
+
+        <p className="text-center text-sm text-b-fg/50 mt-5 font-sans">
+          Already have an account?{' '}
+          <Link href="/login" className="text-b-terra font-medium hover:underline">
+            Sign in
+          </Link>
+        </p>
+      </div>
     </div>
   )
-}
-
-const S: Record<string, CSSProperties> = {
-  card: {
-    background: '#fff',
-    borderRadius: 10,
-    boxShadow: '0 2px 16px rgba(0,0,0,0.08)',
-    padding: '2.5rem 2rem',
-    width: '100%',
-    maxWidth: 400,
-  },
-  title: { margin: '0 0 4px', fontSize: 22, fontWeight: 700, color: '#111' },
-  sub: { margin: '0 0 1.5rem', color: '#777', fontSize: 14 },
-  form: { display: 'flex', flexDirection: 'column', gap: 16 },
-  label: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 5,
-    fontSize: 14,
-    fontWeight: 500,
-    color: '#333',
-  },
-  input: {
-    padding: '8px 10px',
-    fontSize: 14,
-    border: '1px solid #d0d0d0',
-    borderRadius: 6,
-    outline: 'none',
-  },
-  error: {
-    fontSize: 13,
-    color: '#b00020',
-    background: '#fff0f0',
-    border: '1px solid #f5c0c0',
-    borderRadius: 6,
-    padding: '8px 12px',
-    margin: 0,
-  },
-  btn: {
-    padding: '10px',
-    fontSize: 15,
-    fontWeight: 600,
-    background: '#1a7f37',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 6,
-    cursor: 'pointer',
-    marginTop: 4,
-  },
-  footer: { textAlign: 'center', fontSize: 13, color: '#666', marginTop: '1.25rem', marginBottom: 0 },
-  link: { color: '#1a7f37', fontWeight: 500 },
 }

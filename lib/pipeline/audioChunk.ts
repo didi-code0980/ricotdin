@@ -12,6 +12,7 @@
 // finally block cleans the whole directory after processing.
 
 import { extname } from 'node:path'
+import { log } from '@/lib/logger'
 import { transcribeAudio } from '@/lib/gemini/transcribe'
 import { isFfmpegAvailable, transcodeForGemini, transcodeAndChunk } from '@/lib/audio/transcode'
 import { PipelineError } from '@/lib/gemini/errors'
@@ -59,20 +60,20 @@ export async function transcribeWithChunking(
 ): Promise<TranscriptResult> {
   if (durationSeconds <= LONG_AUDIO_THRESHOLD_SECS) {
     if (await isFfmpegAvailable()) {
-      console.log(
+      log(
         `[audioChunk] duration ${Math.round(durationSeconds / 60)}m — transcoding to mp3`,
       )
       const mp3Path = await transcodeForGemini(audioPath, tmpDir)
       return transcribeAudio(mp3Path, 'audio/mp3')
     }
     const mimeType = mimeTypeFromPath(audioPath)
-    console.log(
+    log(
       `[audioChunk] duration ${Math.round(durationSeconds / 60)}m — sending ${mimeType} directly (ffmpeg not installed)`,
     )
     return transcribeAudio(audioPath, mimeType)
   }
 
-  console.log(
+  log(
     `[audioChunk] duration ${Math.round(durationSeconds / 60)}m — long audio, checking ffmpeg`,
   )
 
@@ -85,18 +86,18 @@ export async function transcribeWithChunking(
     )
   }
 
-  console.log(
+  log(
     `[audioChunk] transcoding + splitting into ~${CHUNK_DURATION_SECS / 60}-min mp3 chunks`,
   )
   const chunkFiles = await transcodeAndChunk(audioPath, tmpDir, CHUNK_DURATION_SECS)
-  console.log(`[audioChunk] ${chunkFiles.length} chunk(s) produced`)
+  log(`[audioChunk] ${chunkFiles.length} chunk(s) produced`)
 
   const allSegments: TranscriptResult['segments'] = []
   let language = 'unknown'
   let offsetMs = 0
 
   for (let i = 0; i < chunkFiles.length; i++) {
-    console.log(`[audioChunk] transcribing chunk ${i + 1}/${chunkFiles.length}`)
+    log(`[audioChunk] transcribing chunk ${i + 1}/${chunkFiles.length}`)
     const chunkResult = await transcribeAudio(chunkFiles[i], 'audio/mp3')
 
     if (i === 0) language = chunkResult.language

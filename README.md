@@ -28,9 +28,9 @@ docker build --build-arg NEXT_PUBLIC_SUPABASE_URL="https://zytzbinwojhmmemoxbcr.
 Server-only secrets are injected at runtime and never touch the image:
 
 ```bash
-docker run -d -p 3333:3333  -e SUPABASE_SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp5dHpiaW53b2pobW1lbW94YmNyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDkwMTEzNywiZXhwIjoyMDk2NDc3MTM3fQ.Nvz-jw37cf8Yf2hBzfLZgUhk6zzdFDeD6UmcLxxMJaI" -e GEMINI_API_KEY="AQ.Ab8RN6Kt7WZ3dm6Z879G6nM-83GPyVw0PtWiQFfbhaxtjU94Yw"  --name ricotdin ricotdin
+docker run -d -p 3333:3333  -e SUPABASE_SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp5dHpiaW53b2pobW1lbW94YmNyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDkwMTEzNywiZXhwIjoyMDk2NDc3MTM3fQ.Nvz-jw37cf8Yf2hBzfLZgUhk6zzdFDeD6UmcLxxMJaI" -e GEMINI_API_KEY="AQ.Ab8RN6JUD1pu8rdhweX0mzPl-5juF9d-N4oYzKfuc4yOT-_p0A"  --name ricotdin ricotdin
 ```
-
+AQ.Ab8RN6JUD1pu8rdhweX0mzPl-5juF9d-N4oYzKfuc4yOT-_p0A
 Open **http://localhost:3333**.
 
 ### Using an env file (alternative)

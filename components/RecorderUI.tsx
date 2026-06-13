@@ -1,6 +1,5 @@
 'use client'
 
-import type { CSSProperties } from 'react'
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 import { useRecorder } from '@/lib/audio/useRecorder'
@@ -15,40 +14,29 @@ function formatTime(seconds: number): string {
 
 export default function RecorderUI() {
   const {
-    state,
-    elapsedSeconds,
-    blob,
-    objectUrl,
-    mimeType,
-    trackInfo,
-    error,
-    supported,
-    start,
-    stop,
-    reset,
+    state, elapsedSeconds, blob, objectUrl, mimeType, trackInfo, error,
+    supported, start, stop, reset,
   } = useRecorder()
 
   const [missingCapabilities, setMissingCapabilities] = useState<string[]>([])
   useEffect(() => { setMissingCapabilities(checkRecordingSupport().missingCapabilities) }, [])
+
   const { state: uploadState, meetingId, error: uploadError, upload, reset: resetUpload } = useUpload()
-  // Capture startedAt when recording begins so we pass the right timestamp
   const startedAtRef = useRef<string | null>(null)
 
   // ── Unsupported browser ────────────────────────────────────────────────
+
   if (!supported) {
     return (
-      <div style={S.card}>
-        <h2 style={{ marginTop: 0, color: '#b00020' }}>Browser not supported</h2>
-        <p>This browser is missing required capabilities:</p>
-        <ul style={{ paddingLeft: '1.2em' }}>
-          {missingCapabilities.map((c) => (
-            <li key={c}>{c}</li>
-          ))}
+      <div className="card-botanical">
+        <h2 className="font-serif text-xl font-bold text-red-600 mb-3">Browser not supported</h2>
+        <p className="text-sm text-b-fg/70 font-sans mb-3">This browser is missing required capabilities:</p>
+        <ul className="list-disc pl-5 text-sm text-b-fg/70 font-sans mb-4 space-y-1">
+          {missingCapabilities.map((c) => <li key={c}>{c}</li>)}
         </ul>
-        <p style={{ marginBottom: 0 }}>
-          Use <strong>Chrome 74+</strong> or <strong>Edge 79+</strong>.
-          Firefox and Safari do not reliably expose system/tab audio through
-          the screen-capture API.
+        <p className="text-sm text-b-fg/60 font-sans">
+          Use <strong className="text-b-fg">Chrome 74+</strong> or <strong className="text-b-fg">Edge 79+</strong>.
+          Firefox and Safari do not reliably expose system/tab audio.
         </p>
       </div>
     )
@@ -57,49 +45,49 @@ export default function RecorderUI() {
   const ext = mimeType?.split('/')[1]?.split(';')[0] ?? 'webm'
 
   return (
-    <div style={S.card}>
-      <h2 style={{ marginTop: 0 }}>Recorder</h2>
-
-      {/* ── Pre-start instructions ────────────────────────────────────── */}
+    <div className="card-botanical flex flex-col gap-5">
+      {/* Pre-start instructions */}
       {state === 'idle' && (
-        <div style={S.info}>
-          <strong>Audio-only recording</strong>
-          <ul style={{ margin: '6px 0 0', paddingLeft: '1.4em', lineHeight: 1.7 }}>
+        <div className="bg-b-clay border border-b-border rounded-2xl px-4 py-4 text-sm text-b-fg/70 font-sans leading-relaxed">
+          <p className="font-semibold text-b-fg mb-2">Audio-only recording</p>
+          <ul className="list-disc pl-4 space-y-1.5 text-b-fg/60">
             <li>
-              Captures your <strong>microphone</strong> mixed with{' '}
-              <strong>tab or window audio</strong>. Video is{' '}
-              <strong>never recorded or saved</strong> — it only triggers the
-              browser&apos;s sharing dialog.
+              Captures your <strong className="text-b-fg">microphone</strong> mixed with{' '}
+              <strong className="text-b-fg">tab or window audio</strong>. Video is{' '}
+              <strong className="text-b-fg">never recorded or saved</strong> — it only triggers the browser&apos;s sharing dialog.
             </li>
             <li>
-              In the dialog: choose <em>This Tab</em> (recommended on Chrome),
-              then tick{' '}
-              <strong>&ldquo;Share tab audio&rdquo;</strong> /
-              &ldquo;Share audio&rdquo; before clicking Share. Without that
-              checkbox only your mic is recorded.
+              In the dialog: choose <em>This Tab</em> (recommended on Chrome), then tick{' '}
+              <strong className="text-b-fg">&ldquo;Share tab audio&rdquo;</strong> before clicking Share.
+              Without that checkbox only your mic is recorded.
             </li>
           </ul>
         </div>
       )}
 
-      {/* ── Controls ──────────────────────────────────────────────────── */}
-      <div style={S.row}>
+      {/* Controls */}
+      <div className="flex items-center gap-4">
         {state === 'idle' && (
           <button
-            style={S.btnGreen}
+            className="btn-primary"
             onClick={() => {
               startedAtRef.current = new Date().toISOString()
               void start()
             }}
           >
-            ● Start
+            <span className="text-red-400">●</span> Start recording
           </button>
         )}
 
         {state === 'recording' && (
           <>
-            <span style={S.timer}>⏺ {formatTime(elapsedSeconds)}</span>
-            <button style={S.btnRed} onClick={stop}>
+            <span className="font-mono text-2xl font-bold text-b-terra tracking-widest">
+              ⏺ {formatTime(elapsedSeconds)}
+            </span>
+            <button
+              onClick={stop}
+              className="px-6 py-2.5 rounded-full bg-b-terra text-white text-sm font-semibold uppercase tracking-widest border-0 cursor-pointer hover:opacity-90 transition-opacity"
+            >
               ■ Stop
             </button>
           </>
@@ -107,60 +95,57 @@ export default function RecorderUI() {
 
         {(state === 'stopped' || state === 'error') && (
           <button
-            style={S.btnGrey}
-            onClick={() => {
-              reset()
-              resetUpload()
-              startedAtRef.current = null
-            }}
+            onClick={() => { reset(); resetUpload(); startedAtRef.current = null }}
+            className="btn-secondary"
           >
             ↺ Reset
           </button>
         )}
       </div>
 
-      {/* ── No-system-audio warning ───────────────────────────────────── */}
+      {/* No system audio warning */}
       {state === 'recording' && trackInfo && !trackInfo.hasDisplayAudio && (
-        <div style={S.warn}>
-          ⚠ <strong>No system / display audio detected.</strong> Only your
-          microphone is being recorded. To capture the other participants,
-          stop recording and share again — in the browser&apos;s sharing
-          picker, tick <em>&quot;Share tab audio&quot;</em> or{' '}
-          <em>&quot;Share system audio&quot;</em>.
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-sm text-amber-700 font-sans">
+          <strong>No system audio detected.</strong> Only your microphone is recording.
+          Stop and share again — tick <em>&ldquo;Share tab audio&rdquo;</em> in the picker.
         </div>
       )}
 
-      {/* ── Error ─────────────────────────────────────────────────────── */}
-      {error && <div style={S.err}>✗ {error}</div>}
+      {/* Error */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl px-4 py-3 text-sm text-red-700 font-sans">
+          {error}
+        </div>
+      )}
 
-      {/* ── Playback + download ───────────────────────────────────────── */}
+      {/* Playback + download */}
       {state === 'stopped' && objectUrl && (
-        <div style={{ marginTop: 16 }}>
+        <div className="flex flex-col gap-3">
           {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-          <audio controls src={objectUrl} style={{ width: '100%' }} />
-          <div style={{ ...S.row, marginTop: 10, flexWrap: 'wrap', gap: 10 }}>
+          <audio controls src={objectUrl} className="w-full rounded-xl" />
+          <div className="flex items-center gap-3 flex-wrap">
             <a
               href={objectUrl}
               download={`recording.${ext}`}
-              style={S.link}
+              className="text-sm text-b-primary font-sans hover:underline"
             >
               ↓ Download (.{ext})
             </a>
             {blob && (
-              <span style={S.meta}>
-                {(blob.size / 1024).toFixed(1)} KB &middot; {mimeType}
+              <span className="text-xs text-b-fg/40 font-sans">
+                {(blob.size / 1024).toFixed(1)} KB · {mimeType}
               </span>
             )}
           </div>
         </div>
       )}
 
-      {/* ── Save recording ───────────────────────────────────────────── */}
+      {/* Save recording */}
       {state === 'stopped' && blob && (
-        <div style={{ marginTop: 16, borderTop: '1px solid #eee', paddingTop: 16 }}>
+        <div className="border-t border-b-border pt-5">
           {uploadState === 'idle' && (
             <button
-              style={S.btnBlue}
+              className="btn-primary"
               onClick={() => {
                 void upload(blob, {
                   durationSeconds: elapsedSeconds,
@@ -174,27 +159,22 @@ export default function RecorderUI() {
           )}
 
           {uploadState === 'uploading' && (
-            <p style={{ color: '#555', fontSize: 14, margin: 0 }}>
-              Uploading… please wait
-            </p>
+            <p className="text-sm text-b-fg/50 font-sans animate-pulse">Uploading… please wait</p>
           )}
 
           {uploadState === 'error' && (
-            <div style={S.err}>
-              ✗ {uploadError}
-              <button
-                style={{ ...S.btnGrey, marginLeft: 12, fontSize: 13, padding: '5px 14px' }}
-                onClick={resetUpload}
-              >
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-red-600 font-sans">{uploadError}</span>
+              <button onClick={resetUpload} className="btn-secondary text-xs px-4 py-1.5">
                 Retry
               </button>
             </div>
           )}
 
           {uploadState === 'done' && meetingId && (
-            <div style={S.success}>
+            <div className="bg-b-clay border border-b-primary/30 rounded-2xl px-4 py-3 text-sm text-b-fg font-sans">
               ✓ Saved!{' '}
-              <Link href="/meetings" style={S.link}>
+              <Link href="/meetings" className="text-b-terra font-semibold hover:underline">
                 View all meetings →
               </Link>
             </div>
@@ -202,145 +182,15 @@ export default function RecorderUI() {
         </div>
       )}
 
-      {/* ── Debug area ───────────────────────────────────────────────── */}
-      <details style={{ marginTop: 24 }} open={state === 'error'}>
-        <summary style={{ cursor: 'pointer', color: '#888', fontSize: 13 }}>
-          Debug info (also in browser console as [Recorder] …)
+      {/* Debug info */}
+      <details className="mt-2" open={state === 'error'}>
+        <summary className="cursor-pointer text-xs text-b-fg/30 font-sans hover:text-b-fg/50">
+          Debug info
         </summary>
-        <pre style={S.debug}>
-          {JSON.stringify(
-            {
-              state,
-              elapsedSeconds,
-              trackInfo,
-              mimeType,
-              blobKB: blob ? +(blob.size / 1024).toFixed(1) : null,
-            },
-            null,
-            2,
-          )}
+        <pre className="mt-2 bg-b-clay rounded-xl p-3 text-xs overflow-auto leading-relaxed text-b-fg/60 font-mono">
+          {JSON.stringify({ state, elapsedSeconds, trackInfo, mimeType, blobKB: blob ? +(blob.size / 1024).toFixed(1) : null }, null, 2)}
         </pre>
       </details>
     </div>
   )
-}
-
-// ── Styles ─────────────────────────────────────────────────────────────────
-
-const S: Record<string, CSSProperties> = {
-  card: {
-    fontFamily: 'system-ui, sans-serif',
-    maxWidth: 560,
-    margin: '0 auto',
-    padding: '1.5rem',
-    border: '1px solid #ddd',
-    borderRadius: 8,
-    boxShadow: '0 1px 4px rgba(0,0,0,.07)',
-  },
-  row: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 12,
-  },
-  timer: {
-    fontFamily: 'monospace',
-    fontSize: 22,
-    color: '#c00',
-    minWidth: 72,
-  },
-  btnGreen: {
-    padding: '9px 22px',
-    background: '#1a7f37',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 6,
-    cursor: 'pointer',
-    fontSize: 15,
-    fontWeight: 600,
-  },
-  btnRed: {
-    padding: '9px 22px',
-    background: '#c00',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 6,
-    cursor: 'pointer',
-    fontSize: 15,
-    fontWeight: 600,
-  },
-  btnGrey: {
-    padding: '9px 22px',
-    background: '#555',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 6,
-    cursor: 'pointer',
-    fontSize: 15,
-  },
-  info: {
-    background: '#f0f7ff',
-    border: '1px solid #b8d4f5',
-    borderRadius: 6,
-    padding: '10px 14px',
-    marginBottom: 14,
-    fontSize: 14,
-    lineHeight: 1.5,
-    color: '#1a3a5c',
-  },
-  warn: {
-    background: '#fff8e1',
-    border: '1px solid #e6b800',
-    borderRadius: 6,
-    padding: '10px 14px',
-    marginBottom: 12,
-    fontSize: 14,
-    lineHeight: 1.5,
-  },
-  err: {
-    background: '#fff0f0',
-    border: '1px solid #f55',
-    borderRadius: 6,
-    padding: '10px 14px',
-    marginBottom: 12,
-    color: '#b00020',
-    fontSize: 14,
-  },
-  btnBlue: {
-    padding: '9px 22px',
-    background: '#0066cc',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 6,
-    cursor: 'pointer',
-    fontSize: 15,
-    fontWeight: 600,
-  },
-  success: {
-    background: '#f0fff4',
-    border: '1px solid #2da44e',
-    borderRadius: 6,
-    padding: '10px 14px',
-    color: '#1a7f37',
-    fontSize: 14,
-  },
-  link: {
-    color: '#0066cc',
-    textDecoration: 'none',
-    fontSize: 14,
-    fontWeight: 500,
-  },
-  meta: {
-    color: '#666',
-    fontSize: 13,
-  },
-  debug: {
-    background: '#f5f5f5',
-    padding: 12,
-    borderRadius: 4,
-    fontSize: 12,
-    overflow: 'auto',
-    marginTop: 8,
-    lineHeight: 1.6,
-  },
 }

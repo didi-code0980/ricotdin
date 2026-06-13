@@ -1,6 +1,5 @@
 'use client'
 
-import type { CSSProperties } from 'react'
 import { useState, useEffect, useRef } from 'react'
 import { getAccessToken } from '@/lib/supabase/auth'
 import { browserClient } from '@/lib/supabase/browser'
@@ -18,13 +17,12 @@ export default function ChatPanel({
   onCitationClick,
 }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [sessionId, setSessionId] = useState<string | null>(initialSessionId)
-  const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [sessionId, setSessionId]   = useState<string | null>(initialSessionId)
+  const [input, setInput]           = useState('')
+  const [loading, setLoading]       = useState(false)
+  const [error, setError]           = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  // Load existing messages when a session is resumed
   useEffect(() => {
     if (!sessionId) return
     async function loadHistory() {
@@ -38,7 +36,6 @@ export default function ChatPanel({
     void loadHistory()
   }, [sessionId])
 
-  // Keep the latest message visible
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
@@ -50,7 +47,6 @@ export default function ChatPanel({
     setError(null)
     setLoading(true)
 
-    // Optimistic user message so the UI feels instant
     const optimisticId = `opt-${Date.now()}`
     const optimistic: ChatMessage = {
       id: optimisticId,
@@ -67,10 +63,7 @@ export default function ChatPanel({
       if (!token) { setError('Not signed in.'); return }
       const res = await fetch('/api/chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ message: text, meetingId, sessionId }),
       })
 
@@ -81,12 +74,10 @@ export default function ChatPanel({
       }
 
       if (!res.ok) throw new Error(body.error ?? 'Chat request failed.')
-
       if (body.sessionId) setSessionId(body.sessionId)
       if (body.message) setMessages((prev) => [...prev, body.message!])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong.')
-      // Roll back the optimistic message on failure
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId))
     } finally {
       setLoading(false)
@@ -94,74 +85,59 @@ export default function ChatPanel({
   }
 
   function handleKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      void send()
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() }
   }
 
   return (
-    <div style={S.panel}>
-      <div style={S.thread}>
+    <div className="flex flex-col" style={{ height: 440 }}>
+      {/* Thread */}
+      <div className="flex-1 overflow-y-auto flex flex-col gap-3 pb-2 pr-1">
         {messages.length === 0 && !loading && (
-          <div style={S.emptyHint}>
+          <p className="text-sm text-b-fg/40 font-sans italic text-center mt-12">
             {meetingId
               ? 'Ask anything about this meeting transcript.'
               : 'Ask anything about your meetings.'}
-          </div>
+          </p>
         )}
 
         {messages.map((msg) => (
-          <MessageBubble
-            key={msg.id}
-            message={msg}
-            onCitationClick={onCitationClick}
-          />
+          <MessageBubble key={msg.id} message={msg} onCitationClick={onCitationClick} />
         ))}
 
         {loading && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'flex-start',
-              marginBottom: 12,
-            }}
-          >
-            <div
-              style={{
-                ...S.bubble,
-                ...S.assistant,
-                color: '#999',
-                fontStyle: 'italic',
-              }}
-            >
+          <div className="flex items-start">
+            <div className="max-w-[82%] px-4 py-3 rounded-3xl rounded-bl-md bg-b-clay text-b-fg/50 text-sm font-sans italic">
               Thinking…
             </div>
           </div>
         )}
 
-        {error && <div style={S.errMsg}>✗ {error}</div>}
+        {error && (
+          <p className="text-sm text-red-600 font-sans px-1">{error}</p>
+        )}
+
         <div ref={bottomRef} />
       </div>
 
-      <div style={S.inputRow}>
+      {/* Input row */}
+      <div className="flex gap-2 items-end pt-3 border-t border-b-border">
         <textarea
-          style={S.textarea}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKey}
           placeholder="Ask a question… (Enter to send, Shift+Enter for newline)"
           rows={2}
           disabled={loading}
+          className="flex-1 px-4 py-2.5 rounded-2xl bg-b-clay border border-b-border text-b-fg text-sm font-sans
+                     placeholder:text-b-secondary outline-none resize-none transition-all duration-300
+                     focus:border-b-primary disabled:opacity-50 leading-relaxed"
         />
         <button
-          style={{
-            ...S.sendBtn,
-            opacity: loading || !input.trim() ? 0.5 : 1,
-            cursor: loading || !input.trim() ? 'default' : 'pointer',
-          }}
           onClick={() => void send()}
           disabled={loading || !input.trim()}
+          className="flex-shrink-0 px-5 py-2.5 rounded-full bg-b-fg text-white text-sm font-semibold uppercase tracking-widest
+                     border-0 cursor-pointer transition-all duration-300 hover:opacity-90
+                     disabled:opacity-40 disabled:cursor-default"
         >
           Send
         </button>
@@ -170,9 +146,7 @@ export default function ChatPanel({
   )
 }
 
-// ---------------------------------------------------------------------------
-// MessageBubble
-// ---------------------------------------------------------------------------
+// ── Message bubble ─────────────────────────────────────────────────────────────
 
 function formatMs(ms: number): string {
   const totalSecs = Math.floor(ms / 1000)
@@ -182,37 +156,35 @@ function formatMs(ms: number): string {
 }
 
 function MessageBubble({
-  message,
-  onCitationClick,
+  message, onCitationClick,
 }: {
   message: ChatMessage
   onCitationClick?: (c: Citation) => void
 }) {
   const isUser = message.role === 'user'
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: isUser ? 'flex-end' : 'flex-start',
-        marginBottom: 12,
-      }}
-    >
-      <div style={{ ...S.bubble, ...(isUser ? S.userBubble : S.assistant) }}>
+    <div className={['flex flex-col', isUser ? 'items-end' : 'items-start'].join(' ')}>
+      <div
+        className={[
+          'max-w-[82%] px-4 py-3 text-sm font-sans leading-relaxed whitespace-pre-wrap break-words',
+          isUser
+            ? 'bg-b-fg text-white rounded-3xl rounded-br-md'
+            : 'bg-b-clay text-b-fg rounded-3xl rounded-bl-md',
+        ].join(' ')}
+      >
         {message.content}
       </div>
 
       {!isUser && message.citations.length > 0 && (
-        <div style={S.citationRow}>
-          <span style={{ fontSize: 11, color: '#aaa', alignSelf: 'center' }}>
-            Sources:
-          </span>
+        <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pl-1">
+          <span className="text-xs text-b-fg/30 font-sans">Sources:</span>
           {message.citations.map((c, i) => (
             <button
               key={i}
-              style={S.citationChip}
-              title={`Jump to ${formatMs(c.start_ms)}`}
               onClick={() => onCitationClick?.(c)}
+              title={`Jump to ${formatMs(c.start_ms)}`}
+              className="text-xs font-mono px-2 py-0.5 rounded-lg border border-b-border bg-white text-b-primary
+                         cursor-pointer hover:bg-b-clay hover:border-b-primary transition-colors duration-200"
             >
               {formatMs(c.start_ms)}
             </button>
@@ -221,104 +193,4 @@ function MessageBubble({
       )}
     </div>
   )
-}
-
-// ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const S: Record<string, CSSProperties> = {
-  panel: {
-    display: 'flex',
-    flexDirection: 'column',
-    height: 420,
-    fontFamily: 'system-ui, sans-serif',
-  },
-  thread: {
-    flex: 1,
-    overflowY: 'auto',
-    padding: '4px 0 8px',
-    display: 'flex',
-    flexDirection: 'column',
-  },
-  emptyHint: {
-    color: '#aaa',
-    fontSize: 13,
-    fontStyle: 'italic',
-    textAlign: 'center',
-    marginTop: 48,
-  },
-  bubble: {
-    maxWidth: '82%',
-    padding: '9px 13px',
-    borderRadius: 12,
-    lineHeight: 1.6,
-    whiteSpace: 'pre-wrap',
-    wordBreak: 'break-word',
-    fontSize: 14,
-  },
-  userBubble: {
-    background: '#0066cc',
-    color: '#fff',
-    borderBottomRightRadius: 3,
-  },
-  assistant: {
-    background: '#f2f2f2',
-    color: '#111',
-    borderBottomLeftRadius: 3,
-  },
-  citationRow: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: 5,
-    marginTop: 5,
-    paddingLeft: 2,
-  },
-  citationChip: {
-    fontSize: 11,
-    fontFamily: 'monospace',
-    padding: '2px 7px',
-    borderRadius: 4,
-    border: '1px solid #d0d0d0',
-    background: '#fff',
-    color: '#0066cc',
-    cursor: 'pointer',
-    lineHeight: 1.5,
-  },
-  inputRow: {
-    display: 'flex',
-    gap: 8,
-    alignItems: 'flex-end',
-    paddingTop: 10,
-    borderTop: '1px solid #e8e8e8',
-  },
-  textarea: {
-    flex: 1,
-    padding: '8px 12px',
-    border: '1px solid #d8d8d8',
-    borderRadius: 8,
-    resize: 'none',
-    fontSize: 14,
-    fontFamily: 'system-ui, sans-serif',
-    lineHeight: 1.5,
-    outline: 'none',
-  },
-  sendBtn: {
-    padding: '9px 18px',
-    background: '#0066cc',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 8,
-    fontSize: 14,
-    fontWeight: 600,
-    flexShrink: 0,
-    alignSelf: 'flex-end',
-  },
-  errMsg: {
-    color: '#b00020',
-    fontSize: 13,
-    padding: '4px 4px',
-    marginTop: 4,
-  },
 }

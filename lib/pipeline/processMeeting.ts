@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { join, extname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
+import { log } from '@/lib/logger'
 import { createServerClient } from '@/lib/supabase/server'
 import { analyzeTranscript } from '@/lib/gemini/analyze'
 import { embedChunks } from '@/lib/gemini/embed'
@@ -46,11 +47,11 @@ export async function processMeeting(meetingId: string): Promise<void> {
     .maybeSingle()
 
   if (!claimed) {
-    console.log(`[pipeline] ${meetingId}: not claimable (already processing/done or missing)`)
+    log(`[pipeline] ${meetingId}: not claimable (already processing/done or missing)`)
     return
   }
 
-  console.log(`[pipeline] ${meetingId}: starting processing`)
+  log(`[pipeline] ${meetingId}: starting processing`)
   let tmpAudioPath: string | null = null
   let chunkDir: string | null = null
 
@@ -61,7 +62,7 @@ export async function processMeeting(meetingId: string): Promise<void> {
       throw new Error('Meeting has no audio_path — cannot process')
     }
 
-    console.log(`[pipeline] ${meetingId}: downloading audio from storage`)
+    log(`[pipeline] ${meetingId}: downloading audio from storage`)
     const { data: audioBlob, error: dlError } = await db.storage
       .from(BUCKET)
       .download(audioPath)
@@ -76,7 +77,7 @@ export async function processMeeting(meetingId: string): Promise<void> {
     tmpAudioPath = join(tmpdir(), `meeting-${randomUUID()}${ext}`)
     const audioBuffer = Buffer.from(await audioBlob.arrayBuffer())
     await writeFile(tmpAudioPath, audioBuffer)
-    console.log(`[pipeline] ${meetingId}: audio written to ${tmpAudioPath} (${audioBuffer.length} bytes)`)
+    log(`[pipeline] ${meetingId}: audio written to ${tmpAudioPath} (${audioBuffer.length} bytes)`)
 
     // ── Step A: Transcription ─────────────────────────────────────────────
     // transcribeWithChunking handles:
@@ -86,7 +87,7 @@ export async function processMeeting(meetingId: string): Promise<void> {
     const durationSecs = claimed.duration_seconds ?? 0
     chunkDir = join(tmpdir(), `meeting-${meetingId}-chunks`)
     const transcript = await transcribeWithChunking(tmpAudioPath, durationSecs, chunkDir)
-    console.log(
+    log(
       `[pipeline] ${meetingId}: transcript done — ` +
         `${transcript.segments.length} segments, language=${transcript.language}`,
     )
@@ -104,7 +105,7 @@ export async function processMeeting(meetingId: string): Promise<void> {
           language: transcript.language,
         })
         .eq('id', meetingId)
-      console.log(`[pipeline] ${meetingId}: done (empty transcript — no speech detected)`)
+      log(`[pipeline] ${meetingId}: done (empty transcript — no speech detected)`)
       return
     }
 
@@ -138,7 +139,7 @@ export async function processMeeting(meetingId: string): Promise<void> {
 
     // ── Step B: Analysis ──────────────────────────────────────────────────
     const analysis = await analyzeTranscript(transcript)
-    console.log(
+    log(
       `[pipeline] ${meetingId}: analysis done — ` +
         `${analysis.todos.length} todos, ${analysis.calendar_suggestions.length} calendar suggestions`,
     )
@@ -189,7 +190,7 @@ export async function processMeeting(meetingId: string): Promise<void> {
 
     // ── RAG: chunk + embed + insert transcript_chunks ─────────────────────
     const chunks = chunkSegments(transcript.segments)
-    console.log(`[pipeline] ${meetingId}: ${chunks.length} RAG chunks, embedding…`)
+    log(`[pipeline] ${meetingId}: ${chunks.length} RAG chunks, embedding…`)
 
     if (chunks.length > 0) {
       const vectors = await embedChunks(chunks.map((c) => c.content))
@@ -210,7 +211,7 @@ export async function processMeeting(meetingId: string): Promise<void> {
 
     // ── Mark done ─────────────────────────────────────────────────────────
     await db.from('meetings').update({ status: 'done' }).eq('id', meetingId)
-    console.log(`[pipeline] ${meetingId}: done ✓`)
+    log(`[pipeline] ${meetingId}: done ✓`)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error(`[pipeline] ${meetingId}: FAILED —`, message)

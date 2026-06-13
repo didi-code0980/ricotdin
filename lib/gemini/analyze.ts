@@ -6,6 +6,7 @@
 // to the transcript_segments rows inserted in Step A.
 
 import { Type, type Schema } from '@google/genai'
+import { log } from '@/lib/logger'
 import { getAIClient, GEMINI_MODEL } from './client'
 import { retryWithBackoff } from './retry'
 import { PipelineError } from './errors'
@@ -162,7 +163,7 @@ export async function analyzeTranscript(
     return { summary: '', notes_markdown: '', todos: [], calendar_suggestions: [] }
   }
 
-  console.log(`[analyze] analysing transcript with ${transcript.segments.length} segments`)
+  log(`[analyze] analysing transcript with ${transcript.segments.length} segments`)
 
   const response = await retryWithBackoff(() =>
     ai.models.generateContent({

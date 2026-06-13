@@ -3,6 +3,7 @@
 // Batched text embedding using gemini-embedding-001 at 768 dimensions (must
 // match the vector(768) column in transcript_chunks and EMBEDDING_DIMENSION).
 
+import { log } from '@/lib/logger'
 import { getAIClient, GEMINI_EMBEDDING_MODEL, EMBEDDING_DIMENSION } from './client'
 import { retryWithBackoff } from './retry'
 import { PipelineError } from './errors'
@@ -23,7 +24,7 @@ export async function embedChunks(texts: string[]): Promise<number[][]> {
 
   for (let i = 0; i < texts.length; i += BATCH_SIZE) {
     const batch = texts.slice(i, i + BATCH_SIZE)
-    console.log(
+    log(
       `[embed] embedding batch ${Math.floor(i / BATCH_SIZE) + 1} ` +
         `(${batch.length} chunks, total so far ${i})`,
     )

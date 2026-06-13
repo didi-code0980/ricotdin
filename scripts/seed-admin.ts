@@ -20,7 +20,8 @@
  * self-promote; call this script manually for the initial admin account.
  */
 
-import 'dotenv/config'
+import { config } from 'dotenv'
+config({ path: '.env.local' })
 import { createClient } from '@supabase/supabase-js'
 
 async function main() {

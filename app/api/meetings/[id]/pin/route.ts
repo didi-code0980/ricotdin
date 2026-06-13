@@ -26,12 +26,16 @@ export async function PATCH(
   const { id: meetingId } = await params
   const db = createServerClient()
 
-  const { data: meeting } = await db
+  const { data: meeting, error: selectErr } = await db
     .from('meetings')
     .select('id, user_id, pinned_at')
     .eq('id', meetingId)
     .maybeSingle()
 
+  if (selectErr) {
+    console.error('[meetings/pin] select failed:', selectErr.message)
+    return NextResponse.json({ error: 'Database error: ' + selectErr.message }, { status: 500 })
+  }
   if (!meeting) return NextResponse.json({ error: 'Meeting not found.' }, { status: 404 })
   if (meeting.user_id !== caller.id) return NextResponse.json({ error: 'Forbidden.' }, { status: 403 })
 

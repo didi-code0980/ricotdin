@@ -5,6 +5,7 @@
 // the result with Zod, delete the uploaded file, and return TranscriptResult.
 
 import { stat } from 'node:fs/promises'
+import { log } from '@/lib/logger'
 import { Type, type Schema, type Part } from '@google/genai'
 import { getAIClient, GEMINI_MODEL } from './client'
 import { retryWithBackoff } from './retry'
@@ -91,7 +92,7 @@ function parseResult(raw: string): TranscriptResult {
   }
 
   const { language, segments } = result.data
-  console.log(`[transcribe] parsed: language=${language}, segments=${segments.length}`)
+  log(`[transcribe] parsed: language=${language}, segments=${segments.length}`)
   if (segments.length === 0) {
     console.warn('[transcribe] Gemini returned 0 segments — audio may be silent, too short, or in an unsupported codec')
   }
@@ -127,12 +128,12 @@ export async function transcribeAudio(
   // 1. Upload to Gemini Files API (temporary staging, ~48h retention)
   if (GEMINI_DEBUG) {
     const fileInfo = await stat(audioPath).catch(() => null)
-    console.log(
+    log(
       `[transcribe:debug] uploading — path=${audioPath} mime=${mimeType}` +
         (fileInfo ? ` size=${fileInfo.size}bytes` : ' (stat failed)'),
     )
   } else {
-    console.log(`[transcribe] uploading ${audioPath} (${mimeType})`)
+    log(`[transcribe] uploading ${audioPath} (${mimeType})`)
   }
   const geminiFile = await retryWithBackoff(() =>
     ai.files.upload({
@@ -151,7 +152,7 @@ export async function transcribeAudio(
 
   try {
     // 2. First transcription attempt
-    console.log('[transcribe] calling Gemini Flash for transcription')
+    log('[transcribe] calling Gemini Flash for transcription')
     const response = await retryWithBackoff(() =>
       ai.models.generateContent({
         model: GEMINI_MODEL,
@@ -164,7 +165,7 @@ export async function transcribeAudio(
     )
 
     if (GEMINI_DEBUG) {
-      console.log(
+      log(
         `[transcribe:debug] raw response text (first 800 chars): ` +
           (response.text ?? '(empty)').slice(0, 800),
       )
@@ -186,7 +187,7 @@ export async function transcribeAudio(
         }),
       )
       if (GEMINI_DEBUG) {
-        console.log(
+        log(
           `[transcribe:debug] retry raw response text (first 800 chars): ` +
             (response2.text ?? '(empty)').slice(0, 800),
         )

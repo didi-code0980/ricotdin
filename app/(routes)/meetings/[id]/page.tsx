@@ -1,6 +1,6 @@
 'use client'
 
-import type { CSSProperties, RefObject } from 'react'
+import type { RefObject } from 'react'
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
@@ -57,13 +57,8 @@ function formatDuration(seconds: number): string {
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
+    weekday: 'long', month: 'long', day: 'numeric',
+    year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
   })
 }
 
@@ -71,12 +66,8 @@ function formatProposedAt(iso: string | null): string {
   if (!iso) return 'No time specified'
   try {
     return new Date(iso).toLocaleString('en-US', {
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
+      month: 'long', day: 'numeric', year: 'numeric',
+      hour: 'numeric', minute: '2-digit', hour12: true,
     })
   } catch {
     return iso
@@ -89,18 +80,18 @@ export default function MeetingDetailPage() {
   const params = useParams()
   const meetingId = typeof params.id === 'string' ? params.id : ''
 
-  const [data, setData] = useState<PageData>({ tag: 'loading' })
-  const [todoStatuses, setTodoStatuses] = useState<Record<string, TodoStatus>>({})
-  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set())
+  const [data, setData]                         = useState<PageData>({ tag: 'loading' })
+  const [todoStatuses, setTodoStatuses]         = useState<Record<string, TodoStatus>>({})
+  const [dismissedIds, setDismissedIds]         = useState<Set<string>>(new Set())
   const [dismissedTodoIds, setDismissedTodoIds] = useState<Set<string>>(new Set())
-  const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [audioUrl, setAudioUrl]                 = useState<string | null>(null)
   const [highlightedSegIndex, setHighlightedSegIndex] = useState<number | null>(null)
-  const [rerunning, setRerunning] = useState(false)
-  const [reloadKey, setReloadKey] = useState(0)
+  const [rerunning, setRerunning]               = useState(false)
+  const [reloadKey, setReloadKey]               = useState(0)
+  const [chatOpen, setChatOpen]                 = useState(false)
+  const [showScrollTop, setShowScrollTop]       = useState(false)
 
   const audioRef = useRef<HTMLAudioElement>(null)
-
-  // Derived: stable reference to audio_path for useEffect dep comparison
   const audioPath = data.tag === 'done' ? data.meeting.audio_path : null
 
   // ── Data loading with polling ───────────────────────────────────────────────
@@ -110,116 +101,82 @@ export default function MeetingDetailPage() {
     let cancelled = false
     const timers: ReturnType<typeof setTimeout>[] = []
 
-    async function load(silent = false) {
+    async function load() {
       try {
         const { data: meeting, error: meetErr } = await browserClient
-          .from('meetings')
-          .select('*')
-          .eq('id', meetingId)
-          .maybeSingle()
+          .from('meetings').select('*').eq('id', meetingId).maybeSingle()
 
         if (cancelled) return
-
-        if (meetErr) {
-          setData({ tag: 'error', message: meetErr.message })
-          return
-        }
-        if (!meeting) {
-          setData({ tag: 'not-found' })
-          return
-        }
+        if (meetErr) { setData({ tag: 'error', message: meetErr.message }); return }
+        if (!meeting) { setData({ tag: 'not-found' }); return }
 
         if (IN_FLIGHT.includes(meeting.status)) {
           setData({ tag: 'inflight', meeting })
-          timers.push(setTimeout(() => void load(true), POLL_MS))
+          timers.push(setTimeout(() => void load(), POLL_MS))
           return
         }
 
-        if (meeting.status === 'failed') {
-          setData({ tag: 'failed', meeting })
-          return
-        }
+        if (meeting.status === 'failed') { setData({ tag: 'failed', meeting }); return }
 
-        // status === 'done' — fetch all related data in parallel
         const [segR, todoR, calR] = await Promise.all([
-          browserClient
-            .from('transcript_segments')
-            .select('*')
-            .eq('meeting_id', meetingId)
-            .order('segment_index'),
-          browserClient
-            .from('todos')
-            .select('*')
-            .eq('meeting_id', meetingId)
-            .order('created_at'),
-          browserClient
-            .from('calendar_suggestions')
-            .select('*')
-            .eq('meeting_id', meetingId)
-            .order('created_at'),
+          browserClient.from('transcript_segments').select('*').eq('meeting_id', meetingId).order('segment_index'),
+          browserClient.from('todos').select('*').eq('meeting_id', meetingId).order('created_at'),
+          browserClient.from('calendar_suggestions').select('*').eq('meeting_id', meetingId).order('created_at'),
         ])
 
         if (cancelled) return
-
         const segments = (segR.data ?? []) as TranscriptSegment[]
-        const todos = (todoR.data ?? []) as Todo[]
-        const calSugs = (calR.data ?? []) as CalendarSuggestion[]
+        const todos    = (todoR.data ?? []) as Todo[]
+        const calSugs  = (calR.data ?? []) as CalendarSuggestion[]
 
         setTodoStatuses(Object.fromEntries(todos.map((t) => [t.id, t.status])))
         setDismissedIds(new Set(calSugs.filter((c) => c.dismissed).map((c) => c.id)))
         setData({ tag: 'done', meeting, segments, todos, calSugs })
       } catch (err) {
         if (cancelled) return
-        setData({
-          tag: 'error',
-          message: err instanceof Error ? err.message : 'Failed to load meeting.',
-        })
+        setData({ tag: 'error', message: err instanceof Error ? err.message : 'Failed to load meeting.' })
       }
     }
 
     void load()
-    return () => {
-      cancelled = true
-      timers.forEach(clearTimeout)
-    }
+    return () => { cancelled = true; timers.forEach(clearTimeout) }
   }, [meetingId, reloadKey])
 
   // ── Audio signed URL ────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (!audioPath || !meetingId) {
-      setAudioUrl(null)
-      return
-    }
+    if (!audioPath || !meetingId) { setAudioUrl(null); return }
     let cancelled = false
-
     async function fetchUrl() {
       try {
         const token = await getAccessToken()
-      if (!token) return
+        if (!token) return
         const res = await fetch(`/api/audio-url/${meetingId}`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (!res.ok || cancelled) return
         const body = (await res.json()) as { url?: string }
         if (!cancelled && body.url) setAudioUrl(body.url)
-      } catch {
-        // Non-fatal — player stays hidden gracefully
-      }
+      } catch { /* non-fatal */ }
     }
-
     void fetchUrl()
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [audioPath, meetingId])
+
+  // ── Scroll-to-top visibility ────────────────────────────────────────────────
+
+  useEffect(() => {
+    function onScroll() { setShowScrollTop(window.scrollY > 400) }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   function seekTo(ms: number) {
     if (!audioRef.current) return
     audioRef.current.currentTime = ms / 1000
-    audioRef.current.play().catch(() => undefined) // autoplay policy may block this
+    audioRef.current.play().catch(() => undefined)
   }
 
   function scrollToSegment(segmentId: string | null, segments: TranscriptSegment[]) {
@@ -227,19 +184,14 @@ export default function MeetingDetailPage() {
     const seg = segments.find((s) => s.id === segmentId)
     if (!seg) return
     setHighlightedSegIndex(seg.segment_index)
-    document
-      .getElementById(`seg-${seg.segment_index}`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    document.getElementById(`seg-${seg.segment_index}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     setTimeout(() => setHighlightedSegIndex(null), 2_000)
   }
 
   function handleCitationClick(citation: Citation, segments: TranscriptSegment[]) {
-    // Find the transcript segment nearest to the citation's start_ms and scroll to it
     if (segments.length === 0) return
     const nearest = segments.reduce((best, seg) =>
-      Math.abs(seg.start_ms - citation.start_ms) < Math.abs(best.start_ms - citation.start_ms)
-        ? seg
-        : best,
+      Math.abs(seg.start_ms - citation.start_ms) < Math.abs(best.start_ms - citation.start_ms) ? seg : best,
     )
     seekTo(citation.start_ms)
     scrollToSegment(nearest.id, segments)
@@ -274,11 +226,7 @@ export default function MeetingDetailPage() {
       })
       if (!res.ok) throw new Error('dismiss failed')
     } catch {
-      setDismissedIds((prev) => {
-        const s = new Set(prev)
-        s.delete(suggestionId)
-        return s
-      })
+      setDismissedIds((prev) => { const s = new Set(prev); s.delete(suggestionId); return s })
     }
   }
 
@@ -294,11 +242,7 @@ export default function MeetingDetailPage() {
       })
       if (!res.ok) throw new Error('dismiss failed')
     } catch {
-      setDismissedTodoIds((prev) => {
-        const s = new Set(prev)
-        s.delete(todoId)
-        return s
-      })
+      setDismissedTodoIds((prev) => { const s = new Set(prev); s.delete(todoId); return s })
     }
   }
 
@@ -311,18 +255,13 @@ export default function MeetingDetailPage() {
       })
       if (!res.ok) return
       const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = title.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase().slice(0, 60) || 'event'
-      a.download += '.ics'
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = (title.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase().slice(0, 60) || 'event') + '.ics'
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
       URL.revokeObjectURL(url)
-    } catch {
-      // Silent — user can retry
-    }
+    } catch { /* silent */ }
   }
 
   async function rerunProcessing() {
@@ -342,9 +281,7 @@ export default function MeetingDetailPage() {
         )
         setReloadKey((k) => k + 1)
       }
-    } catch {
-      // Ignore — user can click the button again
-    } finally {
+    } catch { /* ignore */ } finally {
       setRerunning(false)
     }
   }
@@ -353,36 +290,22 @@ export default function MeetingDetailPage() {
 
   return (
     <>
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.55; } }
-        .md-body p { margin: 0 0 0.75em; }
-        .md-body h1,.md-body h2,.md-body h3 { margin: 1em 0 0.4em; font-weight: 700; color: #111; }
-        .md-body h1 { font-size: 1.05em; }
-        .md-body h2 { font-size: 1em; }
-        .md-body h3 { font-size: 0.95em; color: #333; }
-        .md-body ul,.md-body ol { margin: 0 0 0.75em; padding-left: 1.4em; }
-        .md-body li { margin-bottom: 0.25em; }
-        .md-body strong { font-weight: 700; }
-        .md-body em { font-style: italic; }
-        .md-body code { background:#f5f5f5; padding:1px 5px; border-radius:3px; font-size:92%; font-family:monospace; }
-        .md-body pre { background:#f5f5f5; padding:12px; border-radius:6px; overflow:auto; margin:0 0 0.75em; }
-        .md-body pre code { background:none; padding:0; }
-        .md-body blockquote { margin:0 0 0.75em; padding-left:1em; border-left:3px solid #ddd; color:#555; }
-        .todo-row:last-child,.cal-row:last-child { border-bottom:none; }
-      `}</style>
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
+        <Link
+          href="/meetings"
+          className="inline-flex items-center gap-1.5 text-xs text-b-fg/50 font-sans uppercase tracking-widest hover:text-b-terra transition-colors duration-300 mb-6"
+        >
+          ← All meetings
+        </Link>
 
-      <main style={S.main}>
-        <Link href="/meetings" style={S.back}>← All meetings</Link>
-
-        {data.tag === 'loading' && <SkeletonLoader />}
+        {data.tag === 'loading'  && <SkeletonLoader />}
         {data.tag === 'not-found' && <NotFoundView />}
-        {data.tag === 'error' && <ErrorView message={data.message} />}
+        {data.tag === 'error'    && <ErrorView message={data.message} />}
         {data.tag === 'inflight' && <ProcessingView meeting={data.meeting} />}
-        {data.tag === 'failed' && (
+        {data.tag === 'failed'   && (
           <FailedView meeting={data.meeting} rerunning={rerunning} onRerun={rerunProcessing} />
         )}
-        {data.tag === 'done' && (
+        {data.tag === 'done'     && (
           <DoneView
             meeting={data.meeting}
             segments={data.segments}
@@ -403,7 +326,90 @@ export default function MeetingDetailPage() {
             onCitationClick={(c) => handleCitationClick(c, data.segments)}
           />
         )}
-      </main>
+      </div>
+
+      {/* ── Scroll to top ──────────────────────────────────────────────────── */}
+      <button
+        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        aria-label="Back to top"
+        title="Back to top"
+        className={[
+          'fixed bottom-6 right-[88px] z-50 w-11 h-11 rounded-full bg-b-fg text-white',
+          'flex items-center justify-center shadow-lg transition-all duration-300 hover:opacity-90',
+          showScrollTop ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
+        ].join(' ')}
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5 12 3m0 0 7.5 7.5M12 3v18" />
+        </svg>
+      </button>
+
+      {/* ── Floating chat ─────────────────────────────────────────────────── */}
+      {data.tag === 'done' && (
+        <>
+          {/* Panel */}
+          <div
+            className={[
+              'fixed bottom-[88px] right-6 z-50 w-80 sm:w-96',
+              'bg-white rounded-3xl border border-b-border overflow-hidden flex flex-col',
+              'shadow-2xl transition-all duration-300 origin-bottom-right',
+              chatOpen
+                ? 'opacity-100 scale-100 pointer-events-auto'
+                : 'opacity-0 scale-95 pointer-events-none',
+            ].join(' ')}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-b-border bg-b-clay/50 flex-shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-b-fg/10 flex items-center justify-center flex-shrink-0">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 text-b-fg/70">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="font-sans font-semibold text-sm text-b-fg leading-tight">Ask about this meeting</p>
+                  <p className="text-xs text-b-fg/40 font-sans">AI-powered Q&amp;A</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setChatOpen(false)}
+                className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-b-clay transition-colors text-b-fg/40 hover:text-b-fg"
+                aria-label="Close chat"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Chat panel body */}
+            <div className="px-4 pb-4 pt-3">
+              <ChatPanel
+                meetingId={data.meeting.id}
+                onCitationClick={(c) => handleCitationClick(c, data.segments)}
+              />
+            </div>
+          </div>
+
+          {/* Chat toggle button */}
+          <button
+            onClick={() => setChatOpen((prev) => !prev)}
+            title={chatOpen ? 'Close chat' : 'Ask about this meeting'}
+            aria-label={chatOpen ? 'Close chat' : 'Ask about this meeting'}
+            className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-b-fg text-white flex items-center justify-center shadow-xl transition-all duration-300 hover:opacity-90"
+          >
+            {chatOpen ? (
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+              </svg>
+            )}
+          </button>
+        </>
+      )}
     </>
   )
 }
@@ -411,51 +417,50 @@ export default function MeetingDetailPage() {
 // ── Loading / error views ─────────────────────────────────────────────────────
 
 function SkeletonLoader() {
-  const bar = (w: string, h: number, mb = 12): CSSProperties => ({
-    width: w,
-    height: h,
-    marginBottom: mb,
-    borderRadius: 6,
-    background: '#ebebeb',
-    animation: 'pulse 1.4s ease-in-out infinite',
-  })
   return (
-    <div style={{ marginTop: 24 }}>
-      <div style={bar('58%', 30, 10)} />
-      <div style={bar('38%', 16, 32)} />
-      <div style={bar('100%', 70, 14)} />
-      <div style={bar('100%', 130, 14)} />
-      <div style={bar('100%', 200)} />
+    <div className="flex flex-col gap-3 mt-4">
+      <div className="h-9 w-2/3 rounded-2xl bg-b-clay animate-pulse" />
+      <div className="h-4 w-1/3 rounded-xl bg-b-clay animate-pulse" />
+      <div className="mt-4 h-24 rounded-3xl bg-b-clay animate-pulse" />
+      <div className="h-36 rounded-3xl bg-b-clay animate-pulse" />
+      <div className="h-52 rounded-3xl bg-b-clay animate-pulse" />
     </div>
   )
 }
 
 function NotFoundView() {
   return (
-    <div style={{ textAlign: 'center', padding: '4rem 0', color: '#555' }}>
-      <p style={{ fontSize: 20, fontWeight: 600, margin: '0 0 8px' }}>Meeting not found</p>
-      <p style={{ fontSize: 14, color: '#999', margin: '0 0 24px' }}>
+    <div className="text-center py-20">
+      <p className="font-serif text-2xl font-bold text-b-fg mb-2">Meeting not found</p>
+      <p className="text-sm text-b-fg/50 font-sans mb-6">
         This meeting may have been deleted or you don&apos;t have access to it.
       </p>
-      <Link href="/meetings" style={S.btnPrimary}>← Back to meetings</Link>
+      <Link href="/meetings" className="btn-primary">← Back to meetings</Link>
     </div>
   )
 }
 
 function ErrorView({ message }: { message: string }) {
-  return <div style={{ ...S.errBox, marginTop: 24 }}>✗ {message}</div>
+  return (
+    <div className="mt-4 bg-red-50 border border-red-200 rounded-3xl px-5 py-4 text-sm text-red-700">
+      {message}
+    </div>
+  )
 }
 
 function ProcessingView({ meeting }: { meeting: Meeting }) {
   return (
     <div>
       <MeetingHeaderBase meeting={meeting} />
-      <div style={{ ...S.card, textAlign: 'center', padding: '2.5rem 1.5rem' }}>
-        <div style={S.spinner} />
-        <p style={{ fontSize: 15, fontWeight: 600, margin: '16px 0 6px' }}>
+      <div className="card-botanical text-center py-10 mt-4">
+        <div
+          className="w-10 h-10 rounded-full border-2 border-b-border mx-auto mb-4"
+          style={{ borderTopColor: '#8C9A84', animation: 'spin 1s linear infinite' }}
+        />
+        <p className="font-serif text-lg font-semibold text-b-fg mb-1">
           {meeting.status === 'pending' ? 'Queued for processing…' : 'Processing recording…'}
         </p>
-        <p style={{ fontSize: 13, color: '#888', margin: 0 }}>
+        <p className="text-sm text-b-fg/50 font-sans">
           Transcribing audio and extracting notes — typically 30–90 seconds.
         </p>
       </div>
@@ -463,31 +468,18 @@ function ProcessingView({ meeting }: { meeting: Meeting }) {
   )
 }
 
-function FailedView({
-  meeting,
-  rerunning,
-  onRerun,
-}: {
-  meeting: Meeting
-  rerunning: boolean
-  onRerun: () => void
-}) {
+function FailedView({ meeting, rerunning, onRerun }: { meeting: Meeting; rerunning: boolean; onRerun: () => void }) {
   return (
     <div>
       <MeetingHeaderBase meeting={meeting} />
-      <div style={{ ...S.errBox, marginTop: 16 }}>
-        <p style={{ margin: '0 0 8px', fontWeight: 600 }}>Processing failed</p>
-        {meeting.error_message && (
-          <p style={{ margin: '0 0 16px', fontSize: 13, opacity: 0.9 }}>{meeting.error_message}</p>
-        )}
+      <div className="mt-4 bg-red-50 border border-red-200 rounded-3xl px-5 py-4 text-sm text-red-700">
+        <p className="font-semibold mb-1">Processing failed</p>
+        {meeting.error_message && <p className="mb-3 opacity-80">{meeting.error_message}</p>}
         <button
-          style={{
-            ...S.btnPrimary,
-            opacity: rerunning ? 0.6 : 1,
-            cursor: rerunning ? 'default' : 'pointer',
-          }}
-          disabled={rerunning}
           onClick={onRerun}
+          disabled={rerunning}
+          className="btn-primary"
+          style={{ opacity: rerunning ? 0.65 : 1 }}
         >
           {rerunning ? 'Starting…' : '↻ Re-run processing'}
         </button>
@@ -524,21 +516,76 @@ function DoneView({
   audioUrl, audioRef, highlightedSegIndex,
   onToggleTodo, onDismissTodo, onDismissCalSug, onDownloadIcs, onSeekTo, onScrollToSegment, onCitationClick,
 }: DoneViewProps) {
-  const activeSugs = calSugs.filter((c) => !dismissedIds.has(c.id))
+  const activeSugs  = calSugs.filter((c) => !dismissedIds.has(c.id))
   const activeTodos = todos.filter((t) => !dismissedTodoIds.has(t.id))
 
+  // ── Inline title editing ──────────────────────────────────────────────────
+  const [localTitle, setLocalTitle]     = useState(meeting.title)
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft]     = useState('')
+
+  function startTitleEdit() {
+    setTitleDraft(localTitle)
+    setEditingTitle(true)
+  }
+
+  async function saveTitleEdit() {
+    const trimmed = titleDraft.trim()
+    setEditingTitle(false)
+    if (!trimmed || trimmed === localTitle) return
+    const prev = localTitle
+    setLocalTitle(trimmed)
+    try {
+      const token = await getAccessToken()
+      if (!token) { setLocalTitle(prev); return }
+      const res = await fetch(`/api/meetings/${meeting.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ title: trimmed }),
+      })
+      if (!res.ok) setLocalTitle(prev)
+    } catch {
+      setLocalTitle(prev)
+    }
+  }
+
   return (
-    <div>
+    <div className="flex flex-col gap-4">
       {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={S.h1}>{meeting.title}</h1>
-        <div style={S.metaRow}>
+      <div className="mb-2">
+        {editingTitle ? (
+          <input
+            autoFocus
+            value={titleDraft}
+            maxLength={200}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); void saveTitleEdit() }
+              if (e.key === 'Escape') { setEditingTitle(false) }
+            }}
+            onBlur={() => void saveTitleEdit()}
+            className="font-serif text-3xl font-bold text-b-fg leading-snug bg-transparent border-b-2 border-b-primary outline-none w-full pb-1 mb-2"
+          />
+        ) : (
+          <div className="group flex items-start gap-2 mb-2">
+            <h1 className="font-serif text-3xl font-bold text-b-fg leading-snug">{localTitle}</h1>
+            <button
+              onClick={startTitleEdit}
+              className="mt-2 flex-shrink-0 p-1.5 rounded-lg text-b-fg/30 hover:text-b-primary hover:bg-b-clay transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+              title="Rename meeting"
+              aria-label="Rename meeting"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+              </svg>
+            </button>
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-2 text-sm text-b-fg/50 font-sans">
           <span>{formatDate(meeting.created_at)}</span>
-          {meeting.duration_seconds != null && (
-            <> · <span>{formatDuration(meeting.duration_seconds)}</span></>
-          )}
-          {meeting.language && <> · <span>{meeting.language.toUpperCase()}</span></>}
-          <> · <StatusBadge status={meeting.status} /></>
+          {meeting.duration_seconds != null && <><span>·</span><span>{formatDuration(meeting.duration_seconds)}</span></>}
+          {meeting.language && <><span>·</span><span>{meeting.language.toUpperCase()}</span></>}
+          <span>·</span><StatusBadge status={meeting.status} />
         </div>
       </div>
 
@@ -547,9 +594,11 @@ function DoneView({
         <SectionCard label="Recording">
           {audioUrl ? (
             /* eslint-disable-next-line jsx-a11y/media-has-caption */
-            <audio ref={audioRef} controls src={audioUrl} style={{ width: '100%' }} />
+            <audio ref={audioRef} controls src={audioUrl} className="w-full rounded-xl" />
           ) : (
-            <div style={S.audioSkel}>Loading audio player…</div>
+            <div className="h-11 rounded-xl bg-b-clay flex items-center justify-center text-sm text-b-fg/40 font-sans animate-pulse">
+              Loading audio player…
+            </div>
           )}
         </SectionCard>
       )}
@@ -557,77 +606,68 @@ function DoneView({
       {/* Summary */}
       {meeting.summary && (
         <SectionCard label="Summary">
-          <p style={{ margin: 0, lineHeight: 1.7, color: '#222', fontSize: 14 }}>
-            {meeting.summary}
-          </p>
+          <p className="text-sm text-b-fg/80 font-sans leading-relaxed">{meeting.summary}</p>
         </SectionCard>
       )}
 
-      {/* Meeting notes — markdown, rehype-sanitize prevents XSS */}
+      {/* Meeting notes */}
       {meeting.notes && meeting.notes.trim() && (
         <SectionCard label="Meeting notes">
-          <div className="md-body" style={{ fontSize: 14, color: '#222', lineHeight: 1.7 }}>
+          <div className="md-body text-sm text-b-fg/80 font-sans">
             <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{meeting.notes}</ReactMarkdown>
           </div>
         </SectionCard>
       )}
 
       {/* Action items */}
-      <SectionCard label={`Action items${activeTodos.length > 0 ? ` (${activeTodos.length})` : ''}`}>
+      <SectionCard label={`Action items${activeTodos.length > 0 ? ` · ${activeTodos.length}` : ''}`}>
         {activeTodos.length === 0 ? (
-          <p style={S.empty}>
-            {todos.length > 0
-              ? 'All action items have been dismissed.'
-              : 'No action items were found in this meeting.'}
+          <p className="text-sm text-b-fg/40 font-sans italic">
+            {todos.length > 0 ? 'All action items have been dismissed.' : 'No action items were found in this meeting.'}
           </p>
         ) : (
-          <ul style={S.plainList}>
+          <ul className="divide-y divide-b-border/50">
             {activeTodos.map((todo) => {
-              const status = todoStatuses[todo.id] ?? todo.status
-              const isDone = status === 'done'
-              const isPastDue =
-                !isDone &&
-                !!todo.due_date &&
-                todo.due_date < new Date().toISOString().slice(0, 10)
+              const status  = todoStatuses[todo.id] ?? todo.status
+              const isDone  = status === 'done'
+              const isPastDue = !isDone && !!todo.due_date && todo.due_date < new Date().toISOString().slice(0, 10)
               return (
-                <li key={todo.id} className="todo-row" style={S.todoRow}>
-                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', flex: 1 }}>
+                <li key={todo.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+                  <label className="flex items-start gap-3 cursor-pointer flex-1 min-w-0">
                     <input
                       type="checkbox"
                       checked={isDone}
                       onChange={() => onToggleTodo(todo.id, status)}
-                      style={{ marginTop: 3, accentColor: '#1a7f37', flexShrink: 0, cursor: 'pointer' }}
+                      className="mt-0.5 flex-shrink-0 cursor-pointer accent-b-primary"
                     />
-                    <span style={{ flex: 1 }}>
-                      <span style={{ color: isDone ? '#aaa' : '#111', textDecoration: isDone ? 'line-through' : 'none', fontSize: 14, lineHeight: 1.5 }}>
+                    <span className="flex-1 min-w-0">
+                      <span className={['text-sm font-sans', isDone ? 'line-through text-b-fg/30' : 'text-b-fg'].join(' ')}>
                         {todo.content}
                       </span>
-                      <span style={{ display: 'block', fontSize: 12, color: '#777', marginTop: 3 }}>
-                        {todo.assignee && <><span style={{ color: '#555' }}>@{todo.assignee}</span>{' · '}</>}
+                      <span className="block text-xs text-b-fg/40 mt-0.5 font-sans">
+                        {todo.assignee && <><span className="text-b-fg/60">@{todo.assignee}</span>{' · '}</>}
                         {todo.due_date ? (
-                          <span style={{ color: isPastDue ? '#b45309' : '#777', fontWeight: isPastDue ? 600 : 400 }}>
+                          <span className={isPastDue ? 'text-amber-600 font-semibold' : ''}>
                             {isPastDue ? '⚠ ' : ''}Due {todo.due_date}
                           </span>
                         ) : (
-                          <span style={{ color: '#bbb' }}>No due date</span>
+                          <span>No due date</span>
                         )}
                       </span>
                     </span>
                   </label>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, alignItems: 'flex-end', flexShrink: 0 }}>
+                  <div className="flex-shrink-0 flex flex-col gap-1.5 items-end">
                     {todo.source_segment_id && (
                       <button
-                        style={S.citationBtn}
-                        title="Jump to this moment in the transcript"
                         onClick={() => onScrollToSegment(todo.source_segment_id)}
+                        className="text-xs px-2.5 py-1 rounded-full border border-b-border text-b-primary bg-transparent cursor-pointer hover:bg-b-clay transition-colors font-sans"
                       >
                         ↗ source
                       </button>
                     )}
                     <button
-                      style={S.dismissBtn}
-                      title="Dismiss this action item"
                       onClick={() => onDismissTodo(todo.id)}
+                      className="text-xs px-2.5 py-1 rounded-full border border-b-border text-b-fg/40 bg-transparent cursor-pointer hover:bg-b-clay transition-colors font-sans"
                     >
                       Dismiss
                     </button>
@@ -641,43 +681,39 @@ function DoneView({
 
       {/* Calendar suggestions */}
       {activeSugs.length > 0 && (
-        <SectionCard label={`Events mentioned (${activeSugs.length})`}>
-          <p style={{ fontSize: 12, color: '#999', margin: '0 0 10px' }}>
-            These events were auto-detected from the transcript. Download a .ics file to add one to your calendar — no automatic syncing.
+        <SectionCard label={`Events mentioned · ${activeSugs.length}`}>
+          <p className="text-xs text-b-fg/40 font-sans mb-3 italic">
+            Auto-detected from transcript. Download a .ics file to add to your calendar — no automatic syncing.
           </p>
-          <ul style={S.plainList}>
+          <ul className="divide-y divide-b-border/50">
             {activeSugs.map((sug) => (
-              <li key={sug.id} className="cal-row" style={S.calRow}>
-                <div style={{ flex: 1 }}>
-                  <span style={{ fontWeight: 600, fontSize: 14, color: '#111' }}>{sug.title}</span>
-                  <span style={{ display: 'block', fontSize: 12, color: '#666', marginTop: 3 }}>
-                    {formatProposedAt(sug.proposed_at)}
-                  </span>
+              <li key={sug.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+                <div className="flex-1 min-w-0">
+                  <span className="font-sans font-semibold text-sm text-b-fg">{sug.title}</span>
+                  <span className="block text-xs text-b-fg/50 mt-0.5 font-sans">{formatProposedAt(sug.proposed_at)}</span>
                   {sug.raw_mention && (
-                    <span style={{ display: 'block', fontSize: 12, color: '#999', marginTop: 2, fontStyle: 'italic' }}>
+                    <span className="block text-xs text-b-fg/35 mt-0.5 font-sans italic">
                       &ldquo;{sug.raw_mention}&rdquo;
                     </span>
                   )}
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end', flexShrink: 0 }}>
+                <div className="flex-shrink-0 flex flex-col gap-1.5 items-end">
                   {sug.proposed_at ? (
                     <button
-                      style={S.calDownloadBtn}
-                      title="Download .ics to add to Google Calendar, Apple Calendar, or Outlook"
                       onClick={() => onDownloadIcs(sug.id, sug.title)}
+                      className="text-xs px-2.5 py-1 rounded-full border border-b-primary text-b-primary bg-transparent cursor-pointer hover:bg-b-primary hover:text-white transition-colors font-sans"
                     >
-                      ↓ Download .ics
+                      ↓ .ics
                     </button>
                   ) : (
-                    <span
-                      title="No specific date/time detected — add this event to your calendar manually"
-                      aria-disabled="true"
-                      style={S.calDisabledBtn}
-                    >
-                      + Add to calendar
+                    <span className="text-xs px-2.5 py-1 rounded-full border border-b-border text-b-fg/25 font-sans cursor-not-allowed">
+                      + Calendar
                     </span>
                   )}
-                  <button style={S.dismissBtn} onClick={() => onDismissCalSug(sug.id)}>
+                  <button
+                    onClick={() => onDismissCalSug(sug.id)}
+                    className="text-xs px-2.5 py-1 rounded-full border border-b-border text-b-fg/40 bg-transparent cursor-pointer hover:bg-b-clay transition-colors font-sans"
+                  >
                     Dismiss
                   </button>
                 </div>
@@ -690,7 +726,7 @@ function DoneView({
       {/* Transcript */}
       <SectionCard label={`Transcript${segments.length > 0 ? ` · ${segments.length} segments` : ''}`}>
         {segments.length === 0 ? (
-          <p style={S.empty}>No transcript is available for this meeting.</p>
+          <p className="text-sm text-b-fg/40 font-sans italic">No transcript is available for this meeting.</p>
         ) : (
           <TranscriptView
             segments={segments}
@@ -699,113 +735,84 @@ function DoneView({
           />
         )}
       </SectionCard>
-
-      {/* Chat — Phase 5 */}
-      <SectionCard label="Ask about this meeting">
-        <ChatPanel
-          meetingId={meeting.id}
-          onCitationClick={onCitationClick}
-        />
-      </SectionCard>
     </div>
   )
 }
 
 // ── Transcript view ───────────────────────────────────────────────────────────
 
-const SPEAKER_PALETTE = ['#1d4ed8', '#7c3aed', '#b45309', '#166534', '#be185d', '#0f766e']
+const SPEAKER_COLORS = ['#2D3A31', '#8C9A84', '#C27B66', '#DCCFC2', '#b45309', '#7c3aed']
 
 function TranscriptView({
-  segments,
-  highlightedSegIndex,
-  onSeekTo,
+  segments, highlightedSegIndex, onSeekTo,
 }: {
   segments: TranscriptSegment[]
   highlightedSegIndex: number | null
   onSeekTo: (ms: number) => void
 }) {
-  // Group consecutive same-speaker segments for visual clarity
   type Group = { speaker: string; segs: TranscriptSegment[] }
   const groups: Group[] = []
   for (const seg of segments) {
     const speaker = seg.speaker ?? 'Speaker'
     const last = groups[groups.length - 1]
-    if (last?.speaker === speaker) {
-      last.segs.push(seg)
-    } else {
-      groups.push({ speaker, segs: [seg] })
-    }
+    if (last?.speaker === speaker) last.segs.push(seg)
+    else groups.push({ speaker, segs: [seg] })
   }
 
-  // Assign a stable color per unique speaker (order of first appearance)
   const colorMap = new Map<string, string>()
   let ci = 0
   for (const { speaker } of groups) {
-    if (!colorMap.has(speaker)) {
-      colorMap.set(speaker, SPEAKER_PALETTE[ci % SPEAKER_PALETTE.length])
-      ci++
-    }
+    if (!colorMap.has(speaker)) { colorMap.set(speaker, SPEAKER_COLORS[ci % SPEAKER_COLORS.length]); ci++ }
   }
 
   return (
-    <div>
+    <div className="flex flex-col gap-5">
       {groups.map((group, gi) => (
-        <div key={gi} style={{ marginBottom: 18 }}>
-          <div style={{ marginBottom: 5 }}>
+        <div key={gi}>
+          <div className="mb-2">
             <span
-              style={{
-                fontSize: 11,
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.08em',
-                color: colorMap.get(group.speaker) ?? '#555',
-              }}
+              className="text-xs font-bold uppercase tracking-widest font-sans"
+              style={{ color: colorMap.get(group.speaker) ?? '#8C9A84' }}
             >
               {group.speaker}
             </span>
           </div>
-          {group.segs.map((seg) => {
-            const isHighlighted = highlightedSegIndex === seg.segment_index
-            return (
-              <div
-                key={seg.id}
-                id={`seg-${seg.segment_index}`}
-                style={{
-                  display: 'flex',
-                  gap: 10,
-                  marginBottom: 5,
-                  padding: '5px 8px',
-                  borderRadius: 5,
-                  borderLeft: `3px solid ${isHighlighted ? '#e6b800' : 'transparent'}`,
-                  background: isHighlighted ? '#fffbcc' : 'transparent',
-                  transition: 'background 0.5s, border-color 0.5s',
-                }}
-              >
-                <button
-                  style={S.tsBtn}
-                  title="Seek to this timestamp"
-                  onClick={() => onSeekTo(seg.start_ms)}
+          <div className="flex flex-col gap-1">
+            {group.segs.map((seg) => {
+              const isHighlighted = highlightedSegIndex === seg.segment_index
+              return (
+                <div
+                  key={seg.id}
+                  id={`seg-${seg.segment_index}`}
+                  className={[
+                    'flex gap-3 px-3 py-2 rounded-xl transition-all duration-500',
+                    isHighlighted ? 'bg-amber-50 border-l-2 border-amber-400' : 'hover:bg-b-clay/40',
+                  ].join(' ')}
                 >
-                  {formatMs(seg.start_ms)}
-                </button>
-                <span style={{ flex: 1, lineHeight: 1.65, color: '#222', fontSize: 14 }}>
-                  {seg.text}
-                </span>
-              </div>
-            )
-          })}
+                  <button
+                    onClick={() => onSeekTo(seg.start_ms)}
+                    className="flex-shrink-0 mt-0.5 text-xs font-mono text-b-fg/40 bg-transparent border border-b-border rounded-lg px-1.5 py-0.5 cursor-pointer hover:text-b-primary hover:border-b-primary transition-colors"
+                    title="Seek to this timestamp"
+                  >
+                    {formatMs(seg.start_ms)}
+                  </button>
+                  <span className="flex-1 text-sm text-b-fg/80 font-sans leading-relaxed">{seg.text}</span>
+                </div>
+              )
+            })}
+          </div>
         </div>
       ))}
     </div>
   )
 }
 
-// ── Shared UI helpers ─────────────────────────────────────────────────────────
+// ── Shared helpers ────────────────────────────────────────────────────────────
 
 function SectionCard({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div style={S.card}>
-      <div style={S.sectionLabel}>{label}</div>
+    <div className="card-botanical">
+      <div className="section-label">{label}</div>
       {children}
     </div>
   )
@@ -813,209 +820,23 @@ function SectionCard({ label, children }: { label: string; children: React.React
 
 function MeetingHeaderBase({ meeting }: { meeting: Meeting }) {
   return (
-    <div style={{ marginBottom: 16 }}>
-      <h1 style={S.h1}>{meeting.title}</h1>
-      <div style={S.metaRow}>
+    <div className="mb-4">
+      <h1 className="font-serif text-2xl font-bold text-b-fg mb-2">{meeting.title}</h1>
+      <div className="flex flex-wrap items-center gap-2 text-sm text-b-fg/50 font-sans">
         <span>{formatDate(meeting.created_at)}</span>
-        {meeting.duration_seconds != null && (
-          <> · <span>{formatDuration(meeting.duration_seconds)}</span></>
-        )}
-        <> · <StatusBadge status={meeting.status} /></>
+        {meeting.duration_seconds != null && <><span>·</span><span>{formatDuration(meeting.duration_seconds)}</span></>}
+        <span>·</span><StatusBadge status={meeting.status} />
       </div>
     </div>
   )
 }
 
 function StatusBadge({ status }: { status: MeetingStatus }) {
-  const color: Record<MeetingStatus, string> = {
-    pending: '#b45309', processing: '#1d4ed8', done: '#166534', failed: '#991b1b',
+  const cls: Record<MeetingStatus, string> = {
+    pending:    'badge-pending',
+    processing: 'badge-processing',
+    done:       'badge-done',
+    failed:     'badge-failed',
   }
-  const bg: Record<MeetingStatus, string> = {
-    pending: '#fef3c7', processing: '#dbeafe', done: '#dcfce7', failed: '#fee2e2',
-  }
-  return (
-    <span
-      style={{
-        fontSize: 11,
-        fontWeight: 700,
-        textTransform: 'uppercase',
-        letterSpacing: '0.04em',
-        padding: '2px 8px',
-        borderRadius: 99,
-        background: bg[status],
-        color: color[status],
-        verticalAlign: 'middle',
-      }}
-    >
-      {status}
-    </span>
-  )
-}
-
-// ── Styles ────────────────────────────────────────────────────────────────────
-
-const S: Record<string, CSSProperties> = {
-  main: {
-    fontFamily: 'system-ui, sans-serif',
-    maxWidth: 820,
-    margin: '0 auto',
-    padding: '2rem 1rem',
-  },
-  back: {
-    display: 'inline-block',
-    color: '#0066cc',
-    textDecoration: 'none',
-    fontSize: 14,
-    marginBottom: '1.5rem',
-  },
-  h1: {
-    margin: '0 0 8px',
-    fontSize: 24,
-    fontWeight: 700,
-    color: '#111',
-    lineHeight: 1.25,
-  },
-  metaRow: {
-    fontSize: 14,
-    color: '#555',
-    display: 'flex',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: 4,
-  },
-  card: {
-    border: '1px solid #e5e5e5',
-    borderRadius: 10,
-    padding: '16px 20px',
-    background: '#fff',
-    marginBottom: 14,
-  },
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: 700,
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.08em',
-    color: '#aaa',
-    marginBottom: 12,
-  },
-  spinner: {
-    width: 34,
-    height: 34,
-    border: '3px solid #e5e5e5',
-    borderTopColor: '#0066cc',
-    borderRadius: '50%',
-    margin: '0 auto',
-    animation: 'spin 0.8s linear infinite',
-  },
-  errBox: {
-    background: '#fff0f0',
-    border: '1px solid #f55',
-    borderRadius: 8,
-    padding: '14px 18px',
-    color: '#b00020',
-    fontSize: 14,
-  },
-  empty: {
-    margin: 0,
-    color: '#aaa',
-    fontSize: 14,
-    fontStyle: 'italic',
-  },
-  plainList: {
-    listStyle: 'none',
-    padding: 0,
-    margin: 0,
-  },
-  todoRow: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: 10,
-    padding: '10px 0',
-    borderBottom: '1px solid #f2f2f2',
-  },
-  citationBtn: {
-    background: 'none',
-    border: '1px solid #d8d8d8',
-    borderRadius: 4,
-    padding: '3px 8px',
-    fontSize: 12,
-    color: '#0066cc',
-    cursor: 'pointer',
-    flexShrink: 0,
-    alignSelf: 'flex-start',
-    marginTop: 2,
-  },
-  calRow: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: 12,
-    padding: '12px 0',
-    borderBottom: '1px solid #f2f2f2',
-  },
-  calDownloadBtn: {
-    fontSize: 12,
-    padding: '4px 10px',
-    borderRadius: 4,
-    border: '1px solid #1a7f37',
-    color: '#1a7f37',
-    cursor: 'pointer',
-    background: '#f0fff4',
-    fontWeight: 500,
-  },
-  calDisabledBtn: {
-    display: 'inline-block',
-    fontSize: 12,
-    padding: '4px 10px',
-    borderRadius: 4,
-    border: '1px solid #e8e8e8',
-    color: '#ccc',
-    cursor: 'not-allowed',
-    background: '#fafafa',
-    userSelect: 'none',
-  },
-  dismissBtn: {
-    fontSize: 12,
-    padding: '4px 10px',
-    borderRadius: 4,
-    border: '1px solid #d8d8d8',
-    color: '#555',
-    cursor: 'pointer',
-    background: '#fff',
-  },
-  tsBtn: {
-    background: 'none',
-    border: '1px solid #d8d8d8',
-    borderRadius: 4,
-    padding: '2px 7px',
-    fontSize: 11,
-    color: '#666',
-    cursor: 'pointer',
-    fontFamily: 'monospace',
-    flexShrink: 0,
-    alignSelf: 'flex-start',
-    marginTop: 3,
-  },
-  btnPrimary: {
-    display: 'inline-block',
-    padding: '9px 22px',
-    background: '#0066cc',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 6,
-    cursor: 'pointer',
-    fontSize: 14,
-    fontWeight: 600,
-    textDecoration: 'none',
-  },
-  audioSkel: {
-    height: 42,
-    background: '#f5f5f5',
-    borderRadius: 6,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: 13,
-    color: '#bbb',
-    animation: 'pulse 1.4s ease-in-out infinite',
-  },
+  return <span className={cls[status]}>{status}</span>
 }
