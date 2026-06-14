@@ -8,6 +8,8 @@ import {
   Activity,
   BarChart2,
   FileText,
+  Heart,
+  Settings,
   ArrowLeft,
 } from 'lucide-react'
 
@@ -21,10 +23,12 @@ type NavItem = {
 }
 
 const NAV: NavItem[] = [
-  { label: 'Users',     href: '/admin',          icon: <Users    size={16} /> },
-  { label: 'Pipeline',  href: '/admin/pipeline', icon: <Activity size={16} /> },
-  { label: 'Usage',     href: '/admin/usage',    icon: <BarChart2 size={16} />, soon: true },
-  { label: 'Audit Log', href: '/admin/audit',    icon: <FileText size={16} />, soon: true },
+  { label: 'Users',     href: '/admin',           icon: <Users     size={16} /> },
+  { label: 'Pipeline',  href: '/admin/pipeline',  icon: <Activity  size={16} /> },
+  { label: 'Usage',     href: '/admin/usage',     icon: <BarChart2 size={16} /> },
+  { label: 'Audit Log', href: '/admin/audit',     icon: <FileText  size={16} /> },
+  { label: 'Health',    href: '/admin/health',    icon: <Heart     size={16} /> },
+  { label: 'Config',    href: '/admin/config',    icon: <Settings  size={16} /> },
 ]
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────

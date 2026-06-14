@@ -73,7 +73,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body>
+      <body suppressHydrationWarning>
         {/* Paper grain texture — botanical theme only; hidden via CSS for others */}
         <div
           className="paper-grain pointer-events-none fixed inset-0 z-50 opacity-[0.018]"

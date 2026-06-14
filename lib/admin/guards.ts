@@ -83,3 +83,68 @@ export function guardDelete(
   }
   return { ok: true }
 }
+
+// ---------------------------------------------------------------------------
+// Bulk-action helpers (ADM-09)
+// ---------------------------------------------------------------------------
+
+export type BulkAction = 'disable' | 'enable' | 'set_role'
+type BulkRole = 'user' | 'admin'
+
+export type BulkBodyOk = {
+  ok: true
+  ids: string[]
+  action: BulkAction
+  role?: BulkRole
+}
+export type BulkBodyFail = { ok: false; status: 422; message: string }
+export type BulkBodyResult = BulkBodyOk | BulkBodyFail
+
+const VALID_ACTIONS: BulkAction[] = ['disable', 'enable', 'set_role']
+const VALID_ROLES: BulkRole[]     = ['user', 'admin']
+
+/**
+ * Validates a parsed JSON body for bulk-action endpoints.
+ * Returns typed ids + action on success, or { ok: false, status: 422 } on invalid input.
+ */
+export function validateBulkActionBody(body: unknown): BulkBodyResult {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return { ok: false, status: 422, message: 'Request body must be a JSON object.' }
+  }
+  const b = body as Record<string, unknown>
+
+  const ids = b['ids']
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return { ok: false, status: 422, message: 'ids must be a non-empty array.' }
+  }
+  if (ids.length > 50) {
+    return { ok: false, status: 422, message: 'ids may not exceed 50 entries per request.' }
+  }
+
+  const action = b['action'] as BulkAction
+  if (!VALID_ACTIONS.includes(action)) {
+    return { ok: false, status: 422, message: `action must be one of: ${VALID_ACTIONS.join(', ')}.` }
+  }
+
+  if (action === 'set_role') {
+    const role = b['role'] as BulkRole
+    if (!VALID_ROLES.includes(role)) {
+      return { ok: false, status: 422, message: `role must be one of: ${VALID_ROLES.join(', ')}.` }
+    }
+    return { ok: true, ids: ids as string[], action, role }
+  }
+
+  return { ok: true, ids: ids as string[], action }
+}
+
+/**
+ * Removes the caller's own ID from the target list.
+ * Returns the safe subset and a flag indicating whether a self-attempt was blocked.
+ */
+export function excludeSelf(
+  callerId: string,
+  targetIds: string[],
+): { safe: string[]; selfAttempted: boolean } {
+  const safe = targetIds.filter((id) => id !== callerId)
+  return { safe, selfAttempted: safe.length < targetIds.length }
+}

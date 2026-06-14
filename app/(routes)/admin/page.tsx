@@ -22,6 +22,9 @@ type AdminUser = {
 type Confirm =
   | { type: 'delete'; user: AdminUser }
   | { type: 'reset-password'; user: AdminUser }
+  | { type: 'bulk'; action: BulkAction; role?: 'user' | 'admin'; count: number }
+
+type BulkAction = 'disable' | 'enable' | 'set_role'
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -30,18 +33,23 @@ const PER_PAGE = 20
 export default function AdminPage() {
   const router = useRouter()
 
-  const [loading, setLoading] = useState(true)
-  const [forbidden, setForbidden] = useState(false)
-  const [users, setUsers] = useState<AdminUser[]>([])
+  const [loading, setLoading]       = useState(true)
+  const [forbidden, setForbidden]   = useState(false)
+  const [users, setUsers]           = useState<AdminUser[]>([])
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
-  const [busyId, setBusyId] = useState<string | null>(null)
+  const [error, setError]           = useState<string | null>(null)
+  const [success, setSuccess]       = useState<string | null>(null)
+  const [busyId, setBusyId]         = useState<string | null>(null)
 
-  const [search, setSearch] = useState('')
-  const [page, setPage] = useState(1)
+  const [search, setSearch]         = useState('')
+  const [roleFilter, setRoleFilter] = useState<'all' | 'user' | 'admin'>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'disabled'>('all')
+  const [page, setPage]             = useState(1)
 
-  const [confirm, setConfirm] = useState<Confirm | null>(null)
+  const [selected, setSelected]     = useState<Set<string>>(new Set())
+  const [bulkRole, setBulkRole]     = useState<'user' | 'admin'>('user')
+  const [confirm, setConfirm]       = useState<Confirm | null>(null)
+  const [bulkBusy, setBulkBusy]     = useState(false)
 
   async function fetchUsers() {
     const token = await getAccessToken()
@@ -71,18 +79,43 @@ export default function AdminPage() {
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
-    if (!q) return users
-    return users.filter(
-      (u) => u.email?.toLowerCase().includes(q) || u.username?.toLowerCase().includes(q),
-    )
-  }, [users, search])
+    return users.filter((u) => {
+      if (q && !u.email?.toLowerCase().includes(q) && !u.username?.toLowerCase().includes(q)) return false
+      if (roleFilter !== 'all' && u.role !== roleFilter) return false
+      if (statusFilter === 'active'   &&  u.disabled) return false
+      if (statusFilter === 'disabled' && !u.disabled) return false
+      return true
+    })
+  }, [users, search, roleFilter, statusFilter])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE))
-  const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE)
+  const paginated  = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE)
 
-  function handleSearch(value: string) { setSearch(value); setPage(1) }
+  function handleSearch(value: string) { setSearch(value); setPage(1); setSelected(new Set()) }
+  function handleRoleFilter(v: string) { setRoleFilter(v as 'all' | 'user' | 'admin'); setPage(1); setSelected(new Set()) }
+  function handleStatusFilter(v: string) { setStatusFilter(v as 'all' | 'active' | 'disabled'); setPage(1); setSelected(new Set()) }
 
-  // ── Actions ────────────────────────────────────────────────────────────────
+  // ── Row selection ──────────────────────────────────────────────────────────
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    const pageIds = paginated.filter((u) => u.id !== currentUserId).map((u) => u.id)
+    const allSelected = pageIds.every((id) => selected.has(id))
+    if (allSelected) {
+      setSelected((prev) => { const next = new Set(prev); pageIds.forEach((id) => next.delete(id)); return next })
+    } else {
+      setSelected((prev) => { const next = new Set(prev); pageIds.forEach((id) => next.add(id)); return next })
+    }
+  }
+
+  // ── Per-row actions ────────────────────────────────────────────────────────
 
   async function changeRole(user: AdminUser, newRole: 'user' | 'admin') {
     const token = await getAccessToken()
@@ -185,6 +218,39 @@ export default function AdminPage() {
     }
   }
 
+  // ── Bulk actions ───────────────────────────────────────────────────────────
+
+  async function executeBulk(action: BulkAction, role?: 'user' | 'admin') {
+    setConfirm(null)
+    if (selected.size === 0) return
+    setBulkBusy(true); setError(null); setSuccess(null)
+    const token = await getAccessToken()
+    if (!token) { setBulkBusy(false); return }
+
+    const body: Record<string, unknown> = { ids: Array.from(selected), action }
+    if (action === 'set_role') body.role = role
+
+    try {
+      const res = await fetch('/api/admin/users/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      })
+      const data = (await res.json()) as { processed?: number; skippedSelf?: string[]; errors?: { id: string; message: string }[]; error?: string }
+      if (!res.ok) {
+        setError(data.error ?? 'Bulk action failed.')
+      } else {
+        setSuccess(`Bulk ${action}: applied to ${data.processed ?? 0} user(s).${data.skippedSelf?.length ? ' (Skipped yourself)' : ''}`)
+        setSelected(new Set())
+        await fetchUsers()
+      }
+    } catch {
+      setError('Network error — please try again.')
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   if (loading) return <div style={S.page}><p style={S.muted}>Loading…</p></div>
@@ -196,6 +262,10 @@ export default function AdminPage() {
       </div>
     )
   }
+
+  const pageIds = paginated.filter((u) => u.id !== currentUserId).map((u) => u.id)
+  const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id))
+  const somePageSelected = pageIds.some((id) => selected.has(id))
 
   return (
     <div style={S.page}>
@@ -219,7 +289,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Search + count */}
+      {/* Toolbar: search + filters */}
       <div style={S.toolbar}>
         <input
           style={S.searchInput}
@@ -228,17 +298,58 @@ export default function AdminPage() {
           value={search}
           onChange={(e) => handleSearch(e.target.value)}
         />
+        <select style={S.filterSelect} value={roleFilter} onChange={(e) => handleRoleFilter(e.target.value)}>
+          <option value="all">All roles</option>
+          <option value="user">User</option>
+          <option value="admin">Admin</option>
+        </select>
+        <select style={S.filterSelect} value={statusFilter} onChange={(e) => handleStatusFilter(e.target.value)}>
+          <option value="all">All statuses</option>
+          <option value="active">Active</option>
+          <option value="disabled">Disabled</option>
+        </select>
         <span style={S.countLabel}>
           {filtered.length} {filtered.length === 1 ? 'user' : 'users'}
-          {search ? ` matching "${search}"` : ' total'}
+          {search ? ` matching "${search}"` : ''}
         </span>
       </div>
+
+      {/* Bulk-action bar */}
+      {selected.size > 0 && (
+        <div style={S.bulkBar}>
+          <span style={S.bulkCount}>{selected.size} selected</span>
+          <button style={S.bulkBtn} disabled={bulkBusy} onClick={() => setConfirm({ type: 'bulk', action: 'disable', count: selected.size })}>
+            Disable
+          </button>
+          <button style={S.bulkBtn} disabled={bulkBusy} onClick={() => setConfirm({ type: 'bulk', action: 'enable', count: selected.size })}>
+            Enable
+          </button>
+          <select style={S.filterSelect} value={bulkRole} onChange={(e) => setBulkRole(e.target.value as 'user' | 'admin')}>
+            <option value="user">Set role: user</option>
+            <option value="admin">Set role: admin</option>
+          </select>
+          <button style={{ ...S.bulkBtn, background: '#3b82f6', color: '#fff', border: 'none' }} disabled={bulkBusy} onClick={() => setConfirm({ type: 'bulk', action: 'set_role', role: bulkRole, count: selected.size })}>
+            Apply role
+          </button>
+          <button style={{ ...S.bulkBtn, marginLeft: 'auto' }} onClick={() => setSelected(new Set())}>
+            Clear
+          </button>
+        </div>
+      )}
 
       {/* Table */}
       <div style={S.tableWrap}>
         <table style={S.table}>
           <thead>
             <tr>
+              <th style={S.th}>
+                <input
+                  type="checkbox"
+                  checked={allPageSelected}
+                  ref={(el) => { if (el) el.indeterminate = somePageSelected && !allPageSelected }}
+                  onChange={toggleSelectAll}
+                />
+              </th>
               {['Email / Username', 'Role', 'Status', 'Meetings', 'Last sign-in', 'Joined', 'Actions'].map((h) => (
                 <th key={h} style={S.th}>{h}</th>
               ))}
@@ -247,8 +358,17 @@ export default function AdminPage() {
           <tbody>
             {paginated.map((u) => {
               const isMe = u.id === currentUserId
+              const isSelected = selected.has(u.id)
               return (
-                <tr key={u.id} style={u.disabled ? S.disabledRow : undefined}>
+                <tr key={u.id} style={{ ...(u.disabled ? S.disabledRow : undefined), ...(isSelected ? S.selectedRow : undefined) }}>
+                  <td style={S.td}>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      disabled={isMe}
+                      onChange={() => toggleSelect(u.id)}
+                    />
+                  </td>
                   <td style={S.td}>
                     <div style={{ fontWeight: 500, fontSize: 13 }}>
                       {u.email ?? '—'}
@@ -302,7 +422,7 @@ export default function AdminPage() {
         </table>
         {paginated.length === 0 && (
           <p style={{ ...S.muted, padding: '16px 12px' }}>
-            {search ? 'No users match your search.' : 'No users found.'}
+            {search || roleFilter !== 'all' || statusFilter !== 'all' ? 'No users match your filters.' : 'No users found.'}
           </p>
         )}
       </div>
@@ -335,7 +455,7 @@ export default function AdminPage() {
                   </button>
                 </div>
               </>
-            ) : (
+            ) : confirm.type === 'reset-password' ? (
               <>
                 <h3 style={S.dialogTitle}>Send password reset?</h3>
                 <p style={S.dialogBody}>
@@ -346,6 +466,23 @@ export default function AdminPage() {
                   <button style={S.btn} onClick={() => setConfirm(null)}>Cancel</button>
                   <button style={S.primaryBtn} disabled={busyId === confirm.user.id} onClick={() => { void sendPasswordReset(confirm.user) }}>
                     Send reset email
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 style={S.dialogTitle}>Confirm bulk action</h3>
+                <p style={S.dialogBody}>
+                  Apply <strong>{confirm.action}{confirm.role ? ` → ${confirm.role}` : ''}</strong> to{' '}
+                  <strong>{confirm.count} user{confirm.count > 1 ? 's' : ''}</strong>?
+                  {confirm.action === 'set_role' && confirm.role === 'admin' && (
+                    <><br /><span style={{ color: '#b45309' }}>Warning: this grants admin access.</span></>
+                  )}
+                </p>
+                <div style={S.dialogActions}>
+                  <button style={S.btn} onClick={() => setConfirm(null)}>Cancel</button>
+                  <button style={S.primaryBtn} disabled={bulkBusy} onClick={() => { void executeBulk(confirm.action, confirm.role) }}>
+                    {bulkBusy ? 'Working…' : 'Confirm'}
                   </button>
                 </div>
               </>
@@ -385,12 +522,26 @@ const S: Record<string, CSSProperties> = {
     padding: '10px 14px', color: '#166534', fontSize: 14, marginBottom: 12,
   },
   dismissBtn: { background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'inherit', opacity: 0.6, padding: '0 2px' },
-  toolbar: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 },
+  toolbar: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
   searchInput: {
-    flex: 1, maxWidth: 320, fontSize: 13, padding: '6px 10px',
+    flex: 1, maxWidth: 280, fontSize: 13, padding: '6px 10px',
     border: '1px solid #d0d0d0', borderRadius: 6, outline: 'none',
   },
-  countLabel: { fontSize: 13, color: '#888' },
+  filterSelect: {
+    fontSize: 13, padding: '6px 10px', border: '1px solid #d0d0d0',
+    borderRadius: 6, background: '#fff', cursor: 'pointer', outline: 'none',
+  },
+  countLabel: { fontSize: 13, color: '#888', marginLeft: 4 },
+  bulkBar: {
+    display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+    background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8,
+    padding: '8px 14px', marginBottom: 10,
+  },
+  bulkCount: { fontSize: 13, fontWeight: 600, color: '#1d4ed8', marginRight: 4 },
+  bulkBtn: {
+    fontSize: 12, padding: '4px 12px', border: '1px solid #d0d0d0',
+    borderRadius: 5, background: '#fff', cursor: 'pointer', color: '#333', fontWeight: 500,
+  },
   tableWrap: { overflowX: 'auto', background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0' },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
   th: {
@@ -399,6 +550,7 @@ const S: Record<string, CSSProperties> = {
   },
   td: { padding: '10px 12px', borderBottom: '1px solid #f1f5f9', verticalAlign: 'middle' },
   disabledRow: { opacity: 0.5 },
+  selectedRow: { background: '#eff6ff' },
   youBadge: {
     display: 'inline-block', marginLeft: 6, fontSize: 10, fontWeight: 700,
     background: '#dbeafe', color: '#1d4ed8', padding: '1px 6px', borderRadius: 99,

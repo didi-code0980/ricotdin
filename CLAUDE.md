@@ -276,8 +276,15 @@ the `auth.users → profiles` and `auth.users → meetings` FK `ON DELETE CASCAD
 - Work in **small increments**, one clear goal per change, each with a concrete
   "done" check. Do not attempt the whole app in one go.
 - After each working increment, **commit to git** with a clear message.
-- **Write tests** for non-trivial logic: Gemini JSON parsing, audio chunking,
-  vector search wiring, transcript stitching.
+- **TDD is mandatory for all new logic:**
+  - Write unit tests for every new pure function **before** writing the implementation.
+  - Tests go in `tests/` with the `.test.ts` extension and must be added to the
+    `npm test` script in `package.json`.
+  - When **any existing logic changes**, update the corresponding tests first, then
+    change the implementation.
+  - Tests must be pure (no I/O, no mocks) — test pure functions extracted into `/lib`.
+- **Update `ai-instruction/tracking.md`** when a feature is completed: change `[ ]`
+  to `[x]` in the "Is Done?" column for every Feature Code that the work covers.
 - Before making large or structural changes, briefly state the plan and wait.
 - When you hit an error, surface the exact error/log rather than guessing silently.
 - If a request seems to contradict this file (e.g. would expose a key to the client,

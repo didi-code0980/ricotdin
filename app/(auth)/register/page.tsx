@@ -63,13 +63,8 @@ export default function RegisterPage() {
     <div className="w-full max-w-sm">
       <div className="bg-white rounded-3xl border border-b-border shadow-b-xl p-8">
         {/* Wordmark */}
-        <div className="mb-6 text-center">
-          <h1 className="font-serif text-3xl font-bold text-b-fg tracking-tight">
-            Ricot<em className="italic text-b-terra">din</em>
-          </h1>
-          <p className="mt-1 text-sm text-b-primary font-sans tracking-widest uppercase">
-            Meeting Assistant
-          </p>
+        <div className="mb-6 text-center flex justify-center">
+          <img src="/logo.svg" alt="Ricotdin" style={{ height: '44px', width: 'auto' }} />
         </div>
 
         <p className="text-center font-serif text-xl font-semibold text-b-fg mb-6">

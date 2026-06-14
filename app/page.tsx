@@ -29,79 +29,79 @@ function HeroMockup() {
   return (
     <div className="relative w-full max-w-xl mx-auto select-none" aria-hidden="true">
       {/* Background glow */}
-      <div className="absolute -inset-6 bg-gradient-to-br from-b-terra/12 to-b-primary/12 rounded-[3rem] blur-3xl -z-10" />
+      <div className="absolute -inset-8 bg-gradient-to-br from-b-terra/10 to-b-primary/8 rounded-[3rem] blur-3xl -z-10" />
 
-      {/* Main transcript card */}
-      <div className="bg-b-clay rounded-3xl border border-b-border shadow-b-xl p-5">
-        {/* Recording indicator */}
-        <div className="flex items-center justify-between mb-4">
+      {/* Main transcript card — dark style */}
+      <div className="bg-[#1a1f1c] rounded-2xl border border-white/8 shadow-2xl p-5">
+        {/* Recording bar */}
+        <div className="flex items-center justify-between mb-4 pb-3.5 border-b border-white/8">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
-            <span className="text-[10px] font-sans text-b-fg/45 uppercase tracking-widest">
+            <span className="text-[10px] font-mono text-white/35 uppercase tracking-widest">
               Recording · 24:18
             </span>
           </div>
-          <span className="px-2.5 py-1 rounded-full bg-b-primary/10 text-b-primary text-[10px] font-semibold uppercase tracking-wider">
+          <span className="px-2.5 py-0.5 rounded-full bg-b-terra/20 text-b-terra text-[9px] font-bold uppercase tracking-wider">
             Live
           </span>
         </div>
 
         {/* Transcript lines */}
-        <div className="space-y-3">
+        <div className="space-y-3.5">
           {[
             {
-              time: '00:02',
+              time: '00:15',
               initial: 'S',
               speaker: 'Sarah',
-              text: "Let's kick off the Q3 review. Revenue, roadmap, then staffing.",
-              accent: 'bg-b-terra/15 text-b-terra',
+              text: "Let's kick off the Q3 review. Revenue is up 23% YoY.",
+              color: 'bg-b-terra/25 text-b-terra',
             },
             {
-              time: '00:15',
+              time: '00:22',
               initial: 'M',
               speaker: 'Mike',
               text: 'Revenue is up 23% YoY — strongest quarter yet.',
-              accent: 'bg-b-primary/15 text-b-primary',
+              color: 'bg-b-primary/25 text-b-primary',
             },
             {
               time: '00:31',
               initial: 'S',
               speaker: 'Sarah',
               text: 'About Q4 budget — we need a final decision today.',
-              accent: 'bg-b-terra/15 text-b-terra',
+              color: 'bg-b-terra/25 text-b-terra',
             },
             {
               time: '00:47',
               initial: 'M',
               speaker: 'Mike',
-              text: "I'd propose a 15% increase. That lets us hire two engineers.",
-              accent: 'bg-b-primary/15 text-b-primary',
+              text: "I'd propose a 15% increase — it covers two engineering hires.",
+              color: 'bg-b-primary/25 text-b-primary',
             },
           ].map((line) => (
             <div key={line.time} className="flex items-start gap-2.5 group">
-              <span className="text-[10px] font-mono text-b-fg/28 pt-0.5 w-8 flex-shrink-0 group-hover:text-b-terra transition-colors duration-200 cursor-pointer">
+              <span className="text-[10px] font-mono text-white/25 pt-0.5 w-8 flex-shrink-0 group-hover:text-b-terra transition-colors duration-200 cursor-pointer">
                 {line.time}
               </span>
               <span
-                className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0 mt-0.5 ${line.accent}`}
+                className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0 mt-0.5 ${line.color}`}
               >
                 {line.initial}
               </span>
-              <span className="text-xs text-b-fg/72 leading-relaxed">{line.text}</span>
+              <span className="text-[11px] text-white/65 leading-relaxed">{line.text}</span>
             </div>
           ))}
         </div>
 
-        {/* Auto-extracted items */}
-        <div className="mt-4 pt-3.5 border-t border-b-border/60">
-          <p className="text-[9px] font-sans uppercase tracking-widest text-b-fg/35 mb-2">
+        {/* Auto-extracted footer */}
+        <div className="mt-4 pt-3.5 border-t border-white/8">
+          <p className="text-[9px] font-mono uppercase tracking-widest text-white/25 mb-2">
             Auto-extracted · 2 items
           </p>
           <div className="flex flex-wrap gap-1.5">
-            <span className="px-2 py-1 rounded-full bg-green-100 text-green-700 border border-green-200 text-[10px] font-semibold">
+            <span className="px-2.5 py-1 rounded-full bg-green-900/50 text-green-400 border border-green-700/40 text-[10px] font-semibold">
               ✓ Approve Q4 budget · Mike
             </span>
-            <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-700 border border-amber-200 text-[10px] font-semibold">
+            <span className="px-2.5 py-1 rounded-full bg-amber-900/40 text-amber-400 border border-amber-700/40 text-[10px] font-semibold">
               📅 Hiring call · Thu
             </span>
           </div>
@@ -109,23 +109,24 @@ function HeroMockup() {
       </div>
 
       {/* Floating chat card */}
-      <div className="absolute -right-4 sm:-right-8 bottom-4 sm:bottom-8 w-52 sm:w-60 bg-b-bg rounded-2xl border border-b-border shadow-b-xl p-4 z-20">
+      <div className="absolute -right-4 sm:-right-6 bottom-4 sm:bottom-6 w-52 sm:w-60 bg-b-bg rounded-2xl border border-b-border shadow-b-xl p-4 z-20">
         <div className="flex items-center gap-1.5 mb-3">
           <MessageSquare size={10} className="text-b-primary" />
           <span className="text-[9px] font-sans font-semibold uppercase tracking-widest text-b-fg/40">
-            Ask your meeting
+            Meeting chatbot
           </span>
         </div>
 
         {/* User message */}
-        <div className="bg-b-fg text-white rounded-xl rounded-br-sm px-3 py-2 text-[11px] mb-2 ml-5 leading-relaxed">
-          What was decided about budget?
+        <div className="bg-b-terra rounded-xl rounded-br-sm px-3 py-2 text-[11px] mb-2 ml-6 leading-relaxed">
+          <p className="text-white">What was the Q4 budget decision?</p>
         </div>
 
         {/* AI response */}
-        <div className="bg-b-clay rounded-xl rounded-bl-sm px-3 py-2 text-[11px] mr-4">
+        <div className="bg-b-clay rounded-xl rounded-bl-sm px-3 py-2 text-[11px] mr-5">
           <p className="text-b-fg/80 leading-relaxed mb-2">
-            The team agreed to a <strong>15% increase</strong> to hire 2 engineers for Q4.
+            The team approved a <strong>15% budget increase</strong> for Q4, primarily
+            to fund two additional engineering hires.
           </p>
           <div className="flex items-center gap-1 text-b-terra text-[10px] font-semibold cursor-pointer hover:underline">
             <span>↗</span>
@@ -147,51 +148,10 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   )
 }
 
-// ─── FAQ Item ─────────────────────────────────────────────────────────────────
-
-function FaqItem({
-  q,
-  a,
-  open,
-  onToggle,
-}: {
-  q: string
-  a: string
-  open: boolean
-  onToggle: () => void
-}) {
-  return (
-    <div className="border-b border-b-border last:border-0">
-      <button
-        onClick={onToggle}
-        className="w-full text-left px-6 py-5 flex items-center justify-between gap-4 cursor-pointer bg-transparent border-0 hover:bg-b-bg/50 transition-colors duration-200"
-      >
-        <span className="font-sans font-semibold text-b-fg text-sm sm:text-base leading-snug">
-          {q}
-        </span>
-        <ChevronDown
-          size={18}
-          className={`flex-shrink-0 text-b-primary transition-transform duration-300 ${
-            open ? 'rotate-180' : ''
-          }`}
-        />
-      </button>
-      <div
-        className={`overflow-hidden transition-all duration-300 ease-in-out ${
-          open ? 'max-h-48 pb-5' : 'max-h-0'
-        }`}
-      >
-        <p className="px-6 text-sm text-b-fg/68 leading-relaxed">{a}</p>
-      </div>
-    </div>
-  )
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function LandingPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [openFaq, setOpenFaq] = useState<number | null>(null)
   const [scrolled, setScrolled] = useState(false)
 
   useEffect(() => {
@@ -204,37 +164,36 @@ export default function LandingPage() {
     { href: '#features', label: 'Features' },
     { href: '#how-it-works', label: 'How it works' },
     { href: '#security', label: 'Security' },
-    { href: '#faq', label: 'FAQ' },
   ]
 
   const features = [
     {
-      icon: <Mic size={20} />,
+      icon: <Mic size={18} />,
       title: 'Browser-based recording',
       desc: 'Capture system audio, tab audio, and mic — all mixed in your browser. No install, no plugin, no invited bot.',
     },
     {
-      icon: <Clock size={20} />,
+      icon: <Clock size={18} />,
       title: 'Timestamped transcript',
       desc: 'Full speaker-labelled transcript with clickable timestamps. Jump to any moment in the recording instantly.',
     },
     {
-      icon: <FileText size={20} />,
+      icon: <FileText size={18} />,
       title: 'Summary & meeting notes',
       desc: 'Structured summary and rich meeting notes generated automatically — ready to copy, share, or file away.',
     },
     {
-      icon: <CheckSquare size={20} />,
+      icon: <CheckSquare size={18} />,
       title: 'To-do extraction',
       desc: 'Action items with owner names and deadlines pulled directly from the conversation — no manual markup.',
     },
     {
-      icon: <Calendar size={20} />,
+      icon: <Calendar size={18} />,
       title: 'Calendar mentions & .ics',
       desc: 'Dates and events mentioned in the meeting exported as a standard .ics file for any calendar app.',
     },
     {
-      icon: <MessageSquare size={20} />,
+      icon: <MessageSquare size={18} />,
       title: 'Meeting management',
       desc: 'Pin, rename, search, and delete your meeting library. Everything you need to stay organised.',
     },
@@ -263,33 +222,6 @@ export default function LandingPage() {
     },
   ]
 
-  const faqs = [
-    {
-      q: 'Do I need to install a bot or give it access to my meeting room?',
-      a: "No. Meeting Assistant records audio directly in your browser using the Web Audio API. No bot joins your call, and no third-party app needs access to your Google Meet, Zoom, or Teams account.",
-    },
-    {
-      q: 'Does it record video?',
-      a: "Never. We capture audio only — system/tab audio plus your microphone. Video is not recorded, not uploaded, and not stored at any point.",
-    },
-    {
-      q: 'Which browsers are supported?',
-      a: "Chrome and Edge give the best experience — they support the full system-audio capture API. Firefox and Safari have partial support; some audio sources may be limited on those browsers.",
-    },
-    {
-      q: 'Is my data used to train AI models?',
-      a: "No. Your meeting content is yours. We process it server-side using the Gemini API, but we never share or use your data for training purposes.",
-    },
-    {
-      q: 'Does it handle long meetings?',
-      a: "Yes. Audio is automatically chunked into segments before processing, so even a 3-hour all-hands is handled gracefully. The transcript is stitched back together with continuous timestamps.",
-    },
-    {
-      q: 'How do I export calendar items to my calendar app?',
-      a: "Any date or event mentioned during the meeting is captured as a calendar suggestion. Click the .ics download button next to it and open the file in Google Calendar, Outlook, Apple Calendar — any app that supports the standard iCal format.",
-    },
-  ]
-
   return (
     <div className="min-h-screen bg-b-bg text-b-fg font-sans">
 
@@ -303,11 +235,13 @@ export default function LandingPage() {
       >
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           {/* Logo */}
-          <Link
-            href="/"
-            className="font-serif font-bold text-xl text-b-fg tracking-tight"
-          >
-            Meeting<span className="text-b-terra">Assistant</span>
+          <Link href="/" className="flex items-center" aria-label="Ricotdin home">
+            <img
+              src="/logo.svg"
+              alt="Ricotdin"
+              height={36}
+              style={{ height: '36px', width: 'auto' }}
+            />
           </Link>
 
           {/* Desktop nav */}
@@ -384,7 +318,7 @@ export default function LandingPage() {
 
       {/* ─── Hero ──────────────────────────────────────────────────────────── */}
       <section id="hero" className="relative overflow-hidden py-20 md:py-28 lg:py-36">
-        {/* Decorative background */}
+        {/* Decorative radials */}
         <div
           className="absolute top-0 right-0 w-[700px] h-[700px] -translate-y-1/2 translate-x-1/3 pointer-events-none rounded-full opacity-40"
           style={{ background: 'radial-gradient(circle, rgb(var(--t-terra-rgb) / 0.12) 0%, transparent 65%)' }}
@@ -402,8 +336,8 @@ export default function LandingPage() {
             {/* Text content */}
             <div>
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-b-terra/10 border border-b-terra/20 mb-6">
-                <Sparkles size={12} className="text-b-terra" aria-hidden="true" />
-                <span className="text-xs font-semibold text-b-terra uppercase tracking-widest">
+                <Sparkles size={11} className="text-b-terra" aria-hidden="true" />
+                <span className="text-[11px] font-semibold text-b-terra uppercase tracking-widest">
                   No bot · No video · Full record
                 </span>
               </div>
@@ -414,8 +348,8 @@ export default function LandingPage() {
               </h1>
 
               <p className="text-base sm:text-lg text-b-fg/65 leading-relaxed mb-8 max-w-lg">
-                Meeting Assistant records and transcribes every word directly in your browser
-                — no install, no bot crashing your call. When it&apos;s over, your summary,
+                Ricotdin records and transcribes every word directly in your browser — no
+                install, no bot crashing your call. When it&apos;s over, your summary,
                 action items, and a searchable transcript are waiting.
               </p>
 
@@ -425,7 +359,7 @@ export default function LandingPage() {
                   className="btn-primary text-base px-7 py-3 flex items-center justify-center gap-2"
                 >
                   Try it free
-                  <ArrowRight size={16} aria-hidden="true" />
+                  <ArrowRight size={15} aria-hidden="true" />
                 </Link>
                 <a
                   href="#how-it-works"
@@ -436,7 +370,7 @@ export default function LandingPage() {
               </div>
 
               <p className="text-xs text-b-fg/38 font-sans">
-                No credit card required · Works in Chrome and Edge
+                No credit card required · Works in Any Browsers
               </p>
             </div>
 
@@ -452,20 +386,19 @@ export default function LandingPage() {
           <p className="text-center text-[10px] uppercase tracking-widest font-semibold text-b-fg/35 mb-5">
             Works alongside any meeting platform
           </p>
-          <div className="flex flex-wrap justify-center gap-5 sm:gap-8 items-center">
+          <div className="flex flex-wrap justify-center gap-5 sm:gap-10 items-center">
             {[
               { name: 'Google Meet', abbr: 'G', color: '#1a73e8' },
               { name: 'Microsoft Teams', abbr: 'T', color: '#5e50e6' },
               { name: 'Zoom', abbr: 'Z', color: '#2d8cff' },
-              { name: 'Webex', abbr: 'W', color: '#00a0d1' },
-              { name: 'Any platform', abbr: '∞', color: '#8C9A84' },
+              { name: 'Any Browsers', abbr: '◎', color: '#8C9A84' },
             ].map(({ name, abbr, color }) => (
               <div
                 key={name}
-                className="flex items-center gap-2 text-sm font-sans font-medium text-b-fg/55"
+                className="flex items-center gap-2.5 text-sm font-sans font-medium text-b-fg/55"
               >
                 <span
-                  className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold bg-b-bg border border-b-border"
+                  className="w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold bg-b-bg border border-b-border"
                   style={{ color }}
                   aria-hidden="true"
                 >
@@ -485,7 +418,7 @@ export default function LandingPage() {
           <h2 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-bold text-b-fg mt-4 mb-4 leading-tight">
             You can&apos;t take notes and be fully present.
           </h2>
-          <p className="text-b-fg/58 max-w-lg mx-auto text-base leading-relaxed mb-14">
+          <p className="text-b-fg/55 max-w-lg mx-auto text-base leading-relaxed mb-14">
             Split attention is the hidden tax of every meeting. Something always slips through.
           </p>
 
@@ -511,8 +444,8 @@ export default function LandingPage() {
                 <div className="text-3xl mb-4" aria-hidden="true">
                   {emoji}
                 </div>
-                <h3 className="font-serif font-bold text-b-fg text-lg mb-2">{title}</h3>
-                <p className="text-sm text-b-fg/62 leading-relaxed">{desc}</p>
+                <h3 className="font-serif font-bold text-b-fg text-lg mb-2 leading-snug">{title}</h3>
+                <p className="text-sm text-b-fg/60 leading-relaxed">{desc}</p>
               </div>
             ))}
           </div>
@@ -523,20 +456,19 @@ export default function LandingPage() {
       <section id="how-it-works" className="py-20 md:py-28 bg-b-clay/20">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 text-center">
           <SectionLabel>How it works</SectionLabel>
-          <h2 className="font-serif text-3xl sm:text-4xl font-bold text-b-fg mt-4 mb-4">
+          <h2 className="font-serif text-3xl sm:text-4xl font-bold text-b-fg mt-4 mb-3">
             Three steps. That&apos;s it.
           </h2>
-          <p className="text-b-fg/58 max-w-sm mx-auto text-base mb-16">
+          <p className="text-b-fg/55 max-w-sm mx-auto text-base mb-16">
             No configuration, no bot to authorise, nothing to install.
           </p>
 
           <div className="grid sm:grid-cols-3 gap-8 relative">
-            {/* Connector */}
+            {/* Connector line */}
             <div
               className="hidden sm:block absolute top-10 left-[22%] right-[22%] h-px"
               style={{
-                background:
-                  'linear-gradient(to right, transparent, rgb(var(--t-border-rgb)), transparent)',
+                background: 'linear-gradient(to right, transparent, rgb(var(--t-border-rgb)), transparent)',
               }}
               aria-hidden="true"
             />
@@ -546,7 +478,7 @@ export default function LandingPage() {
                 step: '01',
                 icon: <Mic size={22} aria-hidden="true" />,
                 title: 'Open the app',
-                desc: "Navigate to Meeting Assistant and hit Record. Allow audio capture — that's the only permission needed.",
+                desc: "Navigate to Ricotdin and hit Record. Allow audio capture — that's the only permission needed.",
               },
               {
                 step: '02',
@@ -569,7 +501,7 @@ export default function LandingPage() {
                   {step}
                 </div>
                 <h3 className="font-serif font-bold text-b-fg text-xl mb-2">{title}</h3>
-                <p className="text-sm text-b-fg/58 leading-relaxed max-w-[200px]">{desc}</p>
+                <p className="text-sm text-b-fg/55 leading-relaxed max-w-[200px]">{desc}</p>
               </div>
             ))}
           </div>
@@ -584,7 +516,7 @@ export default function LandingPage() {
             <h2 className="font-serif text-3xl sm:text-4xl font-bold text-b-fg mt-4 mb-4">
               Everything you wish your notes could be
             </h2>
-            <p className="text-b-fg/58 max-w-lg mx-auto text-base">
+            <p className="text-b-fg/55 max-w-lg mx-auto text-base">
               Built around one idea: your attention belongs in the conversation, not split
               between talking and typing.
             </p>
@@ -596,11 +528,11 @@ export default function LandingPage() {
                 key={title}
                 className="card-botanical p-6 group hover:shadow-b-xl transition-all duration-300"
               >
-                <div className="w-10 h-10 rounded-2xl bg-b-terra/10 flex items-center justify-center text-b-terra mb-4 group-hover:scale-110 transition-transform duration-300">
+                <div className="w-9 h-9 rounded-2xl bg-b-terra/10 flex items-center justify-center text-b-terra mb-4 group-hover:scale-110 transition-transform duration-300">
                   {icon}
                 </div>
-                <h3 className="font-serif font-bold text-b-fg text-lg mb-2">{title}</h3>
-                <p className="text-sm text-b-fg/62 leading-relaxed">{desc}</p>
+                <h3 className="font-serif font-bold text-b-fg text-lg mb-2 leading-snug">{title}</h3>
+                <p className="text-sm text-b-fg/60 leading-relaxed">{desc}</p>
               </div>
             ))}
           </div>
@@ -609,7 +541,7 @@ export default function LandingPage() {
 
       {/* ─── RAG Chatbot Spotlight ──────────────────────────────────────────── */}
       <section className="py-20 md:py-28 bg-b-fg text-white relative overflow-hidden">
-        {/* Subtle texture */}
+        {/* Subtle noise texture */}
         <div
           className="absolute inset-0 opacity-[0.04] pointer-events-none"
           style={{
@@ -625,8 +557,8 @@ export default function LandingPage() {
             {/* Text */}
             <div>
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/15 mb-6">
-                <MessageSquare size={12} className="text-b-terra" aria-hidden="true" />
-                <span className="text-xs font-semibold uppercase tracking-widest text-b-terra/90">
+                <MessageSquare size={11} className="text-b-terra" aria-hidden="true" />
+                <span className="text-[11px] font-semibold uppercase tracking-widest text-b-terra/90">
                   RAG chatbot · with citations
                 </span>
               </div>
@@ -636,7 +568,7 @@ export default function LandingPage() {
                 <em className="italic text-b-terra">any meeting you&apos;ve ever had.</em>
               </h2>
 
-              <p className="text-white/62 text-base leading-relaxed mb-7">
+              <p className="text-white/60 text-base leading-relaxed mb-7">
                 The chatbot searches across all your meetings and gives grounded, cited
                 answers. Every claim links to the exact speaker and timestamp. If the answer
                 isn&apos;t in the transcript, it says so — it never invents.
@@ -648,7 +580,7 @@ export default function LandingPage() {
                   'Citations link to the exact timestamp — click to jump',
                   'Never hallucinates: "not found" beats a plausible lie',
                 ].map((item) => (
-                  <li key={item} className="flex items-start gap-3 text-sm text-white/72">
+                  <li key={item} className="flex items-start gap-3 text-sm text-white/70">
                     <span className="w-5 h-5 rounded-full bg-b-terra/22 flex items-center justify-center flex-shrink-0 mt-0.5">
                       <ArrowRight size={10} className="text-b-terra" aria-hidden="true" />
                     </span>
@@ -658,7 +590,7 @@ export default function LandingPage() {
               </ul>
             </div>
 
-            {/* Simulated chat */}
+            {/* Chat UI */}
             <div className="bg-white/[0.05] backdrop-blur-sm rounded-3xl border border-white/10 p-6">
               <div className="flex items-center gap-2 mb-5 pb-4 border-b border-white/10">
                 <span className="w-2 h-2 rounded-full bg-b-terra animate-pulse" aria-hidden="true" />
@@ -668,7 +600,7 @@ export default function LandingPage() {
               </div>
 
               <div className="space-y-4">
-                {/* User → Q1 */}
+                {/* Q1 */}
                 <div className="flex justify-end">
                   <div className="bg-b-terra/75 rounded-2xl rounded-br-sm px-4 py-2.5 max-w-[80%]">
                     <p className="text-sm text-white leading-relaxed">
@@ -677,7 +609,7 @@ export default function LandingPage() {
                   </div>
                 </div>
 
-                {/* AI → A1 with citations */}
+                {/* A1 with citations */}
                 <div className="flex items-start gap-2.5">
                   <div className="w-7 h-7 rounded-full bg-b-terra/20 flex items-center justify-center flex-shrink-0 mt-0.5">
                     <Brain size={13} className="text-b-terra" aria-hidden="true" />
@@ -699,7 +631,7 @@ export default function LandingPage() {
                   </div>
                 </div>
 
-                {/* User → Q2 */}
+                {/* Q2 */}
                 <div className="flex justify-end">
                   <div className="bg-b-terra/75 rounded-2xl rounded-br-sm px-4 py-2.5 max-w-[80%]">
                     <p className="text-sm text-white leading-relaxed">
@@ -708,7 +640,7 @@ export default function LandingPage() {
                   </div>
                 </div>
 
-                {/* AI → A2 — honest "not found" */}
+                {/* A2 — honest not found */}
                 <div className="flex items-start gap-2.5">
                   <div className="w-7 h-7 rounded-full bg-b-terra/20 flex items-center justify-center flex-shrink-0 mt-0.5">
                     <Brain size={13} className="text-b-terra" aria-hidden="true" />
@@ -734,7 +666,7 @@ export default function LandingPage() {
             <h2 className="font-serif text-3xl sm:text-4xl font-bold text-b-fg mt-4 mb-4">
               Your meetings are sensitive. We treat them that way.
             </h2>
-            <p className="text-b-fg/58 max-w-xl mx-auto text-base leading-relaxed">
+            <p className="text-b-fg/55 max-w-xl mx-auto text-base leading-relaxed">
               We&apos;re not an enterprise compliance vendor — we&apos;re a tool built for
               people who care about what happens to their data.
             </p>
@@ -743,12 +675,12 @@ export default function LandingPage() {
           <div className="grid sm:grid-cols-2 gap-5 mb-6">
             {privacyPoints.map(({ icon, title, desc }) => (
               <div key={title} className="card-botanical p-6 flex gap-4">
-                <div className="w-10 h-10 rounded-2xl bg-b-primary/10 flex items-center justify-center text-b-primary flex-shrink-0">
+                <div className="w-10 h-10 rounded-2xl bg-b-primary/10 flex items-center justify-center text-b-primary flex-shrink-0 mt-0.5">
                   {icon}
                 </div>
                 <div>
-                  <h3 className="font-serif font-bold text-b-fg text-lg mb-1.5">{title}</h3>
-                  <p className="text-sm text-b-fg/62 leading-relaxed">{desc}</p>
+                  <h3 className="font-serif font-bold text-b-fg text-lg mb-1.5 leading-snug">{title}</h3>
+                  <p className="text-sm text-b-fg/60 leading-relaxed">{desc}</p>
                 </div>
               </div>
             ))}
@@ -756,40 +688,12 @@ export default function LandingPage() {
 
           {/* Trust bar */}
           <div className="p-5 rounded-2xl bg-b-clay/40 border border-b-border flex flex-col sm:flex-row items-start sm:items-center gap-3">
-            <Shield
-              size={22}
-              className="text-b-primary flex-shrink-0"
-              aria-hidden="true"
-            />
-            <p className="text-sm text-b-fg/68 leading-relaxed">
+            <Shield size={22} className="text-b-primary flex-shrink-0" aria-hidden="true" />
+            <p className="text-sm text-b-fg/65 leading-relaxed">
               <strong className="text-b-fg">API keys never reach the browser.</strong> All
               AI processing happens server-side. No secret is ever exposed to the client,
               and nothing sensitive is ever logged.
             </p>
-          </div>
-        </div>
-      </section>
-
-      {/* ─── FAQ ────────────────────────────────────────────────────────────── */}
-      <section id="faq" className="py-20 md:py-28 bg-b-clay/20">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-12">
-            <SectionLabel>FAQ</SectionLabel>
-            <h2 className="font-serif text-3xl sm:text-4xl font-bold text-b-fg mt-4">
-              Common questions
-            </h2>
-          </div>
-
-          <div className="bg-b-bg rounded-3xl border border-b-border overflow-hidden">
-            {faqs.map((faq, i) => (
-              <FaqItem
-                key={i}
-                q={faq.q}
-                a={faq.a}
-                open={openFaq === i}
-                onToggle={() => setOpenFaq(openFaq === i ? null : i)}
-              />
-            ))}
           </div>
         </div>
       </section>
@@ -799,24 +703,22 @@ export default function LandingPage() {
         <div
           className="absolute inset-0 pointer-events-none"
           style={{
-            background:
-              'radial-gradient(ellipse 80% 60% at 50% 50%, rgb(var(--t-terra-rgb) / 0.07) 0%, transparent 70%)',
+            background: 'radial-gradient(ellipse 80% 60% at 50% 50%, rgb(var(--t-terra-rgb) / 0.07) 0%, transparent 70%)',
           }}
           aria-hidden="true"
         />
         <div
           className="absolute top-0 left-0 w-full h-px"
           style={{
-            background:
-              'linear-gradient(to right, transparent, rgb(var(--t-border-rgb)), transparent)',
+            background: 'linear-gradient(to right, transparent, rgb(var(--t-border-rgb)), transparent)',
           }}
           aria-hidden="true"
         />
 
         <div className="max-w-2xl mx-auto px-4 sm:px-6 text-center relative z-10">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-b-terra/10 border border-b-terra/20 mb-6">
-            <Sparkles size={12} className="text-b-terra" aria-hidden="true" />
-            <span className="text-xs font-semibold text-b-terra uppercase tracking-widest">
+            <Sparkles size={11} className="text-b-terra" aria-hidden="true" />
+            <span className="text-[11px] font-semibold text-b-terra uppercase tracking-widest">
               Free to try
             </span>
           </div>
@@ -826,7 +728,7 @@ export default function LandingPage() {
             <em className="italic text-b-terra">Never miss a detail again.</em>
           </h2>
 
-          <p className="text-b-fg/58 text-base sm:text-lg leading-relaxed mb-10 max-w-xl mx-auto">
+          <p className="text-b-fg/55 text-base sm:text-lg leading-relaxed mb-10 max-w-xl mx-auto">
             Get your first meeting recorded, transcribed, and summarised in minutes. No
             credit card, no install, no bot.
           </p>
@@ -837,7 +739,7 @@ export default function LandingPage() {
               className="btn-primary text-base px-8 py-3.5 flex items-center justify-center gap-2"
             >
               Get started for free
-              <ArrowRight size={16} aria-hidden="true" />
+              <ArrowRight size={15} aria-hidden="true" />
             </Link>
             <Link
               href="/login"
@@ -855,9 +757,13 @@ export default function LandingPage() {
           <div className="flex flex-col sm:flex-row items-start justify-between gap-10">
             {/* Brand */}
             <div className="max-w-xs">
-              <div className="font-serif font-bold text-lg text-b-fg tracking-tight mb-2">
-                Meeting<span className="text-b-terra">Assistant</span>
-              </div>
+              <Link href="/" aria-label="Ricotdin home" className="inline-block mb-2">
+                <img
+                  src="/logo.svg"
+                  alt="Ricotdin"
+                  style={{ height: '32px', width: 'auto' }}
+                />
+              </Link>
               <p className="text-xs text-b-fg/40 leading-relaxed">
                 Record, transcribe, and query your meetings — privately, in your browser.
               </p>
@@ -905,8 +811,8 @@ export default function LandingPage() {
           </div>
 
           <div className="border-t border-b-border mt-10 pt-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-b-fg/28">
-            <span>© 2025 Meeting Assistant. All rights reserved.</span>
-            <span>Made for people who attend too many meetings.</span>
+            <span>© 2024 Ricotdin. All rights reserved.</span>
+            <span>Made by MingMing</span>
           </div>
         </div>
       </footer>
