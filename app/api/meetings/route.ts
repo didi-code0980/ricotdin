@@ -7,6 +7,13 @@ import { randomUUID } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { createClient } from '@supabase/supabase-js'
+import {
+  ALLOWED_AUDIO_EXTENSIONS,
+  ALLOWED_VIDEO_EXTENSIONS,
+  isAllowedExtension,
+  isVideoExtension,
+} from '@/lib/upload/constants'
+import type { MeetingSource } from '@/types/database'
 import type { Database } from '@/types/database'
 
 const BUCKET = 'recordings'
@@ -40,6 +47,29 @@ async function requireUser(req: NextRequest): Promise<string> {
   return user.id
 }
 
+/**
+ * Normalise and whitelist a file extension sent by the client.
+ * Accepts both audio and video extensions.
+ * Returns the lowercased extension (with leading dot) if valid.
+ * Throws a 400 NextResponse if the extension is unrecognised.
+ */
+function resolveExtension(raw?: string): string {
+  if (!raw) return '.webm'
+  const ext = raw.startsWith('.') ? raw.toLowerCase() : `.${raw.toLowerCase()}`
+  if (!isAllowedExtension(ext) && !isVideoExtension(ext)) {
+    throw NextResponse.json(
+      {
+        error:
+          `Unsupported file extension "${ext}". ` +
+          `Allowed audio: ${ALLOWED_AUDIO_EXTENSIONS.join(', ')}. ` +
+          `Allowed video: ${ALLOWED_VIDEO_EXTENSIONS.join(', ')}.`,
+      },
+      { status: 400 },
+    )
+  }
+  return ext
+}
+
 export async function POST(req: NextRequest) {
   let userId: string
   try {
@@ -48,12 +78,31 @@ export async function POST(req: NextRequest) {
     return res as NextResponse
   }
 
-  let body: { durationSeconds?: number; startedAt?: string }
+  let body: {
+    durationSeconds?: number
+    startedAt?: string
+    source?: string
+    fileExtension?: string
+  }
   try {
-    body = (await req.json()) as { durationSeconds?: number; startedAt?: string }
+    body = (await req.json()) as typeof body
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 })
   }
+
+  // Validate and resolve the file extension; throws 400 on unknown extension.
+  let ext: string
+  try {
+    ext = resolveExtension(body.fileExtension)
+  } catch (res) {
+    return res as NextResponse
+  }
+
+  // Only allow known source values; default to 'recorded' for backward compat.
+  const source: MeetingSource =
+    body.source === 'uploaded' ? 'uploaded'
+    : body.source === 'video' ? 'video'
+    : 'recorded'
 
   const serverClient = createServerClient()
 
@@ -71,9 +120,10 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Generate the meeting ID server-side so we can build the audio path before insert
+  // Generate the meeting ID server-side so we can build the audio path before insert.
+  // Extension comes from the client for uploaded files; defaults to .webm for recordings.
   const meetingId = randomUUID()
-  const audioPath = `${userId}/${meetingId}.webm`
+  const audioPath = `${userId}/${meetingId}${ext}`
 
   const title = formatMeetingTitle(body.startedAt)
   const startedAt = body.startedAt ?? new Date().toISOString()
@@ -86,6 +136,7 @@ export async function POST(req: NextRequest) {
     audio_path: audioPath,
     duration_seconds: body.durationSeconds ?? null,
     started_at: startedAt,
+    source,
   })
 
   if (insertError) {

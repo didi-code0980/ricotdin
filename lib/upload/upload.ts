@@ -7,9 +7,17 @@ import { getAccessToken } from '@/lib/supabase/auth'
 const BUCKET = 'recordings'
 
 export interface RecordingMeta {
+  /** Duration in seconds. Pass 0 when unknown (e.g. uploaded files). */
   durationSeconds: number
-  startedAt: string   // ISO 8601
+  /** ISO 8601 timestamp of when the meeting took place (recording start or user-selected date). */
+  startedAt: string
+  /** MIME type of the audio blob, used as the Storage contentType header. */
   mimeType?: string
+  /** 'recorded' (default) or 'uploaded'. Stored in meetings.source. */
+  source?: 'recorded' | 'uploaded'
+  /** File extension with leading dot, e.g. '.mp3'. Required for uploaded files so
+   *  the storage path uses the correct extension. Defaults to '.webm' on the server. */
+  fileExtension?: string
 }
 
 export interface UploadResult {
@@ -17,11 +25,11 @@ export interface UploadResult {
 }
 
 /**
- * Full upload flow for a single recording:
- * 1. Ensure auth session (anonymous if needed).
+ * Full upload flow for a single recording or uploaded file:
+ * 1. Ensure auth session.
  * 2. POST /api/meetings → get signed upload URL.
  * 3. Upload blob directly to Supabase Storage (bypasses our server).
- * 4. POST /api/meetings/:id/uploaded → confirm.
+ * 4. POST /api/meetings/:id/uploaded → confirm + trigger pipeline.
  */
 export async function uploadRecording(
   blob: Blob,
@@ -40,6 +48,8 @@ export async function uploadRecording(
     body: JSON.stringify({
       durationSeconds: meta.durationSeconds,
       startedAt: meta.startedAt,
+      source: meta.source ?? 'recorded',
+      fileExtension: meta.fileExtension,
     }),
   })
 
@@ -65,16 +75,17 @@ export async function uploadRecording(
     throw new UploadError(`Storage upload failed: ${uploadError.message}`, 'upload')
   }
 
-  // Step 3: confirm upload to server (non-fatal if this fails — row already exists)
+  // Step 3: confirm upload to server — triggers ffprobe validation + pipeline
   const confirmRes = await fetch(`/api/meetings/${meetingId}/uploaded`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
   })
 
   if (!confirmRes.ok) {
-    // Log but don't throw — meeting row + file both exist; pipeline can still run
     const body = await confirmRes.json().catch(() => ({ error: `HTTP ${confirmRes.status}` })) as { error?: string }
-    console.warn('[upload] confirm step failed (non-fatal):', body.error)
+    // For uploaded files the server may return 422 (bad file type / too large).
+    // Surface these as real errors so the UI can show a useful message.
+    throw new UploadError(body.error ?? `HTTP ${confirmRes.status}`, 'confirm')
   }
 
   return { meetingId }

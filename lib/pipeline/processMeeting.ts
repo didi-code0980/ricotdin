@@ -9,7 +9,7 @@
 // server (npm start). If the server restarts mid-job, the meeting is left in
 // status='processing'; trigger a re-run manually via POST /api/meetings/:id/process.
 
-import { writeFile, unlink, rm } from 'node:fs/promises'
+import { writeFile, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, extname } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -19,7 +19,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { analyzeTranscript } from '@/lib/gemini/analyze'
 import { embedChunks } from '@/lib/gemini/embed'
 import { chunkSegments } from './chunk'
-import { transcribeWithChunking } from './audioChunk'
+import { transcribeWithSpeechmatics } from '@/lib/speechmatics/transcribe'
 import { assertAnalysisHasContent } from './guards'
 
 const BUCKET = 'recordings'
@@ -43,7 +43,7 @@ export async function processMeeting(meetingId: string): Promise<void> {
     .update({ status: 'processing', error_message: null })
     .in('status', ['pending', 'failed'])
     .eq('id', meetingId)
-    .select('id, audio_path, duration_seconds')
+    .select('id, audio_path, duration_seconds, started_at')
     .maybeSingle()
 
   if (!claimed) {
@@ -53,7 +53,6 @@ export async function processMeeting(meetingId: string): Promise<void> {
 
   log(`[pipeline] ${meetingId}: starting processing`)
   let tmpAudioPath: string | null = null
-  let chunkDir: string | null = null
 
   try {
     // ── Download audio from Supabase Storage ──────────────────────────────
@@ -80,13 +79,9 @@ export async function processMeeting(meetingId: string): Promise<void> {
     log(`[pipeline] ${meetingId}: audio written to ${tmpAudioPath} (${audioBuffer.length} bytes)`)
 
     // ── Step A: Transcription ─────────────────────────────────────────────
-    // transcribeWithChunking handles:
-    //   - optional webm→mp3 transcode when ffmpeg is available (smaller upload)
-    //   - long-audio splitting when duration > 28 min (requires ffmpeg)
-    // chunkDir holds all ffmpeg output and is cleaned up in the finally block.
-    const durationSecs = claimed.duration_seconds ?? 0
-    chunkDir = join(tmpdir(), `meeting-${meetingId}-chunks`)
-    const transcript = await transcribeWithChunking(tmpAudioPath, durationSecs, chunkDir)
+    // Speechmatics Batch API handles audio of any length natively — no ffmpeg
+    // splitting required. The audio file is uploaded directly from disk.
+    const transcript = await transcribeWithSpeechmatics(tmpAudioPath)
     log(
       `[pipeline] ${meetingId}: transcript done — ` +
         `${transcript.segments.length} segments, language=${transcript.language}`,
@@ -138,7 +133,9 @@ export async function processMeeting(meetingId: string): Promise<void> {
       .eq('id', meetingId)
 
     // ── Step B: Analysis ──────────────────────────────────────────────────
-    const analysis = await analyzeTranscript(transcript)
+    // Pass started_at so the prompt can anchor relative date phrases
+    // ("next Tuesday") to when the meeting actually happened.
+    const analysis = await analyzeTranscript(transcript, claimed.started_at ?? undefined)
     log(
       `[pipeline] ${meetingId}: analysis done — ` +
         `${analysis.todos.length} todos, ${analysis.calendar_suggestions.length} calendar suggestions`,
@@ -221,17 +218,10 @@ export async function processMeeting(meetingId: string): Promise<void> {
       .eq('id', meetingId)
     throw err
   } finally {
-    // Clean up temp files regardless of success/failure.
-    // tmpAudioPath: the downloaded source file (e.g. .webm)
-    // chunkDir: all ffmpeg output (transcoded mp3 + any chunk files)
+    // Clean up the downloaded source file regardless of success/failure.
     if (tmpAudioPath) {
       unlink(tmpAudioPath).catch((e: unknown) => {
         console.warn('[pipeline] failed to delete temp audio file:', e)
-      })
-    }
-    if (chunkDir) {
-      rm(chunkDir, { recursive: true, force: true }).catch((e: unknown) => {
-        console.warn('[pipeline] failed to delete chunk dir:', e)
       })
     }
   }

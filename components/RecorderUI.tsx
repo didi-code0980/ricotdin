@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRecorder } from '@/lib/audio/useRecorder'
 import { checkRecordingSupport } from '@/lib/audio/support'
 import { useUpload } from '@/lib/upload/useUpload'
+import FileUploadSection from '@/components/FileUploadSection'
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60).toString().padStart(2, '0')
@@ -23,6 +24,7 @@ export default function RecorderUI() {
 
   const { state: uploadState, meetingId, error: uploadError, upload, reset: resetUpload } = useUpload()
   const startedAtRef = useRef<string | null>(null)
+  const [showUpload, setShowUpload] = useState(false)
 
   // ── Unsupported browser ────────────────────────────────────────────────
 
@@ -67,7 +69,7 @@ export default function RecorderUI() {
 
       {/* Controls */}
       <div className="flex items-center gap-4">
-        {state === 'idle' && (
+        {state === 'idle' && !showUpload && (
           <button
             className="btn-primary"
             onClick={() => {
@@ -76,6 +78,16 @@ export default function RecorderUI() {
             }}
           >
             <span className="text-red-400">●</span> Start recording
+          </button>
+        )}
+
+        {state === 'idle' && !showUpload && (
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setShowUpload(true)}
+          >
+            ↑ Upload a file
           </button>
         )}
 
@@ -102,6 +114,11 @@ export default function RecorderUI() {
           </button>
         )}
       </div>
+
+      {/* File upload section — shown when user picks "Upload a file" in idle state */}
+      {state === 'idle' && showUpload && (
+        <FileUploadSection onCancel={() => setShowUpload(false)} />
+      )}
 
       {/* No system audio warning */}
       {state === 'recording' && trackInfo && !trackInfo.hasDisplayAudio && (

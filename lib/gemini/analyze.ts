@@ -84,7 +84,11 @@ const ANALYSIS_RESPONSE_SCHEMA: Schema = {
 // Prompt builder
 // ---------------------------------------------------------------------------
 
-function buildPrompt(segments: TranscriptResult['segments'], strict = false): string {
+function buildPrompt(
+  segments: TranscriptResult['segments'],
+  strict = false,
+  meetingDate?: string,
+): string {
   // Format the transcript with segment indices so Gemini can cite them back.
   const transcriptText = segments
     .map(
@@ -93,8 +97,16 @@ function buildPrompt(segments: TranscriptResult['segments'], strict = false): st
     )
     .join('\n')
 
-  const base = `You are a meeting assistant. Analyse the following meeting transcript.
+  // Anchor date so Gemini resolves relative phrases ("next Tuesday") correctly.
+  // Without this, Gemini guesses based on training data cutoff — always wrong.
+  const dateContext = meetingDate
+    ? `\nMeeting date: ${meetingDate}. Resolve all relative time references ` +
+      `("next Tuesday", "this Friday", "end of month", etc.) against this date ` +
+      `when producing ISO 8601 values for due_date and proposed_at.\n`
+    : ''
 
+  const base = `You are a meeting assistant. Analyse the following meeting transcript.
+${dateContext}
 TRANSCRIPT (each line prefixed with its 0-based segment index [N]):
 ${transcriptText}
 
@@ -153,20 +165,28 @@ function parseResult(raw: string): AnalysisResult {
  * Analyse the transcript text with Gemini Flash (text-only, no audio upload).
  * Returns summary, markdown notes, todos, and calendar suggestions.
  * Segment indices in the result map directly to the array passed in.
+ *
+ * @param transcript   Parsed transcript from Step A.
+ * @param meetingDate  ISO 8601 timestamp of when the meeting took place.
+ *                     Injected into the prompt so Gemini can resolve relative
+ *                     date phrases ("next Tuesday") against the real meeting date
+ *                     instead of guessing. Pass `meetings.started_at` here.
  */
 export async function analyzeTranscript(
   transcript: TranscriptResult,
+  meetingDate?: string,
 ): Promise<AnalysisResult> {
   if (transcript.segments.length === 0) {
     return { summary: '', notes_markdown: '', todos: [], calendar_suggestions: [] }
   }
 
-  log(`[analyze] analysing transcript with ${transcript.segments.length} segments`)
+  log(`[analyze] analysing transcript with ${transcript.segments.length} segments` +
+    (meetingDate ? ` (meeting date: ${meetingDate})` : ''))
 
   return geminiPool.call(async (ai) => {
     const response = await ai.models.generateContent({
       model: GEMINI_MODEL,
-      contents: buildPrompt(transcript.segments),
+      contents: buildPrompt(transcript.segments, false, meetingDate),
       config: {
         responseMimeType: 'application/json',
         responseSchema: ANALYSIS_RESPONSE_SCHEMA,
@@ -182,7 +202,7 @@ export async function analyzeTranscript(
       console.warn('[analyze] first parse failed; retrying with strict prompt:', parseErr)
       const response2 = await ai.models.generateContent({
         model: GEMINI_MODEL,
-        contents: buildPrompt(transcript.segments, true),
+        contents: buildPrompt(transcript.segments, true, meetingDate),
         config: {
           responseMimeType: 'application/json',
           responseSchema: ANALYSIS_RESPONSE_SCHEMA,

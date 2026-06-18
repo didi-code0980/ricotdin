@@ -5,8 +5,9 @@
 # NEXT_PUBLIC_* vars are inlined into the client bundle at build time.
 # Pass them as --build-arg flags (see README).
 #
-# Server-only secrets (GEMINI_API_KEY, SUPABASE_SERVICE_ROLE_KEY) are never
-# baked into the image — supply them at runtime via -e or --env-file.
+# Server-only secrets (GEMINI_API_KEY, SUPABASE_SERVICE_ROLE_KEY,
+# SPEECHMATICS_API_KEY) are never baked into the image — supply them at
+# runtime via -e or --env-file.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Stage 1: install all dependencies ────────────────────────────────────────

@@ -133,3 +133,28 @@ export async function transcodeAndChunk(
   }
   return chunkFiles
 }
+
+/**
+ * Extract the audio track from a video file (or HTTPS URL) and write it as
+ * an mp3 to `outputMp3Path`. The video stream is discarded; only audio is kept.
+ *
+ * When `inputPathOrUrl` is an HTTPS URL, ffmpeg fetches only the bytes it needs
+ * rather than downloading the full file first.
+ *
+ * @param inputPathOrUrl  Local path or HTTPS URL to the source video.
+ * @param outputMp3Path   Absolute path where the extracted mp3 will be written.
+ */
+export async function extractAudioFromVideo(
+  inputPathOrUrl: string,
+  outputMp3Path: string,
+): Promise<void> {
+  await requireFfmpeg()
+  await runCommand('ffmpeg', [
+    '-y',
+    '-i', inputPathOrUrl,
+    '-vn',            // strip all video streams
+    '-c:a', 'libmp3lame',
+    '-b:a', '128k',
+    outputMp3Path,
+  ])
+}

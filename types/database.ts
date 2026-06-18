@@ -3,6 +3,7 @@
 
 export type UserRole = 'user' | 'admin'
 export type MeetingStatus = 'pending' | 'processing' | 'done' | 'failed'
+export type MeetingSource = 'recorded' | 'uploaded' | 'video'
 export type TodoStatus = 'open' | 'done' | 'dismissed'
 export type ChatRole = 'user' | 'assistant'
 
@@ -34,6 +35,7 @@ export type Meeting = {
   user_id: string
   title: string
   status: MeetingStatus
+  source: MeetingSource
   audio_path: string | null
   duration_seconds: number | null
   language: string | null
@@ -169,6 +171,7 @@ export interface Database {
           user_id: string
           title?: string
           status?: MeetingStatus
+          source?: MeetingSource
           audio_path?: string | null
           duration_seconds?: number | null
           language?: string | null
