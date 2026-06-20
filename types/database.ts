@@ -164,34 +164,34 @@ export type UsageLog = {
   user_id: string | null
 }
 
-export type ProviderKeyStatus = 'active' | 'disabled'
+export type ConfigEntryStatus = 'active' | 'disabled'
 
-// Full DB row — key_ciphertext/key_iv/key_auth_tag are server-only.
+// Full admin_config DB row — value_ciphertext/value_iv/value_auth_tag are server-only.
 // NEVER return these fields in any API response or log them.
-export type ProviderKeyRow = {
+export type AdminConfigRow = {
   id: string
   created_at: string
   updated_at: string
-  provider: string
+  config_key: string       // e.g. 'gemini_api_key', 'speechmatics_api_key'
   label: string
-  key_ciphertext: string  // AES-256-GCM ciphertext (base64) — NEVER expose to client
-  key_iv: string          // GCM IV (base64) — NEVER expose to client
-  key_auth_tag: string    // GCM auth tag (base64) — NEVER expose to client
+  value_ciphertext: string // AES-256-GCM ciphertext (base64) — NEVER expose to client
+  value_iv: string         // GCM IV (base64) — NEVER expose to client
+  value_auth_tag: string   // GCM auth tag (base64) — NEVER expose to client
   last4: string
-  status: ProviderKeyStatus
+  status: ConfigEntryStatus
   disabled_reason: string | null
   last_used_at: string | null
   created_by: string | null
 }
 
-// Safe display shape — never contains ciphertext or plaintext key material.
-export type MaskedProviderKey = {
+// Safe display shape — never contains ciphertext or plaintext value.
+export type MaskedAdminConfig = {
   id: string
   created_at: string
-  provider: string
+  config_key: string
   label: string
   last4: string
-  status: ProviderKeyStatus
+  status: ConfigEntryStatus
   disabled_reason: string | null
   last_used_at: string | null
 }
@@ -408,24 +408,24 @@ export interface Database {
         Update: Partial<UsageLog>
         Relationships: NoRelationships
       }
-      provider_keys: {
-        Row: ProviderKeyRow
+      admin_config: {
+        Row: AdminConfigRow
         Insert: {
           id?: string
           created_at?: string
           updated_at?: string
-          provider: string
+          config_key: string
           label: string
-          key_ciphertext: string
-          key_iv: string
-          key_auth_tag: string
+          value_ciphertext: string
+          value_iv: string
+          value_auth_tag: string
           last4: string
-          status?: ProviderKeyStatus
+          status?: ConfigEntryStatus
           disabled_reason?: string | null
           last_used_at?: string | null
           created_by?: string | null
         }
-        Update: Partial<ProviderKeyRow>
+        Update: Partial<AdminConfigRow>
         Relationships: NoRelationships
       }
     } & { [tableName: string]: MinTableShape }

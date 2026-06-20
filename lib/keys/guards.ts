@@ -1,9 +1,9 @@
 // Pure functions — no I/O, suitable for unit tests.
 
-import type { ProviderKeyRow, MaskedProviderKey } from '@/types/database'
+import type { AdminConfigRow, MaskedAdminConfig } from '@/types/database'
 
 /**
- * Returns true when there is at most 1 active key for a provider.
+ * Returns true when there is at most 1 active entry for a config_key.
  * Used to block disabling or deleting the last active key.
  */
 export function isLastActiveKey(activeCount: number): boolean {
@@ -11,16 +11,16 @@ export function isLastActiveKey(activeCount: number): boolean {
 }
 
 /**
- * Convert a full DB row to the safe display shape.
+ * Convert a full admin_config DB row to the safe display shape.
  *
- * SECURITY: intentionally omits key_ciphertext, key_iv, key_auth_tag, and
- * created_by. These must never appear in API responses or logs.
+ * SECURITY: intentionally omits value_ciphertext, value_iv, value_auth_tag,
+ * and created_by. These must never appear in API responses or logs.
  */
-export function maskProviderKey(row: ProviderKeyRow): MaskedProviderKey {
+export function maskAdminConfig(row: AdminConfigRow): MaskedAdminConfig {
   return {
     id:              row.id,
     created_at:      row.created_at,
-    provider:        row.provider,
+    config_key:      row.config_key,
     label:           row.label,
     last4:           row.last4,
     status:          row.status,

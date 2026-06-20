@@ -1,12 +1,13 @@
-// GET  /api/admin/keys        — list all keys (masked, never ciphertext)
-// POST /api/admin/keys        — add a new key (encrypt + store, return masked record)
+// GET  /api/admin/keys     — list all config entries (masked, never ciphertext)
+// POST /api/admin/keys     — add a new entry (encrypt + store, return masked record)
+//
+// Entries are stored in the admin_config table, keyed by config_key.
+// Supported config keys: 'gemini_api_key', 'speechmatics_api_key'.
 //
 // SECURITY:
-// - Both endpoints require admin role (requireAdmin).
-// - GET never returns key_ciphertext, key_iv, key_auth_tag, or created_by.
-// - POST receives the plaintext key once, encrypts it server-side, and never
-//   echoes the key or ciphertext back in the response.
-// - KEY_ENCRYPTION_SECRET and all decrypted key values are server-only.
+// - Both endpoints require admin role.
+// - value_ciphertext, value_iv, value_auth_tag are NEVER returned.
+// - POST receives the plaintext key once, encrypts it, never echoes it back.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
@@ -15,12 +16,18 @@ import { encryptSecret } from '@/lib/crypto'
 import { invalidateKeyCache } from '@/lib/keys/provider'
 import { writeAuditLog, requestContext } from '@/lib/admin/audit'
 
-const ALLOWED_PROVIDERS = ['gemini', 'speechmatics'] as const
-type AllowedProvider = typeof ALLOWED_PROVIDERS[number]
+const ALLOWED_CONFIG_KEYS = ['gemini_api_key', 'speechmatics_api_key'] as const
+type AllowedConfigKey = typeof ALLOWED_CONFIG_KEYS[number]
 
-// Columns that are safe to return to the client — never the raw key material.
+// Provider shorthand derived from configKey, used as the cache invalidation key.
+const CONFIG_KEY_TO_PROVIDER: Record<string, string> = {
+  gemini_api_key:       'gemini',
+  speechmatics_api_key: 'speechmatics',
+}
+
+// Columns safe to return — never include value_ciphertext, value_iv, value_auth_tag.
 const SAFE_SELECT =
-  'id, created_at, updated_at, provider, label, last4, status, disabled_reason, last_used_at'
+  'id, created_at, updated_at, config_key, label, last4, status, disabled_reason, last_used_at'
 
 export async function GET(req: NextRequest) {
   let caller: { id: string; email?: string }
@@ -29,9 +36,10 @@ export async function GET(req: NextRequest) {
 
   const db = createServerClient()
   const { data, error } = await db
-    .from('provider_keys')
+    .from('admin_config')
     .select(SAFE_SELECT)
-    .order('provider', { ascending: true })
+    .in('config_key', ALLOWED_CONFIG_KEYS)
+    .order('config_key', { ascending: true })
     .order('created_at', { ascending: true })
 
   if (error) {
@@ -46,17 +54,17 @@ export async function POST(req: NextRequest) {
   let caller: { id: string; email?: string }
   try { caller = await requireAdmin(req) } catch (res) { return res as NextResponse }
 
-  let body: { provider?: unknown; label?: unknown; key?: unknown }
+  let body: { configKey?: unknown; label?: unknown; key?: unknown }
   try { body = await req.json() }
   catch { return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 }) }
 
-  const provider = typeof body.provider === 'string' ? body.provider.trim() : ''
-  const label    = typeof body.label    === 'string' ? body.label.trim()    : ''
-  const key      = typeof body.key      === 'string' ? body.key.trim()      : ''
+  const configKey = typeof body.configKey === 'string' ? body.configKey.trim() : ''
+  const label     = typeof body.label     === 'string' ? body.label.trim()     : ''
+  const key       = typeof body.key       === 'string' ? body.key.trim()       : ''
 
-  if (!ALLOWED_PROVIDERS.includes(provider as AllowedProvider)) {
+  if (!ALLOWED_CONFIG_KEYS.includes(configKey as AllowedConfigKey)) {
     return NextResponse.json(
-      { error: `provider must be one of: ${ALLOWED_PROVIDERS.join(', ')}.` },
+      { error: `configKey must be one of: ${ALLOWED_CONFIG_KEYS.join(', ')}.` },
       { status: 422 },
     )
   }
@@ -88,16 +96,16 @@ export async function POST(req: NextRequest) {
 
   const db = createServerClient()
   const { data: row, error: insertErr } = await db
-    .from('provider_keys')
+    .from('admin_config')
     .insert({
-      provider,
+      config_key:       configKey,
       label,
-      key_ciphertext: encrypted.ciphertext,
-      key_iv:         encrypted.iv,
-      key_auth_tag:   encrypted.authTag,
+      value_ciphertext: encrypted.ciphertext,
+      value_iv:         encrypted.iv,
+      value_auth_tag:   encrypted.authTag,
       last4,
-      status: 'active',
-      created_by: caller.id,
+      status:           'active',
+      created_by:       caller.id,
     })
     .select(SAFE_SELECT)
     .single()
@@ -107,16 +115,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to store key.' }, { status: 500 })
   }
 
-  // Invalidate cache so the new key is picked up on the next provider call.
-  invalidateKeyCache(provider)
+  invalidateKeyCache(CONFIG_KEY_TO_PROVIDER[configKey] ?? configKey)
 
   void writeAuditLog({
     actorId:    caller.id,
     actorEmail: caller.email ?? '',
-    action:     'provider_key.create',
-    targetType: 'provider_key',
+    action:     'admin_config.create',
+    targetType: 'admin_config',
     targetId:   row.id,
-    metadata:   { provider, label },
+    metadata:   { configKey, label },
     ...requestContext(req),
   })
 

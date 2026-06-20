@@ -1,12 +1,11 @@
-// PATCH  /api/admin/keys/:id  — enable or disable a key (with optional reason)
-// DELETE /api/admin/keys/:id  — permanently remove a key
+// PATCH  /api/admin/keys/:id  — enable or disable a config entry
+// DELETE /api/admin/keys/:id  — permanently remove a config entry
 //
 // SECURITY:
 // - Both endpoints require admin role.
-// - Neither endpoint returns ciphertext or plaintext key material.
-// - Disabling or deleting the LAST active key for a provider is blocked.
-// - All mutations are audit-logged with metadata: { provider, label } only —
-//   never ciphertext, IV, auth tag, or plaintext.
+// - Neither endpoint returns value_ciphertext, value_iv, or value_auth_tag.
+// - Disabling or deleting the LAST active entry for a config_key is blocked.
+// - All mutations are audit-logged with metadata: { configKey, label } only.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
@@ -16,7 +15,12 @@ import { invalidateKeyCache } from '@/lib/keys/provider'
 import { writeAuditLog, requestContext } from '@/lib/admin/audit'
 
 const SAFE_SELECT =
-  'id, created_at, updated_at, provider, label, last4, status, disabled_reason, last_used_at'
+  'id, created_at, updated_at, config_key, label, last4, status, disabled_reason, last_used_at'
+
+const CONFIG_KEY_TO_PROVIDER: Record<string, string> = {
+  gemini_api_key:       'gemini',
+  speechmatics_api_key: 'speechmatics',
+}
 
 export async function PATCH(
   req: NextRequest,
@@ -25,7 +29,7 @@ export async function PATCH(
   let caller: { id: string; email?: string }
   try { caller = await requireAdmin(req) } catch (res) { return res as NextResponse }
 
-  const { id: keyId } = await params
+  const { id: entryId } = await params
 
   let body: { status?: unknown; disabled_reason?: unknown }
   try { body = await req.json() }
@@ -43,27 +47,26 @@ export async function PATCH(
 
   const db = createServerClient()
 
-  const { data: key } = await db
-    .from('provider_keys')
-    .select('id, provider, label, status')
-    .eq('id', keyId)
+  const { data: entry } = await db
+    .from('admin_config')
+    .select('id, config_key, label, status')
+    .eq('id', entryId)
     .maybeSingle()
 
-  if (!key) return NextResponse.json({ error: 'Key not found.' }, { status: 404 })
+  if (!entry) return NextResponse.json({ error: 'Config entry not found.' }, { status: 404 })
 
-  // Block disabling the last remaining active key for this provider.
-  if (newStatus === 'disabled' && key.status === 'active') {
+  if (newStatus === 'disabled' && entry.status === 'active') {
     const { count } = await db
-      .from('provider_keys')
+      .from('admin_config')
       .select('*', { count: 'exact', head: true })
-      .eq('provider', key.provider as string)
+      .eq('config_key', entry.config_key as string)
       .eq('status', 'active')
 
     if (isLastActiveKey(count ?? 1)) {
       return NextResponse.json(
         {
           error:
-            `Cannot disable the last active key for provider "${key.provider}". ` +
+            `Cannot disable the last active key for "${entry.config_key}". ` +
             'Add another key first.',
         },
         { status: 422 },
@@ -72,32 +75,32 @@ export async function PATCH(
   }
 
   const { data: updated, error: updateErr } = await db
-    .from('provider_keys')
+    .from('admin_config')
     .update({
       status:          newStatus,
       disabled_reason: newStatus === 'active' ? null : disabled_reason,
     })
-    .eq('id', keyId)
+    .eq('id', entryId)
     .select(SAFE_SELECT)
     .single()
 
   if (updateErr || !updated) {
     console.error('[admin/keys] update failed:', updateErr?.message)
-    return NextResponse.json({ error: 'Failed to update key.' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to update entry.' }, { status: 500 })
   }
 
-  invalidateKeyCache(key.provider as string)
+  invalidateKeyCache(CONFIG_KEY_TO_PROVIDER[entry.config_key as string] ?? (entry.config_key as string))
 
-  const action = newStatus === 'active' ? 'provider_key.enable' : 'provider_key.disable'
+  const action = newStatus === 'active' ? 'admin_config.enable' : 'admin_config.disable'
   void writeAuditLog({
     actorId:    caller.id,
     actorEmail: caller.email ?? '',
     action,
-    targetType: 'provider_key',
-    targetId:   keyId,
+    targetType: 'admin_config',
+    targetId:   entryId,
     metadata: {
-      provider: key.provider,
-      label:    key.label,
+      configKey: entry.config_key,
+      label:     entry.label,
       ...(disabled_reason ? { disabled_reason } : {}),
     },
     ...requestContext(req),
@@ -113,30 +116,29 @@ export async function DELETE(
   let caller: { id: string; email?: string }
   try { caller = await requireAdmin(req) } catch (res) { return res as NextResponse }
 
-  const { id: keyId } = await params
+  const { id: entryId } = await params
   const db = createServerClient()
 
-  const { data: key } = await db
-    .from('provider_keys')
-    .select('id, provider, label, status')
-    .eq('id', keyId)
+  const { data: entry } = await db
+    .from('admin_config')
+    .select('id, config_key, label, status')
+    .eq('id', entryId)
     .maybeSingle()
 
-  if (!key) return NextResponse.json({ error: 'Key not found.' }, { status: 404 })
+  if (!entry) return NextResponse.json({ error: 'Config entry not found.' }, { status: 404 })
 
-  // Block deleting the last active key.
-  if (key.status === 'active') {
+  if (entry.status === 'active') {
     const { count } = await db
-      .from('provider_keys')
+      .from('admin_config')
       .select('*', { count: 'exact', head: true })
-      .eq('provider', key.provider as string)
+      .eq('config_key', entry.config_key as string)
       .eq('status', 'active')
 
     if (isLastActiveKey(count ?? 1)) {
       return NextResponse.json(
         {
           error:
-            `Cannot delete the last active key for provider "${key.provider}". ` +
+            `Cannot delete the last active key for "${entry.config_key}". ` +
             'Disable it or add another key first.',
         },
         { status: 422 },
@@ -145,24 +147,24 @@ export async function DELETE(
   }
 
   const { error: deleteErr } = await db
-    .from('provider_keys')
+    .from('admin_config')
     .delete()
-    .eq('id', keyId)
+    .eq('id', entryId)
 
   if (deleteErr) {
     console.error('[admin/keys] delete failed:', deleteErr.message)
-    return NextResponse.json({ error: 'Failed to delete key.' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to delete entry.' }, { status: 500 })
   }
 
-  invalidateKeyCache(key.provider as string)
+  invalidateKeyCache(CONFIG_KEY_TO_PROVIDER[entry.config_key as string] ?? (entry.config_key as string))
 
   void writeAuditLog({
     actorId:    caller.id,
     actorEmail: caller.email ?? '',
-    action:     'provider_key.delete',
-    targetType: 'provider_key',
-    targetId:   keyId,
-    metadata:   { provider: key.provider, label: key.label },
+    action:     'admin_config.delete',
+    targetType: 'admin_config',
+    targetId:   entryId,
+    metadata:   { configKey: entry.config_key, label: entry.label },
     ...requestContext(req),
   })
 

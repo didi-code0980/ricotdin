@@ -1,12 +1,13 @@
 // Unit tests for SEC-04 provider key management — all pure, no I/O.
+// Tests cover the crypto helpers and the admin_config guard functions.
 // Run with: npm test
 
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
 import { encryptSecretWithKey, decryptSecretWithKey } from '../lib/crypto/index.js'
-import { isLastActiveKey, maskProviderKey } from '../lib/keys/index.js'
-import type { ProviderKeyRow } from '../types/database.js'
+import { isLastActiveKey, maskAdminConfig } from '../lib/keys/index.js'
+import type { AdminConfigRow } from '../types/database.js'
 
 const TEST_KEY = randomBytes(32)
 
@@ -75,18 +76,18 @@ describe('isLastActiveKey', () => {
   })
 })
 
-// ── maskProviderKey security invariant ───────────────────────────────────────
+// ── maskAdminConfig security invariant ───────────────────────────────────────
 
-describe('maskProviderKey', () => {
-  const row: ProviderKeyRow = {
-    id: 'key-id-1',
+describe('maskAdminConfig', () => {
+  const row: AdminConfigRow = {
+    id: 'entry-id-1',
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
-    provider: 'gemini',
+    config_key: 'gemini_api_key',
     label: 'prod-key-1',
-    key_ciphertext: 'SENSITIVE_CIPHERTEXT_DO_NOT_EXPOSE',
-    key_iv: 'SENSITIVE_IV_DO_NOT_EXPOSE',
-    key_auth_tag: 'SENSITIVE_TAG_DO_NOT_EXPOSE',
+    value_ciphertext: 'SENSITIVE_CIPHERTEXT_DO_NOT_EXPOSE',
+    value_iv: 'SENSITIVE_IV_DO_NOT_EXPOSE',
+    value_auth_tag: 'SENSITIVE_TAG_DO_NOT_EXPOSE',
     last4: 'wxyz',
     status: 'active',
     disabled_reason: null,
@@ -94,30 +95,26 @@ describe('maskProviderKey', () => {
     created_by: 'admin-uuid-do-not-expose',
   }
 
-  it('never exposes key_ciphertext', () => {
-    const masked = maskProviderKey(row)
-    assert.equal('key_ciphertext' in masked, false)
+  it('never exposes value_ciphertext', () => {
+    assert.equal('value_ciphertext' in maskAdminConfig(row), false)
   })
 
-  it('never exposes key_iv', () => {
-    const masked = maskProviderKey(row)
-    assert.equal('key_iv' in masked, false)
+  it('never exposes value_iv', () => {
+    assert.equal('value_iv' in maskAdminConfig(row), false)
   })
 
-  it('never exposes key_auth_tag', () => {
-    const masked = maskProviderKey(row)
-    assert.equal('key_auth_tag' in masked, false)
+  it('never exposes value_auth_tag', () => {
+    assert.equal('value_auth_tag' in maskAdminConfig(row), false)
   })
 
   it('never exposes created_by', () => {
-    const masked = maskProviderKey(row)
-    assert.equal('created_by' in masked, false)
+    assert.equal('created_by' in maskAdminConfig(row), false)
   })
 
   it('exposes safe display fields', () => {
-    const masked = maskProviderKey(row)
-    assert.equal(masked.id, 'key-id-1')
-    assert.equal(masked.provider, 'gemini')
+    const masked = maskAdminConfig(row)
+    assert.equal(masked.id, 'entry-id-1')
+    assert.equal(masked.config_key, 'gemini_api_key')
     assert.equal(masked.label, 'prod-key-1')
     assert.equal(masked.last4, 'wxyz')
     assert.equal(masked.status, 'active')
@@ -126,7 +123,7 @@ describe('maskProviderKey', () => {
   })
 
   it('JSON serialization does not contain any sensitive strings', () => {
-    const json = JSON.stringify(maskProviderKey(row))
+    const json = JSON.stringify(maskAdminConfig(row))
     assert.equal(json.includes('SENSITIVE_CIPHERTEXT'), false)
     assert.equal(json.includes('SENSITIVE_IV'), false)
     assert.equal(json.includes('SENSITIVE_TAG'), false)
