@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
 
   // 'stuck' is a derived status — filter on 'processing' then refine in JS.
   if (statusFilter && statusFilter !== 'stuck') {
-    query = query.eq('status', statusFilter)
+    query = query.eq('status', statusFilter as import('@/types/database').MeetingStatus)
   } else if (statusFilter === 'stuck') {
     query = query.eq('status', 'processing')
   }

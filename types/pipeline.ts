@@ -33,6 +33,9 @@ export type TranscriptResult = {
     start_ms: number
     end_ms: number
     text: string
+    /** Average word-level confidence for this turn (0–1, 2 d.p.). Null when
+     *  Speechmatics does not return confidence scores for a word. */
+    confidence?: number | null
   }>
 }
 

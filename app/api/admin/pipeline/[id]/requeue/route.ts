@@ -1,11 +1,10 @@
 // POST /api/admin/pipeline/:id/requeue
 //
-// Re-trigger processing for a failed or stuck meeting.
+// Re-trigger processing for any meeting regardless of current status.
 //
 // Safe re-run strategy:
 //   1. Fetch the meeting (admin sees all — service role).
-//   2. Reject if status is 'pending' (already queued) or 'done' (no need).
-//   3. Delete all child rows that the pipeline inserts, so a second run
+//   2. Delete all child rows that the pipeline inserts, so a second run
 //      produces clean output with no duplicates:
 //        transcript_segments → (transcript_chunks cascades automatically)
 //        todos
@@ -58,26 +57,12 @@ export async function POST(
     return NextResponse.json({ error: 'Meeting not found.' }, { status: 404 })
   }
 
-  if (meeting.status === 'pending') {
-    return NextResponse.json(
-      { error: 'Meeting is already queued for processing.' },
-      { status: 422 },
-    )
-  }
-
-  if (meeting.status === 'done') {
-    return NextResponse.json(
-      { error: 'Meeting is already done. Requeue only applies to failed or stuck jobs.' },
-      { status: 422 },
-    )
-  }
-
   // ── Clear child rows so the pipeline re-runs cleanly ──────────────────────
-  // transcript_chunks has a FK on transcript_segments with ON DELETE CASCADE,
-  // so deleting segments automatically removes their chunks.
-  // We delete todos and calendar_suggestions explicitly.
+  // transcript_chunks FKs to meeting_id directly (not via transcript_segments),
+  // so it must be deleted explicitly — it does NOT cascade when segments are removed.
 
   const childDeletes = await Promise.allSettled([
+    db.from('transcript_chunks').delete().eq('meeting_id', meetingId),
     db.from('transcript_segments').delete().eq('meeting_id', meetingId),
     db.from('todos').delete().eq('meeting_id', meetingId),
     db.from('calendar_suggestions').delete().eq('meeting_id', meetingId),

@@ -626,7 +626,7 @@ const S: Record<string, CSSProperties> = {
     background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10,
     padding: '14px 18px', minWidth: 110, textAlign: 'center',
   },
-  tileAccent: { borderColor: '#f87171', background: '#fff5f5' },
+  tileAccent: { border: '1px solid #f87171', background: '#fff5f5' },
   tileValue:  { fontSize: 20, fontWeight: 700, color: '#0f172a' },
   tileLabel:  { fontSize: 11, color: '#64748b', marginTop: 4, textTransform: 'capitalize' },
 

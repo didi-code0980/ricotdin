@@ -31,7 +31,7 @@ import { assertAnalysisHasContent } from './guards'
  * already processing or done, this function returns without doing anything —
  * safe to call multiple times or from concurrent requests.
  */
-export async function processMeeting(meetingId: string): Promise<void> {
+export async function processMeeting(meetingId: string, speakerCount?: number): Promise<void> {
   const db = createServerClient()
 
   // ── Atomic claim ─────────────────────────────────────────────────────────
@@ -76,7 +76,7 @@ export async function processMeeting(meetingId: string): Promise<void> {
     // ── Step A: Transcription ─────────────────────────────────────────────
     // Speechmatics Batch API handles audio of any length natively — no ffmpeg
     // splitting required. The audio file is uploaded directly from disk.
-    const usageCtx = { meetingId: meetingId, userId: claimed.user_id ?? undefined }
+    const usageCtx = { meetingId: meetingId, userId: claimed.user_id ?? undefined, speakerCount }
     const transcript = await transcribeWithSpeechmatics(tmpAudioPath, usageCtx)
     log(
       `[pipeline] ${meetingId}: transcript done — ` +
@@ -108,6 +108,7 @@ export async function processMeeting(meetingId: string): Promise<void> {
       start_ms: s.start_ms,
       end_ms: s.end_ms,
       text: s.text,
+      confidence: s.confidence ?? null,
     }))
 
     const { data: insertedSegments, error: segErr } = await db

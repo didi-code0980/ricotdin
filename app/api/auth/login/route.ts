@@ -75,7 +75,13 @@ export async function POST(req: NextRequest) {
   }).auth.signInWithPassword({ email, password })
 
   if (error || !data.session) {
-    // Don't reveal details (wrong password vs no account)
+    const msg = error?.message?.toLowerCase() ?? ''
+    if (msg.includes('email not confirmed') || (error as { code?: string } | null)?.code === 'email_not_confirmed') {
+      return NextResponse.json(
+        { error: 'Please verify your email before signing in. Check your inbox for the confirmation link.' },
+        { status: 403 },
+      )
+    }
     return NextResponse.json({ error: GENERIC_ERROR }, { status: 401 })
   }
 

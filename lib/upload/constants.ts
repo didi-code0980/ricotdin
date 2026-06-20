@@ -1,8 +1,8 @@
 // Shared upload constraints — imported by both client and server code.
 // Change MAX_UPLOAD_BYTES here to enforce a new limit everywhere at once.
 
-/** Maximum file size for uploads (audio or video). Currently 500 MB. */
-export const MAX_UPLOAD_BYTES = 500 * 1024 * 1024
+/** Maximum file size for uploads (audio or video). Currently 1 GB. */
+export const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024
 
 /** Audio-only file extensions (no video stream). */
 export const ALLOWED_AUDIO_EXTENSIONS = [

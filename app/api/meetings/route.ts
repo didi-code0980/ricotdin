@@ -1,7 +1,12 @@
 // POST /api/meetings
-// Creates a meetings row and returns a signed upload URL for direct browser→Storage upload.
-// Uses the service role key (bypasses RLS) so the pipeline can write regardless of session.
+// Creates a meetings row and returns a presigned R2 PUT URL for direct
+// browser→R2 upload (CST-02). The service-role key stays server-only.
 // The caller's JWT is verified via the anon-key client to identify the user.
+//
+// Response: { meetingId, uploadUrl, contentType }
+//   uploadUrl  — R2 presigned PUT URL (15-minute TTL)
+//   contentType — the value that was signed; the browser MUST send this exact
+//                 string in the Content-Type header of the PUT request.
 
 import { randomUUID } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
@@ -13,10 +18,12 @@ import {
   isAllowedExtension,
   isVideoExtension,
 } from '@/lib/upload/constants'
-import type { MeetingSource } from '@/types/database'
+import { createSignedUploadUrl } from '@/lib/storage'
 import type { Database } from '@/types/database'
+import type { MeetingSource } from '@/types/database'
 
-const BUCKET = 'recordings'
+// LEGACY (pre-R2): bucket constant kept only for the commented-out Supabase path below.
+// const BUCKET = 'recordings'
 
 /** Verify the JWT and return the user_id, or throw a 401 response. */
 async function requireUser(req: NextRequest): Promise<string> {
@@ -32,7 +39,6 @@ async function requireUser(req: NextRequest): Promise<string> {
     throw NextResponse.json({ error: 'Server misconfiguration.' }, { status: 500 })
   }
 
-  // Use the caller's JWT so Supabase validates it against the real session
   const authClient = createClient<Database>(supabaseUrl, anonKey, {
     global: { headers: { Authorization: `Bearer ${token}` } },
     auth: { persistSession: false, autoRefreshToken: false },
@@ -50,7 +56,6 @@ async function requireUser(req: NextRequest): Promise<string> {
 /**
  * Normalise and whitelist a file extension sent by the client.
  * Accepts both audio and video extensions.
- * Returns the lowercased extension (with leading dot) if valid.
  * Throws a 400 NextResponse if the extension is unrecognised.
  */
 function resolveExtension(raw?: string): string {
@@ -70,6 +75,28 @@ function resolveExtension(raw?: string): string {
   return ext
 }
 
+/** Derive a Content-Type from the client-supplied mimeType or the file extension. */
+const MIME_BY_EXT: Record<string, string> = {
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.wav': 'audio/wav',
+  '.aac': 'audio/aac',
+  '.ogg': 'audio/ogg',
+  '.flac': 'audio/flac',
+  '.webm': 'audio/webm',
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.avi': 'video/x-msvideo',
+  '.mkv': 'video/x-matroska',
+  '.m4v': 'video/mp4',
+}
+
+function resolveContentType(mimeType?: string, ext?: string): string {
+  if (mimeType && mimeType !== 'application/octet-stream') return mimeType
+  if (ext) return MIME_BY_EXT[ext] ?? 'application/octet-stream'
+  return 'application/octet-stream'
+}
+
 export async function POST(req: NextRequest) {
   let userId: string
   try {
@@ -83,6 +110,7 @@ export async function POST(req: NextRequest) {
     startedAt?: string
     source?: string
     fileExtension?: string
+    mimeType?: string
   }
   try {
     body = (await req.json()) as typeof body
@@ -98,30 +126,31 @@ export async function POST(req: NextRequest) {
     return res as NextResponse
   }
 
-  // Only allow known source values; default to 'recorded' for backward compat.
   const source: MeetingSource =
     body.source === 'uploaded' ? 'uploaded'
     : body.source === 'video' ? 'video'
     : 'recorded'
 
+  // Content-Type for the R2 presigned PUT. The browser must echo this exact
+  // value in the PUT's Content-Type header or R2 returns 403.
+  const contentType = resolveContentType(body.mimeType, ext)
+
   const serverClient = createServerClient()
 
-  // Verify the bucket exists — fail with a clear message if not
-  const { data: bucket, error: bucketError } = await serverClient.storage.getBucket(BUCKET)
-  if (bucketError || !bucket) {
-    console.error('[meetings] bucket check failed:', bucketError?.message)
-    return NextResponse.json(
-      {
-        error:
-          'Storage bucket "recordings" not found. ' +
-          'Create a PRIVATE bucket named "recordings" in the Supabase dashboard → Storage.',
-      },
-      { status: 503 },
-    )
-  }
+  // LEGACY (pre-R2): Supabase bucket existence check — replaced by R2.
+  // const { data: bucket, error: bucketError } = await serverClient.storage.getBucket(BUCKET)
+  // if (bucketError || !bucket) {
+  //   console.error('[meetings] bucket check failed:', bucketError?.message)
+  //   return NextResponse.json(
+  //     {
+  //       error:
+  //         'Storage bucket "recordings" not found. ' +
+  //         'Create a PRIVATE bucket named "recordings" in the Supabase dashboard → Storage.',
+  //     },
+  //     { status: 503 },
+  //   )
+  // }
 
-  // Generate the meeting ID server-side so we can build the audio path before insert.
-  // Extension comes from the client for uploaded files; defaults to .webm for recordings.
   const meetingId = randomUUID()
   const audioPath = `${userId}/${meetingId}${ext}`
 
@@ -133,10 +162,11 @@ export async function POST(req: NextRequest) {
     user_id: userId,
     title,
     status: 'pending',
+    source,
+    storage_provider: 'r2',
     audio_path: audioPath,
     duration_seconds: body.durationSeconds ?? null,
     started_at: startedAt,
-    source,
   })
 
   if (insertError) {
@@ -144,24 +174,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to create meeting record.' }, { status: 500 })
   }
 
-  // Generate the signed upload URL — the browser uses this token to push the file
-  // directly to Supabase Storage without routing through our server.
-  const { data: signedData, error: signedError } = await serverClient.storage
-    .from(BUCKET)
-    .createSignedUploadUrl(audioPath)
+  // LEGACY (pre-R2): Supabase signed upload URL — replaced by R2 presigned PUT below.
+  // const { data: signedData, error: signedError } = await serverClient.storage
+  //   .from(BUCKET)
+  //   .createSignedUploadUrl(audioPath)
+  // if (signedError || !signedData) {
+  //   console.error('[meetings] createSignedUploadUrl failed:', signedError?.message)
+  //   await serverClient.from('meetings').delete().eq('id', meetingId)
+  //   return NextResponse.json({ error: 'Failed to create upload URL.' }, { status: 500 })
+  // }
+  // return NextResponse.json({ meetingId, path: signedData.path, token: signedData.token })
 
-  if (signedError || !signedData) {
-    console.error('[meetings] createSignedUploadUrl failed:', signedError?.message)
+  let uploadUrl: string
+  try {
+    uploadUrl = await createSignedUploadUrl({ key: audioPath, contentType })
+  } catch (err) {
+    console.error('[meetings] R2 createSignedUploadUrl failed:', err)
     // Roll back the meeting row so we don't have orphaned pending rows
-    await serverClient.from('meetings').delete().eq('id', meetingId)
-    return NextResponse.json({ error: 'Failed to create upload URL.' }, { status: 500 })
+    const { error: deleteErr } = await serverClient.from('meetings').delete().eq('id', meetingId)
+    if (deleteErr) console.warn('[meetings] rollback delete failed:', deleteErr.message)
+    return NextResponse.json({ error: 'Failed to create upload URL. Check R2 configuration.' }, { status: 500 })
   }
 
-  return NextResponse.json({
-    meetingId,
-    path: signedData.path,
-    token: signedData.token,
-  })
+  return NextResponse.json({ meetingId, uploadUrl, contentType })
 }
 
 function formatMeetingTitle(isoDate?: string): string {

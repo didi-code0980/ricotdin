@@ -10,9 +10,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@/lib/supabase/server'
+import { createSignedDownloadUrl } from '@/lib/storage'
 import type { Database } from '@/types/database'
 
-const BUCKET = 'recordings'
 const SIGNED_URL_EXPIRY_SECS = 3_600 // 1 hour
 
 async function requireUser(req: NextRequest): Promise<string> {
@@ -48,10 +48,9 @@ export async function GET(
 
   const { id: meetingId } = await params
   const db = createServerClient()
-
   const { data: meeting } = await db
     .from('meetings')
-    .select('id, user_id, audio_path')
+    .select('id, user_id, audio_path, storage_provider')
     .eq('id', meetingId)
     .maybeSingle()
 
@@ -59,14 +58,17 @@ export async function GET(
   if (meeting.user_id !== userId) return NextResponse.json({ error: 'Forbidden.' }, { status: 403 })
   if (!meeting.audio_path) return NextResponse.json({ error: 'No audio for this meeting.' }, { status: 404 })
 
-  const { data, error } = await db.storage
-    .from(BUCKET)
-    .createSignedUrl(meeting.audio_path, SIGNED_URL_EXPIRY_SECS)
-
-  if (error || !data?.signedUrl) {
-    console.error('[audio-url] createSignedUrl failed:', error?.message)
+  let signedUrl: string
+  try {
+    signedUrl = await createSignedDownloadUrl({
+      key: meeting.audio_path,
+      provider: meeting.storage_provider,
+      expiresIn: SIGNED_URL_EXPIRY_SECS,
+    })
+  } catch (err) {
+    console.error('[audio-url] createSignedDownloadUrl failed:', err)
     return NextResponse.json({ error: 'Failed to create signed URL.' }, { status: 500 })
   }
 
-  return NextResponse.json({ url: data.signedUrl })
+  return NextResponse.json({ url: signedUrl })
 }

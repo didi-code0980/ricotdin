@@ -2,16 +2,14 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { browserClient } from '@/lib/supabase/browser'
 
 export default function RegisterPage() {
-  const router = useRouter()
   const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [verified, setVerified] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -25,9 +23,7 @@ export default function RegisterPage() {
         body: JSON.stringify({ email, username, password }),
       })
       const data = (await res.json()) as {
-        access_token?: string
-        refresh_token?: string
-        needsLogin?: boolean
+        needsVerification?: boolean
         error?: string
       }
 
@@ -36,27 +32,32 @@ export default function RegisterPage() {
         return
       }
 
-      if (data.needsLogin) {
-        router.replace('/login')
-        return
-      }
-
-      if (!data.access_token || !data.refresh_token) {
-        setError('Unexpected server response. Please try logging in.')
-        return
-      }
-
-      await browserClient.auth.setSession({
-        access_token: data.access_token,
-        refresh_token: data.refresh_token,
-      })
-
-      router.replace('/meetings')
+      setVerified(true)
     } catch {
       setError('Network error. Please try again.')
     } finally {
       setLoading(false)
     }
+  }
+
+  if (verified) {
+    return (
+      <div className="w-full max-w-sm">
+        <div className="bg-white rounded-3xl border border-b-border shadow-b-xl p-8 text-center">
+          <div className="mb-6 flex justify-center">
+            <img src="/logo.svg" alt="Ricotdin" style={{ height: '44px', width: 'auto' }} />
+          </div>
+          <p className="font-serif text-xl font-semibold text-b-fg mb-3">Check your email</p>
+          <p className="text-sm text-b-fg/60 font-sans mb-6">
+            We sent a confirmation link to <strong className="text-b-fg">{email}</strong>.
+            Click it to activate your account, then sign in.
+          </p>
+          <Link href="/login" className="btn-primary block w-full text-center">
+            Go to sign in
+          </Link>
+        </div>
+      </div>
+    )
   }
 
   return (

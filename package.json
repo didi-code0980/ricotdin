@@ -11,6 +11,8 @@
     "test": "node --import tsx --test tests/chunk.test.ts tests/pipeline-parse.test.ts tests/processMeeting-guard.test.ts tests/transcode.test.ts tests/ics.test.ts tests/auth-validate.test.ts tests/admin-guards.test.ts tests/admin-pipeline.test.ts tests/admin-adm.test.ts tests/admin-ext.test.ts tests/speechmatics.test.ts tests/ffprobe.test.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1072.0",
+    "@aws-sdk/s3-request-presigner": "^3.1072.0",
     "@google/genai": "^2.8.0",
     "@supabase/supabase-js": "^2.108.0",
     "lucide-react": "^1.17.0",

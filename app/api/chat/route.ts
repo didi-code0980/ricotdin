@@ -55,6 +55,58 @@ async function authenticateRequest(
 // Route handler
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// GET /api/chat?meetingId=<id>
+// Returns the most recent chat session + all its messages for this meeting.
+// ---------------------------------------------------------------------------
+
+export async function GET(req: NextRequest) {
+  let userId: string
+  try {
+    ;({ userId } = await authenticateRequest(req))
+  } catch (res) {
+    return res as NextResponse
+  }
+
+  const meetingId = new URL(req.url).searchParams.get('meetingId')
+  if (!meetingId) return NextResponse.json({ error: 'meetingId is required.' }, { status: 400 })
+
+  const db = createServerClient()
+
+  // Ownership check
+  const { data: meeting } = await db
+    .from('meetings')
+    .select('id, user_id')
+    .eq('id', meetingId)
+    .maybeSingle()
+  if (!meeting) return NextResponse.json({ error: 'Meeting not found.' }, { status: 404 })
+  if (meeting.user_id !== userId) return NextResponse.json({ error: 'Forbidden.' }, { status: 403 })
+
+  // Most recent session for this user + meeting
+  const { data: session } = await db
+    .from('chat_sessions')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('meeting_id', meetingId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!session) return NextResponse.json({ sessionId: null, messages: [] })
+
+  const { data: messages } = await db
+    .from('chat_messages')
+    .select('*')
+    .eq('session_id', session.id)
+    .order('created_at', { ascending: true })
+
+  return NextResponse.json({ sessionId: session.id, messages: messages ?? [] })
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/chat
+// ---------------------------------------------------------------------------
+
 export async function POST(req: NextRequest) {
   let userId: string
   let jwt: string

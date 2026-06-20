@@ -60,6 +60,7 @@ export type TranscriptSegment = {
   start_ms: number
   end_ms: number
   text: string
+  confidence: number | null
   created_at: string
 }
 
@@ -219,6 +220,7 @@ export interface Database {
           start_ms: number
           end_ms: number
           text: string
+          confidence?: number | null
           created_at?: string
         }
         Update: Partial<TranscriptSegment>

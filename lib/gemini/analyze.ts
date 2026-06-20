@@ -155,7 +155,15 @@ function parseResult(raw: string): AnalysisResult {
       `Gemini analysis: schema validation failed: ${result.error.message}`,
     )
   }
-  return result.data
+
+  // Gemini structured-JSON output sometimes encodes newlines as the two-character
+  // sequence \n (backslash + n) rather than the proper JSON \n escape, so they
+  // survive JSON.parse as literal text. Unescape them before storing.
+  return {
+    ...result.data,
+    notes_markdown: result.data.notes_markdown.replace(/\\n/g, '\n'),
+    summary: result.data.summary.replace(/\\n/g, '\n'),
+  }
 }
 
 // ---------------------------------------------------------------------------

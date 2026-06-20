@@ -1,7 +1,12 @@
 // GET /api/admin/health
 //
-// Runs connectivity checks against Supabase DB and Gemini, then returns
-// an aggregated health report.
+// Runs connectivity checks against Supabase DB and every configured Gemini
+// API key, then returns an aggregated health report.
+//
+// Gemini key sources (same order as pool.ts):
+//   1. GEMINI_API_KEYS=key1,key2,key3  (comma-separated)
+//   2. GEMINI_API_KEY_1 … GEMINI_API_KEY_20
+//   3. GEMINI_API_KEY  (legacy single key)
 //
 // SECURITY: requires admin role.
 
@@ -11,10 +16,13 @@ import { requireAdmin } from '@/lib/auth/server'
 import { buildHealthReport } from '@/lib/admin/health'
 import type { CheckResult } from '@/lib/admin/health'
 
+// ---------------------------------------------------------------------------
+// Supabase
+// ---------------------------------------------------------------------------
+
 async function checkSupabase(): Promise<CheckResult> {
   try {
     const db = createServerClient()
-    // Lightweight read to verify DB connectivity
     const { error } = await db.from('profiles').select('id').limit(1)
     if (error) return { status: 'error', message: error.message }
     return { status: 'ok' }
@@ -23,14 +31,34 @@ async function checkSupabase(): Promise<CheckResult> {
   }
 }
 
-async function checkGemini(): Promise<CheckResult> {
+// ---------------------------------------------------------------------------
+// Gemini — per-key checks
+// ---------------------------------------------------------------------------
+
+function loadGeminiKeys(): string[] {
+  const seen = new Set<string>()
+  const keys: string[] = []
+  const push = (raw: string | undefined) => {
+    if (!raw) return
+    const t = raw.trim()
+    if (t && !seen.has(t)) { seen.add(t); keys.push(t) }
+  }
+  const csv = process.env.GEMINI_API_KEYS
+  if (csv) csv.split(',').forEach(push)
+  for (let i = 1; i <= 20; i++) push(process.env[`GEMINI_API_KEY_${i}`])
+  push(process.env.GEMINI_API_KEY)
+  return keys
+}
+
+function maskKey(key: string): string {
+  return key.length >= 8 ? `...${key.slice(-4)}` : '...????'
+}
+
+async function probeGeminiKey(key: string): Promise<CheckResult> {
   try {
-    const key = process.env.GEMINI_API_KEY
-    if (!key) return { status: 'error', message: 'GEMINI_API_KEY not configured' }
-    // Use the models list endpoint as a cheap liveness probe
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models?key=${key}&pageSize=1`,
-      { signal: AbortSignal.timeout(8000) },
+      { signal: AbortSignal.timeout(8_000) },
     )
     if (!res.ok) return { status: 'error', message: `HTTP ${res.status}` }
     return { status: 'ok' }
@@ -39,6 +67,29 @@ async function checkGemini(): Promise<CheckResult> {
   }
 }
 
+async function checkAllGeminiKeys(): Promise<Record<string, CheckResult>> {
+  const keys = loadGeminiKeys()
+  if (keys.length === 0) {
+    return { Gemini: { status: 'error', message: 'No Gemini API keys configured' } }
+  }
+
+  const results = await Promise.all(keys.map((k) => probeGeminiKey(k)))
+
+  const out: Record<string, CheckResult> = {}
+  keys.forEach((k, i) => {
+    const label =
+      keys.length === 1
+        ? 'Gemini'
+        : `Gemini key #${i + 1} (${maskKey(k)})`
+    out[label] = results[i]
+  })
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// Handler
+// ---------------------------------------------------------------------------
+
 export async function GET(req: NextRequest) {
   try {
     await requireAdmin(req)
@@ -46,9 +97,12 @@ export async function GET(req: NextRequest) {
     return res as NextResponse
   }
 
-  const [supabase, gemini] = await Promise.all([checkSupabase(), checkGemini()])
-  const report = buildHealthReport({ supabase, gemini })
+  const [supabase, geminiChecks] = await Promise.all([
+    checkSupabase(),
+    checkAllGeminiKeys(),
+  ])
 
+  const report = buildHealthReport({ supabase, ...geminiChecks })
   const httpStatus = report.status === 'ok' ? 200 : 503
   return NextResponse.json(report, { status: httpStatus })
 }

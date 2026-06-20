@@ -39,15 +39,12 @@ describe('Admin guard — pipeline endpoints return 403 for non-admins', () => {
 
 // ---------------------------------------------------------------------------
 // 2. Requeue eligibility
-//    Pure function — matches the logic in the requeue route handler:
-//      - 'failed'     → eligible (pipeline failed, retry makes sense)
-//      - 'processing' → eligible (may be stuck; admin can force reset)
-//      - 'pending'    → not eligible (already queued, would be 422)
-//      - 'done'       → not eligible (already complete, would be 422)
+//    All statuses are eligible — admin can force-reprocess any meeting.
+//    The route clears child rows, resets to 'pending', then fires processMeeting().
 // ---------------------------------------------------------------------------
 
-function canRequeue(status: string): boolean {
-  return status === 'failed' || status === 'processing'
+function canRequeue(_status: string): boolean {
+  return true
 }
 
 describe('Requeue eligibility — canRequeue()', () => {
@@ -59,12 +56,12 @@ describe('Requeue eligibility — canRequeue()', () => {
     assert.equal(canRequeue('processing'), true)
   })
 
-  it('rejects requeue of a pending meeting (already queued)', () => {
-    assert.equal(canRequeue('pending'), false)
+  it('allows requeue of a pending meeting', () => {
+    assert.equal(canRequeue('pending'), true)
   })
 
-  it('rejects requeue of a done meeting (already complete)', () => {
-    assert.equal(canRequeue('done'), false)
+  it('allows requeue of a done meeting', () => {
+    assert.equal(canRequeue('done'), true)
   })
 })
 

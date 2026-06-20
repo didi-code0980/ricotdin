@@ -11,7 +11,6 @@
 // SECURITY: service role key stays server-only (never returned to client).
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@/lib/supabase/server'
 import {
   normalizeUsername,
@@ -19,7 +18,6 @@ import {
   validateEmail,
   validatePassword,
 } from '@/lib/auth/validate'
-import type { Database } from '@/types/database'
 
 export async function POST(req: NextRequest) {
   let body: { email?: string; username?: string; password?: string }
@@ -59,11 +57,10 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // ── Create the auth user (service role, bypasses email confirmation) ───────
+  // ── Create the auth user — Supabase will send a confirmation email ──────────
   const { data: adminData, error: createErr } = await db.auth.admin.createUser({
     email,
     password,
-    email_confirm: true,          // skip email confirmation for MVP
     app_metadata: { role: 'user' }, // ONLY place role is set; never user_metadata
   })
 
@@ -97,34 +94,5 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // ── Sign in to get session tokens ──────────────────────────────────────────
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-  const { data: signInData, error: signInErr } = await createClient<Database>(
-    url,
-    anonKey,
-    { auth: { persistSession: false } },
-  ).auth.signInWithPassword({ email, password })
-
-  if (signInErr || !signInData.session) {
-    // Registration succeeded but sign-in failed — ask user to log in manually
-    console.error('[register] signIn after create failed:', signInErr?.message)
-    return NextResponse.json(
-      {
-        error: 'Account created but could not sign in automatically. Please log in.',
-        needsLogin: true,
-      },
-      { status: 201 },
-    )
-  }
-
-  return NextResponse.json(
-    {
-      access_token: signInData.session.access_token,
-      refresh_token: signInData.session.refresh_token,
-      user: { id: userId, email, username },
-    },
-    { status: 201 },
-  )
+  return NextResponse.json({ needsVerification: true }, { status: 201 })
 }

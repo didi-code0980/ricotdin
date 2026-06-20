@@ -16,8 +16,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireUser } from '@/lib/auth/server'
+import { deleteObject } from '@/lib/storage'
 
-const BUCKET = 'recordings'
 const MAX_TITLE_LEN = 200
 
 export async function PATCH(
@@ -94,24 +94,25 @@ export async function DELETE(
 
   const { data: meeting } = await db
     .from('meetings')
-    .select('id, user_id, audio_path')
+    .select('id, user_id, audio_path, storage_provider')
     .eq('id', meetingId)
     .maybeSingle()
 
   if (!meeting) return NextResponse.json({ error: 'Meeting not found.' }, { status: 404 })
   if (meeting.user_id !== caller.id) return NextResponse.json({ error: 'Forbidden.' }, { status: 403 })
 
-  // Delete audio from Storage first. Failure here is non-fatal: we log a warning
+  // Delete audio from storage first. Failure here is non-fatal: we log a warning
   // and surface it to the caller, but we still proceed with the row delete so the
-  // DB never ends up in a half-state. An orphaned Storage object can be cleaned up
+  // DB never ends up in a half-state. An orphaned storage object can be cleaned up
   // manually; an orphaned DB row is much harder to deal with.
   let storageWarning: string | null = null
   if (meeting.audio_path) {
-    const { error: storageErr } = await db.storage.from(BUCKET).remove([meeting.audio_path])
-    if (storageErr) {
+    try {
+      await deleteObject({ key: meeting.audio_path, provider: meeting.storage_provider })
+    } catch (storageErr) {
       console.warn(
         '[meetings] storage delete failed (proceeding with row delete):',
-        storageErr.message,
+        storageErr,
       )
       storageWarning = 'Audio file could not be removed from storage.'
     }

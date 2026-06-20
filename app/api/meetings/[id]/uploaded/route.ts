@@ -21,9 +21,13 @@ import { processMeeting } from '@/lib/pipeline/processMeeting'
 import { validateAudioStream, validateVideoAudioStream } from '@/lib/audio/ffprobe'
 import { extractAudioFromVideo } from '@/lib/audio/transcode'
 import { MAX_UPLOAD_BYTES } from '@/lib/upload/constants'
+import {
+  getObjectSize,
+  createSignedDownloadUrl,
+  uploadBytes,
+  deleteObject,
+} from '@/lib/storage'
 import type { Database } from '@/types/database'
-
-const BUCKET = 'recordings'
 
 async function requireUser(req: NextRequest): Promise<string> {
   const authHeader = req.headers.get('authorization')
@@ -52,14 +56,15 @@ async function requireUser(req: NextRequest): Promise<string> {
   return user.id
 }
 
-/** Delete the meeting row and its Storage object, then return a 422 response. */
+/** Delete the meeting row and its storage object, then return a 422 response. */
 async function rejectUpload(
   serverClient: ReturnType<typeof createServerClient>,
   meetingId: string,
   storagePath: string,
+  provider: string,
   reason: string,
 ): Promise<NextResponse> {
-  await serverClient.storage.from(BUCKET).remove([storagePath]).catch((e: unknown) => {
+  await deleteObject({ key: storagePath, provider }).catch((e: unknown) => {
     console.warn('[uploaded] storage cleanup failed:', e)
   })
   const { error: deleteErr } = await serverClient.from('meetings').delete().eq('id', meetingId)
@@ -85,7 +90,7 @@ export async function POST(
   // Verify the meeting belongs to this user
   const { data: meeting, error: fetchError } = await serverClient
     .from('meetings')
-    .select('id, audio_path, user_id, source')
+    .select('id, audio_path, user_id, source, storage_provider')
     .eq('id', meetingId)
     .single()
 
@@ -99,31 +104,30 @@ export async function POST(
 
   // ── Confirm file exists + check size ─────────────────────────────────────
   if (meeting.audio_path) {
-    const dir = meeting.audio_path.split('/').slice(0, -1).join('/')
-    const filename = meeting.audio_path.split('/').at(-1)
+    const sizeBytes = await getObjectSize({
+      key: meeting.audio_path,
+      provider: meeting.storage_provider,
+    }).catch((e: unknown) => {
+      console.warn('[uploaded] getObjectSize error (non-fatal):', e)
+      return null
+    })
 
-    const { data: files, error: listError } = await serverClient.storage
-      .from(BUCKET)
-      .list(dir, { search: filename, limit: 1 })
-
-    if (listError) {
-      console.warn('[uploaded] storage list error (non-fatal):', listError.message)
-    } else if (!files || files.length === 0) {
+    if (sizeBytes === null) {
       return NextResponse.json(
         { error: 'File not found in storage — upload may have failed.' },
         { status: 422 },
       )
-    } else {
-      const sizeBytes = (files[0].metadata as Record<string, unknown> | null)?.['size']
-      if (typeof sizeBytes === 'number' && sizeBytes > MAX_UPLOAD_BYTES) {
-        const mb = (MAX_UPLOAD_BYTES / (1024 * 1024)).toFixed(0)
-        return rejectUpload(
-          serverClient,
-          meetingId,
-          meeting.audio_path,
-          `File exceeds the ${mb} MB upload limit.`,
-        )
-      }
+    }
+
+    if (sizeBytes > MAX_UPLOAD_BYTES) {
+      const mb = (MAX_UPLOAD_BYTES / (1024 * 1024)).toFixed(0)
+      return rejectUpload(
+        serverClient,
+        meetingId,
+        meeting.audio_path,
+        meeting.storage_provider,
+        `File exceeds the ${mb} MB upload limit.`,
+      )
     }
   }
 
@@ -132,33 +136,24 @@ export async function POST(
   // ── Branch: video files need audio extraction ─────────────────────────────
   if (meeting.source === 'video' && meeting.audio_path) {
     const videoPath = meeting.audio_path
+    const provider = meeting.storage_provider
     const finalAudioPath = `${meeting.user_id}/${meetingId}.mp3`
     const tmpAudioPath = join(tmpdir(), `${meetingId}-audio.mp3`)
     let audioUploaded = false
 
     try {
       // Longer TTL — ffmpeg will download the full video through this URL
-      const { data: readUrl, error: urlErr } = await serverClient.storage
-        .from(BUCKET)
-        .createSignedUrl(videoPath, 600) // 10-minute window for extraction
-
-      if (urlErr || !readUrl?.signedUrl) {
-        throw new Error(`Could not generate signed read URL: ${urlErr?.message ?? 'unknown'}`)
-      }
+      const videoUrl = await createSignedDownloadUrl({ key: videoPath, provider, expiresIn: 600 })
 
       // Validate that the video has an audio track (video streams are expected)
-      await validateVideoAudioStream(readUrl.signedUrl)
+      await validateVideoAudioStream(videoUrl)
 
       // Extract audio — ffmpeg downloads the video via the signed URL
-      await extractAudioFromVideo(readUrl.signedUrl, tmpAudioPath)
+      await extractAudioFromVideo(videoUrl, tmpAudioPath)
 
-      // Upload extracted mp3 to Storage
+      // Upload extracted mp3 to R2 (same provider as the video)
       const audioBuffer = await readFile(tmpAudioPath)
-      const { error: uploadErr } = await serverClient.storage
-        .from(BUCKET)
-        .upload(finalAudioPath, audioBuffer, { contentType: 'audio/mpeg', upsert: false })
-
-      if (uploadErr) throw new Error(`Audio upload failed: ${uploadErr.message}`)
+      await uploadBytes({ key: finalAudioPath, buffer: audioBuffer, contentType: 'audio/mpeg' })
       audioUploaded = true
 
       // Update meeting row to point at the extracted audio
@@ -170,27 +165,21 @@ export async function POST(
       if (updateErr) throw new Error(`DB update failed: ${updateErr.message}`)
 
       // Delete the original video — the mp3 is the authoritative file now
-      await serverClient.storage
-        .from(BUCKET)
-        .remove([videoPath])
-        .catch((e: unknown) => {
-          console.warn('[uploaded] video cleanup after extraction failed (non-fatal):', e)
-        })
+      await deleteObject({ key: videoPath, provider }).catch((e: unknown) => {
+        console.warn('[uploaded] video cleanup after extraction failed (non-fatal):', e)
+      })
 
     } catch (err) {
       // Clean up temp file
       await unlink(tmpAudioPath).catch(() => {})
-      // If the mp3 was already written to Storage but the row update failed, remove it
+      // If the mp3 was already written to storage but the row update failed, remove it
       if (audioUploaded) {
-        await serverClient.storage
-          .from(BUCKET)
-          .remove([finalAudioPath])
-          .catch((e: unknown) => {
-            console.warn('[uploaded] partial audio cleanup failed:', e)
-          })
+        await deleteObject({ key: finalAudioPath, provider }).catch((e: unknown) => {
+          console.warn('[uploaded] partial audio cleanup failed:', e)
+        })
       }
       const reason = err instanceof Error ? err.message : 'Video audio extraction failed.'
-      return rejectUpload(serverClient, meetingId, videoPath, reason)
+      return rejectUpload(serverClient, meetingId, videoPath, provider, reason)
     }
 
     // Temp file no longer needed
@@ -208,18 +197,23 @@ export async function POST(
   // Generate a short-lived signed URL so ffprobe can read stream headers
   // without downloading the full file. Skipped gracefully if ffprobe is absent.
   if (meeting.audio_path) {
-    const { data: readUrl, error: urlErr } = await serverClient.storage
-      .from(BUCKET)
-      .createSignedUrl(meeting.audio_path, 120) // 2-minute TTL
+    let audioUrl: string | null = null
+    try {
+      audioUrl = await createSignedDownloadUrl({
+        key: meeting.audio_path,
+        provider: meeting.storage_provider,
+        expiresIn: 120, // 2-minute TTL
+      })
+    } catch (e: unknown) {
+      console.warn('[uploaded] could not generate signed read URL for ffprobe:', e)
+    }
 
-    if (urlErr || !readUrl?.signedUrl) {
-      console.warn('[uploaded] could not generate signed read URL for ffprobe:', urlErr?.message)
-    } else {
+    if (audioUrl) {
       try {
-        await validateAudioStream(readUrl.signedUrl)
+        await validateAudioStream(audioUrl)
       } catch (err) {
         const reason = err instanceof Error ? err.message : 'File is not a valid audio file.'
-        return rejectUpload(serverClient, meetingId, meeting.audio_path, reason)
+        return rejectUpload(serverClient, meetingId, meeting.audio_path, meeting.storage_provider, reason)
       }
     }
   }

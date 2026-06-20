@@ -47,6 +47,7 @@ export default function FileUploadSection({ onCancel }: Props) {
   const [fileError, setFileError] = useState<string | null>(null)
   const [meetingDate, setMeetingDate] = useState<string>(localNow())
   const [isVideo, setIsVideo] = useState(false)
+  const [fileDuration, setFileDuration] = useState<number>(0)
 
   const { state, meetingId, error: uploadError, upload, reset } = useUpload()
 
@@ -55,6 +56,7 @@ export default function FileUploadSection({ onCancel }: Props) {
     setFile(null)
     setFileError(null)
     setIsVideo(false)
+    setFileDuration(0)
     reset()
 
     if (!picked) return
@@ -81,13 +83,27 @@ export default function FileUploadSection({ onCancel }: Props) {
 
     setIsVideo(isVideoExtension(ext))
     setFile(picked)
+
+    // Read duration from media metadata (audio or video element, whichever fits).
+    const url = URL.createObjectURL(picked)
+    const media = document.createElement(isVideoExtension(ext) ? 'video' : 'audio')
+    media.preload = 'metadata'
+    media.onloadedmetadata = () => {
+      setFileDuration(isFinite(media.duration) ? Math.round(media.duration) : 0)
+      URL.revokeObjectURL(url)
+    }
+    media.onerror = () => {
+      setFileDuration(0)
+      URL.revokeObjectURL(url)
+    }
+    media.src = url
   }
 
   function handleUpload() {
     if (!file) return
     const ext = fileExtension(file.name)
     void upload(file, {
-      durationSeconds: 0,
+      durationSeconds: fileDuration,
       startedAt: new Date(meetingDate).toISOString(),
       mimeType: file.type || undefined,
       source: isVideo ? 'video' : 'uploaded',

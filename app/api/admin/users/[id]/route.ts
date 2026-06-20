@@ -21,8 +21,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth/server'
 import { guardDelete } from '@/lib/admin/guards'
-
-const BUCKET = 'recordings'
+import { deleteObjects } from '@/lib/storage'
 
 export async function DELETE(
   req: NextRequest,
@@ -60,22 +59,22 @@ export async function DELETE(
     return NextResponse.json({ error: guard.message }, { status: guard.status })
   }
 
-  // Collect audio paths from all of the target's meetings before deleting
+  // Collect audio paths + providers from all of the target's meetings before deleting
   const { data: meetings } = await db
     .from('meetings')
-    .select('audio_path')
+    .select('audio_path, storage_provider')
     .eq('user_id', targetId)
 
-  const audioPaths = (meetings ?? [])
-    .map((m) => m.audio_path)
-    .filter((p): p is string => typeof p === 'string')
+  const audioItems = (meetings ?? [])
+    .filter((m): m is { audio_path: string; storage_provider: import('@/types/database').StorageProvider } => typeof m.audio_path === 'string')
+    .map((m) => ({ key: m.audio_path, provider: m.storage_provider }))
 
-  // Delete Storage objects. Failure here is non-fatal — log + warn but proceed.
+  // Delete storage objects (handles mixed supabase/r2 providers). Failures are non-fatal.
   const storageWarnings: string[] = []
-  if (audioPaths.length > 0) {
-    const { error: storageErr } = await db.storage.from(BUCKET).remove(audioPaths)
-    if (storageErr) {
-      const msg = `Audio storage cleanup failed (${audioPaths.length} file(s)): ${storageErr.message}`
+  if (audioItems.length > 0) {
+    const failed = await deleteObjects(audioItems)
+    if (failed.length > 0) {
+      const msg = `Audio storage cleanup failed for ${failed.length} file(s): ${failed.join(', ')}`
       console.warn('[admin/delete] ' + msg)
       storageWarnings.push(msg)
     }

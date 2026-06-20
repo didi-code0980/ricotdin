@@ -87,8 +87,11 @@ export default function MeetingDetailPage() {
   const [audioUrl, setAudioUrl]                 = useState<string | null>(null)
   const [highlightedSegIndex, setHighlightedSegIndex] = useState<number | null>(null)
   const [rerunning, setRerunning]               = useState(false)
+  const [regenLoading, setRegenLoading]         = useState(false)
+  const [regenError, setRegenError]             = useState<string | null>(null)
   const [reloadKey, setReloadKey]               = useState(0)
   const [chatOpen, setChatOpen]                 = useState(false)
+  const [chatExpanded, setChatExpanded]         = useState(false)
   const [showScrollTop, setShowScrollTop]       = useState(false)
 
   const audioRef = useRef<HTMLAudioElement>(null)
@@ -116,7 +119,30 @@ export default function MeetingDetailPage() {
           return
         }
 
-        if (meeting.status === 'failed') { setData({ tag: 'failed', meeting }); return }
+        if (meeting.status === 'failed') {
+          // Check whether the transcript was written before the failure.
+          // If segments exist we can still show them alongside empty states for
+          // summary/note (with re-generate buttons). If not, keep the FailedView.
+          const { data: segData } = await browserClient
+            .from('transcript_segments')
+            .select('*')
+            .eq('meeting_id', meetingId)
+            .order('segment_index')
+          if (cancelled) return
+          const failedSegs = (segData ?? []) as TranscriptSegment[]
+          if (failedSegs.length === 0) { setData({ tag: 'failed', meeting }); return }
+          const [failTodoR, failCalR] = await Promise.all([
+            browserClient.from('todos').select('*').eq('meeting_id', meetingId).order('created_at'),
+            browserClient.from('calendar_suggestions').select('*').eq('meeting_id', meetingId).order('created_at'),
+          ])
+          if (cancelled) return
+          const failTodos   = (failTodoR.data ?? []) as Todo[]
+          const failCalSugs = (failCalR.data ?? []) as CalendarSuggestion[]
+          setTodoStatuses(Object.fromEntries(failTodos.map((t) => [t.id, t.status])))
+          setDismissedIds(new Set(failCalSugs.filter((c) => c.dismissed).map((c) => c.id)))
+          setData({ tag: 'done', meeting, segments: failedSegs, todos: failTodos, calSugs: failCalSugs })
+          return
+        }
 
         const [segR, todoR, calR] = await Promise.all([
           browserClient.from('transcript_segments').select('*').eq('meeting_id', meetingId).order('segment_index'),
@@ -264,6 +290,42 @@ export default function MeetingDetailPage() {
     } catch { /* silent */ }
   }
 
+  async function regenerateAnalysis() {
+    setRegenLoading(true)
+    setRegenError(null)
+    try {
+      const token = await getAccessToken()
+      if (!token) { setRegenLoading(false); return }
+      const res = await fetch(`/api/meetings/${meetingId}/regenerate`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const body = (await res.json()) as { ok?: boolean; summary?: string; notes?: string; error?: string }
+      if (!res.ok) {
+        setRegenError(body.error ?? 'Re-generation failed. Please try again.')
+        return
+      }
+      setData((prev) =>
+        prev.tag === 'done'
+          ? {
+              ...prev,
+              meeting: {
+                ...prev.meeting,
+                status: 'done',
+                error_message: null,
+                summary: body.summary ?? null,
+                notes: body.notes ?? null,
+              },
+            }
+          : prev,
+      )
+    } catch {
+      setRegenError('Re-generation failed. Please try again.')
+    } finally {
+      setRegenLoading(false)
+    }
+  }
+
   async function rerunProcessing() {
     setRerunning(true)
     try {
@@ -324,6 +386,9 @@ export default function MeetingDetailPage() {
             onSeekTo={seekTo}
             onScrollToSegment={(segId) => scrollToSegment(segId, data.segments)}
             onCitationClick={(c) => handleCitationClick(c, data.segments)}
+            regenLoading={regenLoading}
+            regenError={regenError}
+            onRegenerate={regenerateAnalysis}
           />
         )}
       </div>
@@ -350,9 +415,10 @@ export default function MeetingDetailPage() {
           {/* Panel */}
           <div
             className={[
-              'fixed bottom-[88px] right-6 z-50 w-80 sm:w-96',
+              'fixed bottom-[88px] right-6 z-50',
               'bg-white rounded-3xl border border-b-border overflow-hidden flex flex-col',
               'shadow-2xl transition-all duration-300 origin-bottom-right',
+              chatExpanded ? 'w-[680px]' : 'w-80 sm:w-96',
               chatOpen
                 ? 'opacity-100 scale-100 pointer-events-auto'
                 : 'opacity-0 scale-95 pointer-events-none',
@@ -371,23 +437,48 @@ export default function MeetingDetailPage() {
                   <p className="text-xs text-b-fg/40 font-sans">AI-powered Q&amp;A</p>
                 </div>
               </div>
-              <button
-                onClick={() => setChatOpen(false)}
-                className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-b-clay transition-colors text-b-fg/40 hover:text-b-fg"
-                aria-label="Close chat"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-                </svg>
-              </button>
+              <div className="flex items-center gap-1">
+                {/* Expand / collapse */}
+                <button
+                  onClick={() => setChatExpanded((prev) => !prev)}
+                  className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-b-clay transition-colors text-b-fg/40 hover:text-b-fg"
+                  aria-label={chatExpanded ? 'Collapse chat' : 'Expand chat'}
+                  title={chatExpanded ? 'Collapse' : 'Expand'}
+                >
+                  {chatExpanded ? (
+                    /* arrows-pointing-in (collapse) */
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25" />
+                    </svg>
+                  ) : (
+                    /* arrows-pointing-out (expand) */
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+                    </svg>
+                  )}
+                </button>
+                {/* Close */}
+                <button
+                  onClick={() => { setChatOpen(false); setChatExpanded(false) }}
+                  className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-b-clay transition-colors text-b-fg/40 hover:text-b-fg"
+                  aria-label="Close chat"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
             </div>
 
-            {/* Chat panel body */}
+            {/* Chat panel body — mounted only while open so API loads on open */}
             <div className="px-4 pb-4 pt-3">
-              <ChatPanel
-                meetingId={data.meeting.id}
-                onCitationClick={(c) => handleCitationClick(c, data.segments)}
-              />
+              {chatOpen && (
+                <ChatPanel
+                  meetingId={data.meeting.id}
+                  onCitationClick={(c) => handleCitationClick(c, data.segments)}
+                  height={chatExpanded ? 640 : 440}
+                />
+              )}
             </div>
           </div>
 
@@ -508,6 +599,9 @@ interface DoneViewProps {
   onSeekTo: (ms: number) => void
   onScrollToSegment: (segmentId: string | null) => void
   onCitationClick: (citation: Citation) => void
+  regenLoading: boolean
+  regenError: string | null
+  onRegenerate: () => void
 }
 
 function DoneView({
@@ -515,6 +609,7 @@ function DoneView({
   todoStatuses, dismissedIds, dismissedTodoIds,
   audioUrl, audioRef, highlightedSegIndex,
   onToggleTodo, onDismissTodo, onDismissCalSug, onDownloadIcs, onSeekTo, onScrollToSegment, onCitationClick,
+  regenLoading, regenError, onRegenerate,
 }: DoneViewProps) {
   const activeSugs  = calSugs.filter((c) => !dismissedIds.has(c.id))
   const activeTodos = todos.filter((t) => !dismissedTodoIds.has(t.id))
@@ -551,6 +646,15 @@ function DoneView({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Pipeline failure warning — shown when transcription succeeded but analysis failed */}
+      {meeting.status === 'failed' && (
+        <div className="bg-red-50 border border-red-200 rounded-3xl px-5 py-4 text-sm text-red-700">
+          <p className="font-semibold mb-1">Analysis failed</p>
+          {meeting.error_message && <p className="opacity-80 mb-1">{meeting.error_message}</p>}
+          <p className="opacity-70">The transcript is available below. Use &ldquo;Re-generate&rdquo; to retry the analysis.</p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-2">
         {editingTitle ? (
@@ -604,20 +708,48 @@ function DoneView({
       )}
 
       {/* Summary */}
-      {meeting.summary && (
-        <SectionCard label="Summary">
+      <SectionCard label="Summary">
+        {regenLoading ? (
+          <div className="flex items-center gap-2.5 py-2">
+            <div
+              className="w-4 h-4 rounded-full border-2 border-b-border flex-shrink-0"
+              style={{ borderTopColor: '#8C9A84', animation: 'spin 1s linear infinite' }}
+            />
+            <span className="text-sm text-b-fg/50 font-sans">Generating…</span>
+          </div>
+        ) : meeting.summary ? (
           <p className="text-sm text-b-fg/80 font-sans leading-relaxed">{meeting.summary}</p>
-        </SectionCard>
-      )}
+        ) : (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-b-fg/40 font-sans italic">No summary was generated.</p>
+            {regenError && <p className="text-xs text-red-600 font-sans">{regenError}</p>}
+            <button onClick={onRegenerate} className="btn-primary self-start">↻ Re-generate summary</button>
+          </div>
+        )}
+      </SectionCard>
 
       {/* Meeting notes */}
-      {meeting.notes && meeting.notes.trim() && (
-        <SectionCard label="Meeting notes">
-          <div className="md-body text-sm text-b-fg/80 font-sans">
-            <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{meeting.notes}</ReactMarkdown>
+      <SectionCard label="Meeting notes">
+        {regenLoading ? (
+          <div className="flex items-center gap-2.5 py-2">
+            <div
+              className="w-4 h-4 rounded-full border-2 border-b-border flex-shrink-0"
+              style={{ borderTopColor: '#8C9A84', animation: 'spin 1s linear infinite' }}
+            />
+            <span className="text-sm text-b-fg/50 font-sans">Generating…</span>
           </div>
-        </SectionCard>
-      )}
+        ) : meeting.notes && meeting.notes.trim() ? (
+          <div className="md-body text-sm text-b-fg/80 font-sans">
+            <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{meeting.notes.replace(/\\n/g, '\n')}</ReactMarkdown>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-b-fg/40 font-sans italic">No meeting note was generated.</p>
+            {regenError && <p className="text-xs text-red-600 font-sans">{regenError}</p>}
+            <button onClick={onRegenerate} className="btn-primary self-start">↻ Re-generate meeting note</button>
+          </div>
+        )}
+      </SectionCard>
 
       {/* Action items */}
       <SectionCard label={`Action items${activeTodos.length > 0 ? ` · ${activeTodos.length}` : ''}`}>
@@ -750,6 +882,7 @@ function TranscriptView({
   highlightedSegIndex: number | null
   onSeekTo: (ms: number) => void
 }) {
+  // ── Group consecutive same-speaker turns ──────────────────────────────────
   type Group = { speaker: string; segs: TranscriptSegment[] }
   const groups: Group[] = []
   for (const seg of segments) {
@@ -759,6 +892,7 @@ function TranscriptView({
     else groups.push({ speaker, segs: [seg] })
   }
 
+  // Stable per-speaker color (first-seen order)
   const colorMap = new Map<string, string>()
   let ci = 0
   for (const { speaker } of groups) {
@@ -767,6 +901,7 @@ function TranscriptView({
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Turn blocks */}
       {groups.map((group, gi) => (
         <div key={gi}>
           <div className="mb-2">
@@ -789,13 +924,20 @@ function TranscriptView({
                     isHighlighted ? 'bg-amber-50 border-l-2 border-amber-400' : 'hover:bg-b-clay/40',
                   ].join(' ')}
                 >
-                  <button
-                    onClick={() => onSeekTo(seg.start_ms)}
-                    className="flex-shrink-0 mt-0.5 text-xs font-mono text-b-fg/40 bg-transparent border border-b-border rounded-lg px-1.5 py-0.5 cursor-pointer hover:text-b-primary hover:border-b-primary transition-colors"
-                    title="Seek to this timestamp"
-                  >
-                    {formatMs(seg.start_ms)}
-                  </button>
+                  <div className="flex-shrink-0 flex flex-col items-end gap-0.5">
+                    <button
+                      onClick={() => onSeekTo(seg.start_ms)}
+                      className="text-xs font-mono text-b-fg/40 bg-transparent border border-b-border rounded-lg px-1.5 py-0.5 cursor-pointer hover:text-b-primary hover:border-b-primary transition-colors whitespace-nowrap"
+                      title="Seek to this turn"
+                    >
+                      {formatMs(seg.start_ms)}–{formatMs(seg.end_ms)}
+                    </button>
+                    {seg.confidence != null && (
+                      <span className="text-[10px] font-mono text-b-fg/25 leading-none">
+                        {Math.round(seg.confidence * 100)}%
+                      </span>
+                    )}
+                  </div>
                   <span className="flex-1 text-sm text-b-fg/80 font-sans leading-relaxed">{seg.text}</span>
                 </div>
               )

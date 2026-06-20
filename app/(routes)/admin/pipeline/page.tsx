@@ -61,7 +61,6 @@ const STATUS_COLORS: Record<string, string> = {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const PER_PAGE = 20
-const POLL_INTERVAL_MS = 10_000
 const STATUS_FILTERS = ['all', 'pending', 'processing', 'stuck', 'failed', 'done'] as const
 type StatusFilter = typeof STATUS_FILTERS[number]
 
@@ -77,37 +76,58 @@ export default function PipelinePage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [requeueAllBusy, setRequeueAllBusy] = useState(false)
   const [confirmRequeueAll, setConfirmRequeueAll] = useState(false)
 
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Cancelled when the component unmounts or a new refresh starts — prevents
+  // in-flight requests from completing after the user navigates away.
+  const abortRef = useRef<AbortController | null>(null)
 
-  const fetchOverview = useCallback(async (token: string) => {
+  const fetchOverview = useCallback(async (token: string, signal: AbortSignal) => {
     const res = await fetch('/api/admin/pipeline/overview', {
       headers: { Authorization: `Bearer ${token}` },
+      signal,
     })
-    if (!res.ok) return
+    if (!res.ok || signal.aborted) return
     const data = await res.json() as OverviewData
     setOverview(data)
   }, [])
 
-  const fetchJobs = useCallback(async (token: string, status: StatusFilter, p: number) => {
+  const fetchJobs = useCallback(async (token: string, status: StatusFilter, p: number, signal: AbortSignal) => {
     const params = new URLSearchParams({ page: String(p), perPage: String(PER_PAGE) })
     if (status !== 'all') params.set('status', status)
     const res = await fetch(`/api/admin/pipeline/jobs?${params.toString()}`, {
       headers: { Authorization: `Bearer ${token}` },
+      signal,
     })
-    if (!res.ok) return
+    if (!res.ok || signal.aborted) return
     const data = await res.json() as { jobs: PipelineJob[]; total: number }
     setJobs(data.jobs)
     setTotal(data.total)
   }, [])
 
   const refresh = useCallback(async () => {
+    // Cancel any previous in-flight fetch before starting a new one
+    abortRef.current?.abort()
+    abortRef.current = new AbortController()
+    const { signal } = abortRef.current
+
     const token = await getAccessToken()
-    if (!token) return
-    await Promise.all([fetchOverview(token), fetchJobs(token, statusFilter, page)])
+    if (!token || signal.aborted) return
+    setRefreshing(true)
+    try {
+      await Promise.all([
+        fetchOverview(token, signal),
+        fetchJobs(token, statusFilter, page, signal),
+      ])
+    } catch (err) {
+      // AbortError is expected when navigating away — don't surface it as an error
+      if (err instanceof Error && err.name !== 'AbortError') throw err
+    } finally {
+      if (!signal.aborted) setRefreshing(false)
+    }
   }, [fetchOverview, fetchJobs, statusFilter, page])
 
   useEffect(() => {
@@ -117,19 +137,18 @@ export default function PipelinePage() {
 
       await refresh()
       setLoading(false)
-
-      pollRef.current = setInterval(() => { void refresh() }, POLL_INTERVAL_MS)
     }
     void init()
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current)
-    }
+    return () => { abortRef.current?.abort() }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Re-fetch when filter or page changes.
-  // Data fetching from external system — setState is inside an async chain, not synchronous.
-  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
-  useEffect(() => { void refresh() }, [statusFilter, page])
+  // Re-fetch when filter or page changes (skip initial mount — init() handles that).
+  const isFirstRender = useRef(true)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return }
+    void refresh()
+  }, [statusFilter, page])
 
   // ── Actions ─────────────────────────────────────────────────────────────────
 
@@ -257,7 +276,7 @@ export default function PipelinePage() {
               key={key}
               style={{
                 ...S.tile,
-                borderTopColor: STATUS_COLORS[key] ?? '#888',
+                borderTop: `3px solid ${STATUS_COLORS[key] ?? '#888'}`,
                 boxShadow: statusFilter === key ? '0 0 0 2px ' + STATUS_COLORS[key] : S.tile.boxShadow,
               }}
               onClick={() => { setStatusFilter(key as StatusFilter); setPage(1) }}
@@ -267,7 +286,7 @@ export default function PipelinePage() {
             </button>
           ))}
           {overview?.avg_processing_secs != null && (
-            <div style={{ ...S.tile, borderTopColor: '#64748b' }}>
+            <div style={{ ...S.tile, borderTop: '3px solid #64748b' }}>
               <span style={{ ...S.tileCount, color: '#334155' }}>
                 {fmtSecs(overview.avg_processing_secs)}
               </span>
@@ -292,6 +311,13 @@ export default function PipelinePage() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
           <span style={S.muted}>{total} job{total !== 1 ? 's' : ''}</span>
+          <button
+            style={S.refreshBtn}
+            disabled={refreshing}
+            onClick={() => { void refresh() }}
+          >
+            {refreshing ? 'Refreshing…' : '↻ Refresh'}
+          </button>
           {stuckOrFailed > 0 && (
             <button
               style={S.requeueAllBtn}
@@ -321,7 +347,7 @@ export default function PipelinePage() {
           <tbody>
             {jobs.map((job) => {
               const displayStatus = job.is_stuck ? 'stuck' : job.status
-              const canRequeue = job.is_stuck || job.status === 'failed'
+              const canRequeue = true
               return (
                 <tr key={job.id} style={job.status === 'failed' ? S.failedRow : undefined}>
                   <td style={S.td}>
@@ -462,7 +488,7 @@ const S: Record<string, React.CSSProperties> = {
     fontSize: 12, padding: '4px 10px', border: '1px solid #d0d0d0',
     borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#555',
   },
-  filterBtnActive: { background: '#1d4ed8', color: '#fff', borderColor: '#1d4ed8', fontWeight: 600 },
+  filterBtnActive: { background: '#1d4ed8', color: '#fff', border: '1px solid #1d4ed8', fontWeight: 600 },
   muted: { color: '#9ca3af', fontSize: 13 },
   tableWrap: { overflowX: 'auto', background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0' },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
@@ -485,6 +511,10 @@ const S: Record<string, React.CSSProperties> = {
     fontSize: 11, padding: '4px 10px', background: '#2563eb', color: '#fff',
     border: 'none', borderRadius: 5, cursor: 'pointer', fontWeight: 600,
     whiteSpace: 'nowrap',
+  },
+  refreshBtn: {
+    fontSize: 12, padding: '5px 12px', background: '#fff', color: '#374151',
+    border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer', fontWeight: 500,
   },
   requeueAllBtn: {
     fontSize: 12, padding: '5px 12px', background: '#7c3aed', color: '#fff',

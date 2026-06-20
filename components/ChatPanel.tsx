@@ -2,39 +2,53 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { getAccessToken } from '@/lib/supabase/auth'
-import { browserClient } from '@/lib/supabase/browser'
 import type { ChatMessage, Citation } from '@/types/database'
 
 interface Props {
   meetingId: string | null
   initialSessionId?: string | null
   onCitationClick?: (citation: Citation) => void
+  height?: number
 }
 
 export default function ChatPanel({
   meetingId,
   initialSessionId = null,
   onCitationClick,
+  height = 440,
 }: Props) {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [sessionId, setSessionId]   = useState<string | null>(initialSessionId)
-  const [input, setInput]           = useState('')
-  const [loading, setLoading]       = useState(false)
-  const [error, setError]           = useState<string | null>(null)
+  const [messages, setMessages]       = useState<ChatMessage[]>([])
+  const [sessionId, setSessionId]     = useState<string | null>(initialSessionId)
+  const [input, setInput]             = useState('')
+  const [loading, setLoading]         = useState(false)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [error, setError]             = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
+  // Load the most recent session + messages for this meeting from the server
   useEffect(() => {
-    if (!sessionId) return
+    if (!meetingId) return
+    let cancelled = false
     async function loadHistory() {
-      const { data } = await browserClient
-        .from('chat_messages')
-        .select('*')
-        .eq('session_id', sessionId!)
-        .order('created_at', { ascending: true })
-      if (data) setMessages(data as ChatMessage[])
+      setHistoryLoading(true)
+      try {
+        const token = await getAccessToken()
+        if (!token || cancelled) return
+        const res = await fetch(`/api/chat?meetingId=${encodeURIComponent(meetingId!)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok || cancelled) return
+        const body = (await res.json()) as { sessionId: string | null; messages: ChatMessage[] }
+        if (cancelled) return
+        if (body.sessionId) setSessionId(body.sessionId)
+        setMessages(body.messages)
+      } catch { /* non-fatal */ } finally {
+        if (!cancelled) setHistoryLoading(false)
+      }
     }
     void loadHistory()
-  }, [sessionId])
+    return () => { cancelled = true }
+  }, [meetingId])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -89,10 +103,19 @@ export default function ChatPanel({
   }
 
   return (
-    <div className="flex flex-col" style={{ height: 440 }}>
+    <div className="flex flex-col" style={{ height }}>
       {/* Thread */}
       <div className="flex-1 overflow-y-auto flex flex-col gap-3 pb-2 pr-1">
-        {messages.length === 0 && !loading && (
+        {historyLoading && (
+          <div className="flex items-center justify-center gap-2 mt-12">
+            <div
+              className="w-4 h-4 rounded-full border-2 border-b-border"
+              style={{ borderTopColor: '#8C9A84', animation: 'spin 1s linear infinite' }}
+            />
+            <span className="text-sm text-b-fg/40 font-sans">Loading…</span>
+          </div>
+        )}
+        {!historyLoading && messages.length === 0 && !loading && (
           <p className="text-sm text-b-fg/40 font-sans italic text-center mt-12">
             {meetingId
               ? 'Ask anything about this meeting transcript.'

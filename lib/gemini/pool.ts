@@ -29,6 +29,12 @@
 //   GEMINI_BASE_BACKOFF_MS      default 500
 //   GEMINI_MAX_BACKOFF_MS       default 8000
 //   GEMINI_MAX_ATTEMPTS         default 0 (= min(keys*2, 16))
+//   GEMINI_MAX_COOLDOWN_WAIT_MS default 30000 (fast-fail if cooldown > this)
+//
+// Error classification nuance:
+//   401             → 'invalid-key'  → permanent disable (key is definitively rejected)
+//   403/PERMISSION  → 'forbidden'    → 15-min cooldown (may be transient; NOT permanent)
+//   429/EXHAUSTED   → 'rate-limit'   → short cooldown from Retry-After header
 
 import { GoogleGenAI } from '@google/genai'
 import { PipelineError } from './errors'
@@ -57,6 +63,8 @@ interface PoolConfig {
   maxBackoffMs: number
   /** 0 = auto: min(keys.length * 2, 16) */
   maxAttempts: number
+  /** Don't block an HTTP request longer than this waiting for key cooldowns. Fast-fail if exceeded. */
+  maxCooldownWaitMs: number
 }
 
 function readConfig(): PoolConfig {
@@ -67,6 +75,7 @@ function readConfig(): PoolConfig {
     baseBackoffMs:     n('GEMINI_BASE_BACKOFF_MS', 500),
     maxBackoffMs:      n('GEMINI_MAX_BACKOFF_MS', 8_000),
     maxAttempts:       n('GEMINI_MAX_ATTEMPTS', 0),
+    maxCooldownWaitMs: n('GEMINI_MAX_COOLDOWN_WAIT_MS', 30_000),
   }
 }
 
@@ -91,7 +100,7 @@ interface KeyState {
 // Error classification
 // ---------------------------------------------------------------------------
 
-type ErrorClass = 'rate-limit' | 'invalid-key' | 'bad-request' | 'transient' | 'unknown'
+type ErrorClass = 'rate-limit' | 'invalid-key' | 'forbidden' | 'bad-request' | 'transient' | 'unknown'
 
 function classifyError(err: unknown): ErrorClass {
   // PipelineError = our own validation / parse failure — surface immediately.
@@ -102,13 +111,14 @@ function classifyError(err: unknown): ErrorClass {
   if (/\b429\b/.test(msg) || /RESOURCE_EXHAUSTED/i.test(msg) || /quota/i.test(msg)) {
     return 'rate-limit'
   }
-  if (
-    /\b(401|403)\b/.test(msg) ||
-    /API_KEY_INVALID/i.test(msg) ||
-    /invalid.api.key/i.test(msg) ||
-    /permission.denied/i.test(msg)
-  ) {
+  // 401 definitively means the key is rejected → permanent disable.
+  if (/\b401\b/.test(msg) || /API_KEY_INVALID/i.test(msg) || /invalid.api.key/i.test(msg)) {
     return 'invalid-key'
+  }
+  // 403 / PERMISSION_DENIED can be transient (model access, region restriction, project-level
+  // quota, billing state) → long cooldown rather than permanent disable.
+  if (/\b403\b/.test(msg) || /permission.denied/i.test(msg)) {
+    return 'forbidden'
   }
   if (/\b400\b/.test(msg)) {
     return 'bad-request'
@@ -219,6 +229,16 @@ class GeminiKeyPool {
           throw new AllGeminiKeysExhaustedError(this.keys.length, attempt)
         }
         const waitMs = Math.max(0, nextMs - Date.now()) + 50
+        if (waitMs > this.cfg.maxCooldownWaitMs) {
+          // Cooldown wait exceeds the per-request threshold — fast-fail rather than
+          // blocking the HTTP request. The key will become available again once the
+          // cooldown expires; the next incoming request can use it.
+          console.warn(
+            `[gemini pool] all keys on cooldown for ${Math.round(waitMs / 1_000)}s; ` +
+              `exceeds maxCooldownWaitMs (${Math.round(this.cfg.maxCooldownWaitMs / 1_000)}s) — failing fast`,
+          )
+          throw new AllGeminiKeysExhaustedError(this.keys.length, attempt)
+        }
         console.warn(
           `[gemini pool] all keys on cooldown; waiting ${Math.round(waitMs / 1_000)}s ` +
             `for next available key (attempt ${attempt + 1}/${maxAttempts})`,
@@ -259,7 +279,20 @@ class GeminiKeyPool {
           keyState.disabled = true
           console.warn(
             `[gemini pool] key #${keyState.index} (${maskKey(keyState.key)}) ` +
-              `rejected as invalid (401/403) — permanently disabled; rotating`,
+              `rejected with 401 — permanently disabled; rotating`,
+          )
+        } else if (errClass === 'forbidden') {
+          // 403 / PERMISSION_DENIED: apply a long cooldown instead of permanent disable.
+          // This lets the key recover if the condition was transient (model restriction,
+          // region issue, temporary project limitation). If it persists, every cooldown
+          // expiry will retry once and cool down again — visible in warn logs.
+          const cooldownMs = 15 * 60 * 1_000
+          keyState.cooldownUntil = Date.now() + cooldownMs
+          keyState.consecutiveFailures++
+          console.warn(
+            `[gemini pool] key #${keyState.index} got 403/PERMISSION_DENIED on ` +
+              `attempt ${attempt + 1}/${maxAttempts}; applying 15-min cooldown. ` +
+              `If this persists, verify the key is active in Google AI Studio.`,
           )
         } else {
           // transient or unknown — try the next key without a cooldown
