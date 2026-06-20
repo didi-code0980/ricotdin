@@ -124,7 +124,10 @@ Rules:
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=        # server only, NEVER exposed to client
-GEMINI_API_KEY=                   # server only, NEVER exposed to client
+GEMINI_API_KEY=                   # server only, NEVER exposed to client (env fallback)
+KEY_ENCRYPTION_SECRET=            # 64 hex chars (32 bytes). Generate:
+                                  # node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+                                  # NEVER log. Losing it makes all stored DB keys unrecoverable.
 ```
 Anything not prefixed `NEXT_PUBLIC_` is server-only. Never log secret values.
 
@@ -163,6 +166,12 @@ Supabase dashboard:
 
 4. **Apply Phase 8 migration:**
    - `migrations/004_meetings_pinned.sql` — adds `pinned_at` column + sort index to `meetings`.
+
+5. **Apply Phase 13 migration:**
+   - `migrations/014_provider_keys.sql` — provider_keys table (AES-256-GCM encrypted key pool).
+   - Before running: set `KEY_ENCRYPTION_SECRET` in `.env.local` (64 hex chars; generate with
+     `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`).
+   - After applying: add keys via `/admin/keys` UI; env-var keys continue to work as fallback.
 
 5. **Apply Phase 12 migrations** (run in the SQL editor IN ORDER — 011, 012, 013):
    - `migrations/011_folders.sql` — `folders` table + `meetings.folder_id` FK + owner-only RLS.
@@ -312,6 +321,62 @@ RLS: admin SELECT only; writes via service role. 5 indexes (created_at, provider
 - Audio-seconds-unit row: correct field population (audio_seconds, null token fields).
 - Aggregation: correct per-unit sums; tokens/audio_seconds never bleed across unit groups.
 
+## 9f. Provider API key pool design (Phase 13 / SEC-04)
+
+**Goal:** Admins can manage Gemini and Speechmatics API keys from a UI. Keys are never stored in plaintext. The UI is write-only (keys cannot be read back).
+
+**Schema (`migrations/014_provider_keys.sql`):**
+```
+provider_keys: id, created_at, updated_at, provider ('gemini'|'speechmatics'),
+               label (display name, max 80 chars),
+               key_ciphertext (base64), key_iv (base64), key_auth_tag (base64),
+               last4 (last 4 chars of plaintext key, display only),
+               status ('active'|'disabled'), disabled_reason text null,
+               last_used_at timestamptz null, created_by uuid null
+```
+RLS: admin SELECT only (metadata, never ciphertext); all writes use service-role client.
+
+**SECURITY RULES (absolute):**
+- `key_ciphertext`, `key_iv`, `key_auth_tag` are NEVER returned in any API response, ever.
+- `KEY_ENCRYPTION_SECRET` (server env var, 32 bytes) is NEVER logged, never sent to client.
+- Decrypted keys exist ONLY in server-side memory at call time.
+- Losing `KEY_ENCRYPTION_SECRET` makes all stored DB keys unrecoverable.
+- Every key mutation (create/disable/enable/delete) writes an audit log entry with only `{ provider, label }` in metadata — never ciphertext or plaintext.
+
+**Crypto (`lib/crypto/index.ts`):**
+- AES-256-GCM with a random 12-byte IV per encryption. Returns `{ ciphertext, iv, authTag }` (all base64).
+- `encryptSecretWithKey(plaintext, key: Buffer)` / `decryptSecretWithKey(secret, key: Buffer)` — pure, accept explicit key buffer (unit-testable).
+- `encryptSecret(plaintext)` / `decryptSecret(secret)` — public API; read `KEY_ENCRYPTION_SECRET` from env.
+
+**Pure helpers (`lib/keys/guards.ts`):**
+- `isLastActiveKey(activeCount: number): boolean` — returns true when activeCount ≤ 1; blocks disable/delete of last active key.
+- `maskProviderKey(row: ProviderKeyRow): MaskedProviderKey` — strips ciphertext/IV/tag/created_by; safe to return.
+
+**Key provider (`lib/keys/provider.ts`):**
+- `getActiveKeys(provider): Promise<string[]>` — queries DB, decrypts, caches 30s; falls back to env vars if no DB keys.
+- `invalidateKeyCache(provider?)` — called after mutations for immediate effect.
+- Env fallback: Gemini reads GEMINI_API_KEYS, GEMINI_API_KEY_1..20, GEMINI_API_KEY; Speechmatics reads SPEECHMATICS_API_KEY.
+
+**Provider wiring:**
+- `lib/gemini/pool.ts` — async `getPoolAsync()` with 30s TTL refresh; `resetGeminiPool()` for forced invalidation.
+- `lib/speechmatics/client.ts` — async `getApiKey()` via `getActiveKeys('speechmatics')`.
+
+**Admin API (all requireAdmin, service-role client):**
+- `GET /api/admin/keys` — list all keys (SAFE_SELECT only — never ciphertext).
+- `POST /api/admin/keys` — accepts `{ provider, label, key }` — encrypts, inserts, returns masked record, invalidates cache.
+- `PATCH /api/admin/keys/:id` — `{ status, disabled_reason? }` — last-active-key guard on disable.
+- `DELETE /api/admin/keys/:id` — last-active-key guard on active key.
+
+**UI at `/admin/keys`:**
+- Per-provider table: label, `••••last4`, status badge, last_used_at. Disable/Enable + Delete buttons.
+- Add form: provider dropdown, label input, key password input (write-only). On success: one-time "Key saved. It cannot be viewed again." message.
+- Disable and delete have confirmation dialogs. "Keys" added to admin sidebar nav (Key icon).
+
+**Tests (`tests/provider-keys.test.ts`, 16 assertions, all pure):**
+- Round-trip encrypt/decrypt; different IV each call; tampered ciphertext/tag/wrong-key all throw; invalid key length throws.
+- `isLastActiveKey` edge cases.
+- `maskProviderKey` never exposes sensitive fields; JSON serialization clean.
+
 ## 9d. Admin pipeline monitor design (Phase 10a)
 
 **Endpoints (all server-enforced by `requireAdmin`):**
@@ -364,6 +429,7 @@ RLS: admin SELECT only; writes via service role. 5 indexes (created_at, provider
 10. ~~**Admin operational — Area 1: Pipeline/Job Monitoring**~~ **DONE** (Phase 10a complete — `migrations/005_audit_logs.sql` (admin-readable, service-role writes, 4 indexes); `lib/admin/audit.ts` central `writeAuditLog()` fire-and-forget helper + `requestContext()` IP/UA extractor; `GET /api/admin/pipeline/overview` aggregate counts (pending/processing/done/failed/stuck) + avg_processing_secs; `GET /api/admin/pipeline/jobs?status=&page=&perPage=` metadata-only paginated list with owner email/username — NO transcript/notes content; `POST /api/admin/pipeline/:id/requeue` safe re-run: clears transcript_segments/todos/calendar_suggestions (transcript_chunks cascade), resets status to pending + clears summary/notes/language, writes audit log entry `meeting.requeue`, fires processMeeting() non-awaited; `/admin/pipeline` UI with status tiles (click to filter), filter tabs, jobs table with Requeue button per failed/stuck row, "Requeue all stuck/failed" with confirmation dialog, 10s auto-poll; 11 new unit tests in `tests/admin-pipeline.test.ts` (admin guard 403, requeue eligibility, audit entry structure). Apply migration 005 in Supabase dashboard.)
 11. ~~**Admin operational — Area 2: AI Provider Usage Tracking**~~ **DONE** (Phase 10b complete — `migrations/009_usage_log.sql` unit-aware schema (tokens/audio_seconds units never conflated); `lib/usage/logUsage.ts` fire-and-forget central helper; Gemini analyze/embed/answer and Speechmatics all instrumented with optional `ctx?: { meetingId?, userId? }` parameter; processMeeting + chat route pass usageCtx; `GET /api/admin/ai-usage?from=&to=&groupBy=` aggregates in JS; `/admin/usage` page extended with AI usage section: summary tiles, token table + audio table (separate), SVG trend charts per unit, date-range selector; 14 unit tests in `tests/usage-log.test.ts`. Apply migration 009 in Supabase dashboard. See section 9e for full design.)
 12. ~~**Shared folders (COM-05 / PRO-06 folders)**~~ **DONE** (Phase 12 complete — `migrations/011_folders.sql` folders table (owner-only RLS, unique name per user, ON DELETE SET NULL for meetings); `migrations/012_folder_shares.sql` folder_shares table + `can_access_meeting(uuid, text)` SQL function as single RLS source-of-truth; per-verb RLS policies replacing FOR ALL on all 9 meeting-related tables + `folders` + `folder_shares`; `lib/access/index.ts` server-side TS helpers (checkMeetingAccess, checkFolderAccess, getMeetingRole, canAssignToFolder) — mirrors SQL function, safe under service-role client; `lib/access/roles.ts` pure client-side helpers (getMeetingRole, canPin, canEdit, canDelete, canManageShares); `GET/POST /api/folders`, `PATCH/DELETE /api/folders/[id]`, `GET/POST /api/folders/[id]/shares`, `PATCH/DELETE /api/folders/[id]/shares/[granteeId]`, `PUT /api/folders/reorder`, `POST /api/users/lookup`; `components/FolderSelector.tsx`; share panel embedded in Manage Folders modal; folder filter pills with 👥 badge for shared folders; `PATCH /api/todos/[id]` and `PATCH /api/calendar-suggestions/[id]` updated to editor+ access via checkMeetingAccess; `GET /api/calendar-suggestions/[id]/ics` updated to viewer+; audio signed-URL route and chat route already used checkMeetingAccess; RAG retrieval scope unchanged (user-scoped client + updated RLS auto-includes shared meetings); 10 unit tests in `tests/folder-shares.test.ts`. Apply migrations 011 then 012 in Supabase dashboard. SEC-03 full RLS review REQUIRED.)
+13. ~~**Provider API key management (SEC-04)**~~ **DONE** (Phase 13 complete — `migrations/014_provider_keys.sql` `provider_keys` table (AES-256-GCM encrypted at rest; admin-readable RLS; service-role writes); `lib/crypto/index.ts` AES-256-GCM helpers — `encryptSecretWithKey`/`decryptSecretWithKey` pure (explicit key buffer) + `encryptSecret`/`decryptSecret` (read KEY_ENCRYPTION_SECRET); `lib/keys/guards.ts` pure `isLastActiveKey(count)` + `maskProviderKey(row)` (never exposes ciphertext/IV/tag/created_by); `lib/keys/provider.ts` `getActiveKeys(provider)` async with 30s TTL cache + env-var fallback + `invalidateKeyCache()`; `GET/POST /api/admin/keys` + `PATCH/DELETE /api/admin/keys/:id` — all admin-enforced, never return ciphertext or plaintext, last-active-key guard blocks disable/delete, every mutation audit-logged with `{ provider, label }` only; `lib/gemini/pool.ts` now async with 30s TTL refresh via `getActiveKeys` + `resetGeminiPool()` export; `lib/speechmatics/client.ts` now async via `getActiveKeys`; `/admin/keys` UI with per-provider tables, write-only add form (password input, one-time confirmation), disable/enable toggle with confirm dialog, delete with confirm; "Keys" added to admin sidebar nav (Key icon); 16 unit tests in `tests/provider-keys.test.ts` (crypto round-trip, tamper detection, last-active guard, maskProviderKey security invariants). See section 9f for full design. Apply migration 014 in Supabase dashboard. **IMPORTANT:** Set KEY_ENCRYPTION_SECRET in .env — losing it makes stored keys unrecoverable.)
 
 **Pending — Area 3 (Audit Log UI) remains.**
 

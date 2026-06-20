@@ -14,6 +14,7 @@ export type FolderRow = {
 export type FolderWithRole = FolderRow & {
   myRole: FolderRole
   ownerUsername: string | null  // null when myRole = 'owner'; set for shared folders
+  memberCount: number           // number of people this folder is shared with (owned folders only; 0 for shared-with-me)
 }
 export type FolderShareRow = {
   id: string
@@ -161,6 +162,38 @@ export type UsageLog = {
   http_code: number | null
   meeting_id: string | null
   user_id: string | null
+}
+
+export type ProviderKeyStatus = 'active' | 'disabled'
+
+// Full DB row — key_ciphertext/key_iv/key_auth_tag are server-only.
+// NEVER return these fields in any API response or log them.
+export type ProviderKeyRow = {
+  id: string
+  created_at: string
+  updated_at: string
+  provider: string
+  label: string
+  key_ciphertext: string  // AES-256-GCM ciphertext (base64) — NEVER expose to client
+  key_iv: string          // GCM IV (base64) — NEVER expose to client
+  key_auth_tag: string    // GCM auth tag (base64) — NEVER expose to client
+  last4: string
+  status: ProviderKeyStatus
+  disabled_reason: string | null
+  last_used_at: string | null
+  created_by: string | null
+}
+
+// Safe display shape — never contains ciphertext or plaintext key material.
+export type MaskedProviderKey = {
+  id: string
+  created_at: string
+  provider: string
+  label: string
+  last4: string
+  status: ProviderKeyStatus
+  disabled_reason: string | null
+  last_used_at: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -373,6 +406,26 @@ export interface Database {
           user_id?: string | null
         }
         Update: Partial<UsageLog>
+        Relationships: NoRelationships
+      }
+      provider_keys: {
+        Row: ProviderKeyRow
+        Insert: {
+          id?: string
+          created_at?: string
+          updated_at?: string
+          provider: string
+          label: string
+          key_ciphertext: string
+          key_iv: string
+          key_auth_tag: string
+          last4: string
+          status?: ProviderKeyStatus
+          disabled_reason?: string | null
+          last_used_at?: string | null
+          created_by?: string | null
+        }
+        Update: Partial<ProviderKeyRow>
         Relationships: NoRelationships
       }
     } & { [tableName: string]: MinTableShape }

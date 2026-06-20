@@ -315,51 +315,45 @@ class GeminiKeyPool {
 }
 
 // ---------------------------------------------------------------------------
-// Key loading
+// Key loading — async, reads DB keys via provider (with env-var fallback).
 // ---------------------------------------------------------------------------
 
-function loadKeys(): string[] {
-  const seen = new Set<string>()
-  const keys: string[] = []
+import { getActiveKeys } from '../keys/provider'
 
-  const push = (raw: string | undefined) => {
-    if (!raw) return
-    const trimmed = raw.trim()
-    if (trimmed && !seen.has(trimmed)) {
-      seen.add(trimmed)
-      keys.push(trimmed)
-    }
-  }
+// ---------------------------------------------------------------------------
+// Pool singleton with TTL-based refresh.
+//
+// The pool is re-created every POOL_TTL_MS (30 s) so newly added or disabled
+// DB keys take effect without a process restart. Per-key cooldown state is
+// intentionally lost on refresh — cooldowns naturally expire within the TTL.
+//
+// resetGeminiPool() forces an immediate refresh (call after key mutations).
+// ---------------------------------------------------------------------------
 
-  // 1. GEMINI_API_KEYS=key1,key2,key3
-  const csv = process.env.GEMINI_API_KEYS
-  if (csv) csv.split(',').forEach(push)
+const POOL_TTL_MS = 30_000
 
-  // 2. GEMINI_API_KEY_1 ... GEMINI_API_KEY_20
-  for (let i = 1; i <= 20; i++) {
-    push(process.env[`GEMINI_API_KEY_${i}`])
-  }
+let _pool:         GeminiKeyPool | null = null
+let _poolLoadedAt  = 0
 
-  // 3. GEMINI_API_KEY (legacy single key)
-  push(process.env.GEMINI_API_KEY)
-
-  return keys
+/** Force the pool to reload keys on the next call (used after key mutations). */
+export function resetGeminiPool(): void {
+  _pool = null
+  _poolLoadedAt = 0
 }
 
-// ---------------------------------------------------------------------------
-// Lazy singleton — shared across all requests in the same Node.js process.
-// Initialized on first call() so it doesn't fail during next build.
-// ---------------------------------------------------------------------------
-
-let _pool: GeminiKeyPool | null = null
-
-function getPool(): GeminiKeyPool {
-  if (!_pool) _pool = new GeminiKeyPool(loadKeys(), readConfig())
+async function getPoolAsync(): Promise<GeminiKeyPool> {
+  const now = Date.now()
+  if (!_pool || now - _poolLoadedAt > POOL_TTL_MS) {
+    const keys = await getActiveKeys('gemini')
+    _pool = new GeminiKeyPool(keys, readConfig())
+    _poolLoadedAt = now
+  }
   return _pool
 }
 
 export const geminiPool = {
-  call<T>(fn: (ai: GoogleGenAI) => Promise<T>): Promise<T> {
-    return getPool().call(fn)
+  async call<T>(fn: (ai: GoogleGenAI) => Promise<T>): Promise<T> {
+    const pool = await getPoolAsync()
+    return pool.call(fn)
   },
 }

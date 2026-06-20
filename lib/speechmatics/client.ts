@@ -1,12 +1,19 @@
-// SERVER ONLY — reads SPEECHMATICS_API_KEY. Import only from /app/api or server /lib.
-// Thin fetch wrapper around the Speechmatics REST API.
+// SERVER ONLY — reads the Speechmatics API key from the DB key pool (with env fallback).
+// Import only from /app/api or server /lib.
+
+import { getActiveKeys } from '@/lib/keys/provider'
 
 const BASE_URL = 'https://asr.api.speechmatics.com'
 
-function getApiKey(): string {
-  const key = process.env.SPEECHMATICS_API_KEY
-  if (!key) throw new Error('SPEECHMATICS_API_KEY is not set in environment')
-  return key
+async function getApiKey(): Promise<string> {
+  const keys = await getActiveKeys('speechmatics')
+  if (keys.length === 0) {
+    throw new Error(
+      'No active Speechmatics API key found. ' +
+      'Add one via the admin keys UI or set SPEECHMATICS_API_KEY in the environment.',
+    )
+  }
+  return keys[0]
 }
 
 /**
@@ -22,7 +29,7 @@ export async function speechmaticsRequest<T>(
   body?: FormData | string,
 ): Promise<T> {
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${getApiKey()}`,
+    Authorization: `Bearer ${await getApiKey()}`,
   }
 
   // Only set Content-Type for string bodies; FormData sets its own boundary.

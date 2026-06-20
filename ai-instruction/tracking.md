@@ -70,7 +70,7 @@
 | Security | Login rate-limiting | SEC-01 | As the system, I want to rate-limit login attempts to prevent brute-force. | Rate limit on the login endpoint. | `[ ]` | AUT-02 | **Mandatory** |
 | Security | Email verification | SEC-02 | As the system, I want email verification at sign-up to ensure real accounts. | Email verification flow. | `[ ]` | AUT-01 | **Mandatory** |
 | Security | RLS review | SEC-03 | As an operator, I want a full RLS review to be sure data isolation holds. | Audit RLS policies across all tables. | `[ ]` | AUT-03, AUT-04 | **Mandatory** |
-| Security | Secret management | SEC-04 | As the system, I want proper secret management (no hard-coding) to avoid key leaks. | Standard secret management. | `[ ]` | — | **Mandatory** |
+| Security | Secret management | SEC-04 | As the system, I want proper secret management (no hard-coding) to avoid key leaks. | Standard secret management. | `[x]` | — | **Mandatory** — Phase 13 done: admin-managed encrypted key pool; see CLAUDE.md §9f. |
 | DevOps | CI + automated tests | OPS-01 | As a developer, I want automated tests to run before deploy to catch bugs early. | CI pipeline + automated tests. | `[ ]` | — | **Mandatory** |
 | DevOps | Staging environment | OPS-02 | As a developer, I want a staging environment separate from real data for safe testing. | Staging separate from production. | `[ ]` | — | **Mandatory** |
 | DevOps | Periodic DB backup | OPS-03 | As an operator, I want periodic DB backups to recover from incidents. | Automated backup schedule. | `[ ]` | — | **Mandatory** |
