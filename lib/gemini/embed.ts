@@ -10,18 +10,29 @@ import { log } from '@/lib/logger'
 import { GEMINI_EMBEDDING_MODEL, EMBEDDING_DIMENSION } from './client'
 import { geminiPool } from './pool'
 import { PipelineError } from './errors'
+import { logUsage } from '@/lib/usage/logUsage'
 
 // Gemini embedding API batch limit (conservative — free tier may be lower).
 const BATCH_SIZE = 100
 
+export interface EmbedContext {
+  operation?: string      // 'embed' (pipeline) | 'embed-query' (RAG retrieval)
+  meetingId?: string | null
+  userId?: string | null
+}
+
 /**
  * Embed an array of texts using the Gemini embedding model.
  * Returns one 768-dimension float array per input text, in the same order.
+ *
+ * @param texts  Texts to embed.
+ * @param ctx    Optional attribution context for usage logging.
  */
-export async function embedChunks(texts: string[]): Promise<number[][]> {
+export async function embedChunks(texts: string[], ctx?: EmbedContext): Promise<number[][]> {
   if (texts.length === 0) return []
 
   const all: number[][] = []
+  const operation = ctx?.operation ?? 'embed'
 
   for (let i = 0; i < texts.length; i += BATCH_SIZE) {
     const batch = texts.slice(i, i + BATCH_SIZE)
@@ -37,6 +48,20 @@ export async function embedChunks(texts: string[]): Promise<number[][]> {
         config: { outputDimensionality: EMBEDDING_DIMENSION },
       }),
     )
+
+    // The Gemini embedding API may not return usageMetadata; use batch size as proxy.
+    const meta = (response as Record<string, unknown>).usageMetadata as
+      | { totalTokenCount?: number; promptTokenCount?: number }
+      | undefined
+    const totalTokens = meta?.totalTokenCount ?? undefined
+    logUsage({
+      provider: 'gemini-embedding', model: GEMINI_EMBEDDING_MODEL, operation,
+      unit: 'tokens',
+      quantity: totalTokens ?? batch.length,
+      input_tokens: meta?.promptTokenCount ?? undefined,
+      total_tokens: totalTokens,
+      meeting_id: ctx?.meetingId, user_id: ctx?.userId,
+    })
 
     const embeddings = response.embeddings
     if (!embeddings || embeddings.length !== batch.length) {

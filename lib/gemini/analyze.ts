@@ -10,6 +10,7 @@ import { log } from '@/lib/logger'
 import { GEMINI_MODEL } from './client'
 import { geminiPool } from './pool'
 import { PipelineError } from './errors'
+import { logUsage } from '@/lib/usage/logUsage'
 import {
   GeminiAnalysisSchema,
   type AnalysisResult,
@@ -161,6 +162,11 @@ function parseResult(raw: string): AnalysisResult {
 // Public API
 // ---------------------------------------------------------------------------
 
+export interface AnalyzeContext {
+  meetingId?: string | null
+  userId?: string | null
+}
+
 /**
  * Analyse the transcript text with Gemini Flash (text-only, no audio upload).
  * Returns summary, markdown notes, todos, and calendar suggestions.
@@ -168,13 +174,12 @@ function parseResult(raw: string): AnalysisResult {
  *
  * @param transcript   Parsed transcript from Step A.
  * @param meetingDate  ISO 8601 timestamp of when the meeting took place.
- *                     Injected into the prompt so Gemini can resolve relative
- *                     date phrases ("next Tuesday") against the real meeting date
- *                     instead of guessing. Pass `meetings.started_at` here.
+ * @param ctx          Optional attribution context for usage logging.
  */
 export async function analyzeTranscript(
   transcript: TranscriptResult,
   meetingDate?: string,
+  ctx?: AnalyzeContext,
 ): Promise<AnalysisResult> {
   if (transcript.segments.length === 0) {
     return { summary: '', notes_markdown: '', todos: [], calendar_suggestions: [] }
@@ -193,6 +198,16 @@ export async function analyzeTranscript(
       },
     })
 
+    const meta = response.usageMetadata
+    logUsage({
+      provider: 'gemini', model: GEMINI_MODEL, operation: 'analyze',
+      unit: 'tokens', quantity: meta?.totalTokenCount ?? 0,
+      input_tokens: meta?.promptTokenCount ?? undefined,
+      output_tokens: meta?.candidatesTokenCount ?? undefined,
+      total_tokens: meta?.totalTokenCount ?? undefined,
+      meeting_id: ctx?.meetingId, user_id: ctx?.userId,
+    })
+
     try {
       return parseResult(response.text ?? '')
     } catch (parseErr) {
@@ -207,6 +222,15 @@ export async function analyzeTranscript(
           responseMimeType: 'application/json',
           responseSchema: ANALYSIS_RESPONSE_SCHEMA,
         },
+      })
+      const meta2 = response2.usageMetadata
+      logUsage({
+        provider: 'gemini', model: GEMINI_MODEL, operation: 'analyze',
+        unit: 'tokens', quantity: meta2?.totalTokenCount ?? 0,
+        input_tokens: meta2?.promptTokenCount ?? undefined,
+        output_tokens: meta2?.candidatesTokenCount ?? undefined,
+        total_tokens: meta2?.totalTokenCount ?? undefined,
+        meeting_id: ctx?.meetingId, user_id: ctx?.userId,
       })
       return parseResult(response2.text ?? '')
     }

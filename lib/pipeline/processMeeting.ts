@@ -16,13 +16,12 @@ import { randomUUID } from 'node:crypto'
 
 import { log } from '@/lib/logger'
 import { createServerClient } from '@/lib/supabase/server'
+import { getObjectBytes } from '@/lib/storage'
 import { analyzeTranscript } from '@/lib/gemini/analyze'
 import { embedChunks } from '@/lib/gemini/embed'
 import { chunkSegments } from './chunk'
 import { transcribeWithSpeechmatics } from '@/lib/speechmatics/transcribe'
 import { assertAnalysisHasContent } from './guards'
-
-const BUCKET = 'recordings'
 
 /**
  * Process a meeting end-to-end:
@@ -43,7 +42,7 @@ export async function processMeeting(meetingId: string): Promise<void> {
     .update({ status: 'processing', error_message: null })
     .in('status', ['pending', 'failed'])
     .eq('id', meetingId)
-    .select('id, audio_path, duration_seconds, started_at')
+    .select('id, audio_path, storage_provider, duration_seconds, started_at, user_id')
     .maybeSingle()
 
   if (!claimed) {
@@ -62,26 +61,23 @@ export async function processMeeting(meetingId: string): Promise<void> {
     }
 
     log(`[pipeline] ${meetingId}: downloading audio from storage`)
-    const { data: audioBlob, error: dlError } = await db.storage
-      .from(BUCKET)
-      .download(audioPath)
-
-    if (dlError || !audioBlob) {
-      throw new Error(`Storage download failed: ${dlError?.message ?? 'no data'}`)
-    }
+    const audioBuffer = await getObjectBytes({
+      key: audioPath,
+      provider: claimed.storage_provider,
+    })
 
     // Write to a temp file so the ffmpeg transcode can read it from disk.
     // The extension is preserved so ffmpeg can auto-detect the input format.
     const ext = extname(audioPath) || '.webm'
     tmpAudioPath = join(tmpdir(), `meeting-${randomUUID()}${ext}`)
-    const audioBuffer = Buffer.from(await audioBlob.arrayBuffer())
     await writeFile(tmpAudioPath, audioBuffer)
     log(`[pipeline] ${meetingId}: audio written to ${tmpAudioPath} (${audioBuffer.length} bytes)`)
 
     // ── Step A: Transcription ─────────────────────────────────────────────
     // Speechmatics Batch API handles audio of any length natively — no ffmpeg
     // splitting required. The audio file is uploaded directly from disk.
-    const transcript = await transcribeWithSpeechmatics(tmpAudioPath)
+    const usageCtx = { meetingId: meetingId, userId: claimed.user_id ?? undefined }
+    const transcript = await transcribeWithSpeechmatics(tmpAudioPath, usageCtx)
     log(
       `[pipeline] ${meetingId}: transcript done — ` +
         `${transcript.segments.length} segments, language=${transcript.language}`,
@@ -135,7 +131,7 @@ export async function processMeeting(meetingId: string): Promise<void> {
     // ── Step B: Analysis ──────────────────────────────────────────────────
     // Pass started_at so the prompt can anchor relative date phrases
     // ("next Tuesday") to when the meeting actually happened.
-    const analysis = await analyzeTranscript(transcript, claimed.started_at ?? undefined)
+    const analysis = await analyzeTranscript(transcript, claimed.started_at ?? undefined, usageCtx)
     log(
       `[pipeline] ${meetingId}: analysis done — ` +
         `${analysis.todos.length} todos, ${analysis.calendar_suggestions.length} calendar suggestions`,
@@ -190,7 +186,7 @@ export async function processMeeting(meetingId: string): Promise<void> {
     log(`[pipeline] ${meetingId}: ${chunks.length} RAG chunks, embedding…`)
 
     if (chunks.length > 0) {
-      const vectors = await embedChunks(chunks.map((c) => c.content))
+      const vectors = await embedChunks(chunks.map((c) => c.content), usageCtx)
 
       const chunkRows = chunks.map((c, idx) => ({
         meeting_id: meetingId,

@@ -8,6 +8,7 @@ import { Type, type Schema } from '@google/genai'
 import { z } from 'zod'
 import { GEMINI_MODEL } from './client'
 import { geminiPool } from './pool'
+import { logUsage } from '@/lib/usage/logUsage'
 import type { RetrievedChunk } from '@/lib/rag/retrieve'
 import type { ChatRole, Citation } from '@/types/database'
 
@@ -131,14 +132,21 @@ export function filterValidCitations(
 // Public API
 // ---------------------------------------------------------------------------
 
+export interface AnswerContext {
+  meetingId?: string | null
+  userId?: string | null
+}
+
 export async function answerWithContext({
   question,
   chunks,
   history = [],
+  ctx,
 }: {
   question: string
   chunks: RetrievedChunk[]
   history?: HistoryMessage[]
+  ctx?: AnswerContext
 }): Promise<AnswerResult> {
   const validChunkIds = new Set(chunks.map((c) => c.id))
 
@@ -152,6 +160,16 @@ export async function answerWithContext({
       },
     }),
   )
+
+  const meta = response.usageMetadata
+  logUsage({
+    provider: 'gemini', model: GEMINI_MODEL, operation: 'chat',
+    unit: 'tokens', quantity: meta?.totalTokenCount ?? 0,
+    input_tokens: meta?.promptTokenCount ?? undefined,
+    output_tokens: meta?.candidatesTokenCount ?? undefined,
+    total_tokens: meta?.totalTokenCount ?? undefined,
+    meeting_id: ctx?.meetingId, user_id: ctx?.userId,
+  })
 
   let parsed: z.infer<typeof AnswerSchema>
   try {

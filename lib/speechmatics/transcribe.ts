@@ -9,10 +9,14 @@
 //   • ffmpeg splitting not required.
 //   • Word-level timestamps with native speaker diarization.
 
-import { readFile } from 'node:fs/promises'
-import { extname } from 'node:path'
+import { readFile, rm } from 'node:fs/promises'
+import { extname, join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { randomUUID } from 'node:crypto'
 import { log } from '@/lib/logger'
 import { speechmaticsRequest } from './client'
+import { isFfmpegAvailable, transcodeForGemini } from '@/lib/audio/transcode'
+import { logUsage } from '@/lib/usage/logUsage'
 import type { TranscriptResult } from '@/types/pipeline'
 
 // ---------------------------------------------------------------------------
@@ -183,9 +187,10 @@ function mimeTypeFromPath(path: string): string {
 async function submitJob(audioPath: string): Promise<string> {
   const audioBuffer = await readFile(audioPath)
   const mimeType = mimeTypeFromPath(audioPath)
+  const ext = extname(audioPath) || '.webm'
 
   const formData = new FormData()
-  formData.append('data_file', new Blob([audioBuffer], { type: mimeType }), 'audio')
+  formData.append('data_file', new Blob([audioBuffer], { type: mimeType }), `audio${ext}`)
   formData.append('config', JSON.stringify(JOB_CONFIG))
 
   const response = await speechmaticsRequest<JobResponse>('POST', '/v2/jobs', formData)
@@ -221,40 +226,91 @@ async function pollUntilDone(jobId: string): Promise<void> {
 // Public API
 // ---------------------------------------------------------------------------
 
+export interface SpeechmaticsContext {
+  meetingId?: string | null
+  userId?: string | null
+}
+
 /**
  * Transcribe the audio file at `audioPath` using the Speechmatics Batch API.
- * Handles files of any duration — no chunking or ffmpeg required.
+ * Handles files of any duration — no chunking required.
+ *
+ * If ffmpeg is available, the audio is transcoded to MP3 first. This avoids
+ * Speechmatics rejecting Chrome's streaming WebM files, which lack proper
+ * duration headers in the container.
  *
  * @param audioPath  Absolute path to the audio file on disk (any format).
+ * @param ctx        Optional attribution context for usage logging.
  * @returns          TranscriptResult with segments in milliseconds — same
  *                   contract as the old Gemini `transcribeAudio`.
  */
 export async function transcribeWithSpeechmatics(
   audioPath: string,
+  ctx?: SpeechmaticsContext,
 ): Promise<TranscriptResult> {
   log(`[speechmatics] submitting job for ${audioPath}`)
 
-  const jobId = await submitJob(audioPath)
-  log(`[speechmatics] job submitted: id=${jobId}`)
+  // Transcode to MP3 when ffmpeg is available so Speechmatics receives a
+  // universally-accepted format with proper headers, regardless of what the
+  // browser recorded.  Falls back to the original file if ffmpeg is absent.
+  let jobAudioPath = audioPath
+  let tmpTranscodeDir: string | null = null
 
-  await pollUntilDone(jobId)
-  log(`[speechmatics] job done, fetching transcript`)
-
-  const raw = await speechmaticsRequest<SpeechmaticsTranscript>(
-    'GET',
-    `/v2/jobs/${jobId}/transcript?format=json-v2`,
-  )
-
-  const result = parseTranscriptResponse(raw)
-  log(
-    `[speechmatics] parsed: language=${result.language}, segments=${result.segments.length}`,
-  )
-
-  if (result.segments.length === 0) {
-    console.warn(
-      '[speechmatics] 0 segments returned — audio may be silent or in an unsupported codec',
-    )
+  const ffmpegAvailable = await isFfmpegAvailable()
+  if (ffmpegAvailable && !audioPath.endsWith('.mp3')) {
+    tmpTranscodeDir = join(tmpdir(), `sm-transcode-${randomUUID()}`)
+    try {
+      jobAudioPath = await transcodeForGemini(audioPath, tmpTranscodeDir)
+      log(`[speechmatics] transcoded to mp3: ${jobAudioPath}`)
+    } catch (e) {
+      log(`[speechmatics] ffmpeg transcode failed, submitting original — ${e}`)
+      jobAudioPath = audioPath
+      tmpTranscodeDir = null
+    }
   }
 
-  return result
+  try {
+    const jobId = await submitJob(jobAudioPath)
+    log(`[speechmatics] job submitted: id=${jobId}`)
+
+    await pollUntilDone(jobId)
+    log(`[speechmatics] job done, fetching transcript`)
+
+    const raw = await speechmaticsRequest<SpeechmaticsTranscript>(
+      'GET',
+      `/v2/jobs/${jobId}/transcript?format=json-v2`,
+    )
+
+    // Compute audio duration from the last word's end_time (seconds).
+    // This is the most reliable measure of what Speechmatics actually processed.
+    const audioSeconds = (raw.results ?? []).reduce(
+      (max, r) => (r.end_time != null && r.end_time > max ? r.end_time : max),
+      0,
+    )
+    logUsage({
+      provider: 'speechmatics', model: 'standard', operation: 'transcribe',
+      unit: 'audio_seconds', quantity: audioSeconds,
+      audio_seconds: audioSeconds,
+      meeting_id: ctx?.meetingId, user_id: ctx?.userId,
+    })
+
+    const result = parseTranscriptResponse(raw)
+    log(
+      `[speechmatics] parsed: language=${result.language}, segments=${result.segments.length}`,
+    )
+
+    if (result.segments.length === 0) {
+      console.warn(
+        '[speechmatics] 0 segments returned — audio may be silent or in an unsupported codec',
+      )
+    }
+
+    return result
+  } finally {
+    if (tmpTranscodeDir) {
+      rm(tmpTranscodeDir, { recursive: true }).catch((e: unknown) => {
+        console.warn('[speechmatics] failed to delete transcode temp dir:', e)
+      })
+    }
+  }
 }

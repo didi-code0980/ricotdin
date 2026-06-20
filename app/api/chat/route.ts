@@ -140,9 +140,10 @@ export async function POST(req: NextRequest) {
 
   // Retrieve context using the user-scoped client so RLS applies
   const userClient = createUserClient(jwt)
+  const usageCtx = { meetingId, userId }
   let chunks: Awaited<ReturnType<typeof retrieveContext>>
   try {
-    chunks = await retrieveContext({ query: message, userClient, meetingId })
+    chunks = await retrieveContext({ query: message, userClient, meetingId, userId })
   } catch (err) {
     console.error('[chat] retrieval error:', err)
     chunks = []
@@ -156,7 +157,7 @@ export async function POST(req: NextRequest) {
     answer = NO_CONTEXT_REPLY
   } else {
     try {
-      const result = await answerWithContext({ question: message, chunks, history })
+      const result = await answerWithContext({ question: message, chunks, history, ctx: usageCtx })
       answer = result.answer
       citations = result.citations
     } catch (err) {

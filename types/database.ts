@@ -4,8 +4,11 @@
 export type UserRole = 'user' | 'admin'
 export type MeetingStatus = 'pending' | 'processing' | 'done' | 'failed'
 export type MeetingSource = 'recorded' | 'uploaded' | 'video'
+export type StorageProvider = 'supabase' | 'r2'
 export type TodoStatus = 'open' | 'done' | 'dismissed'
 export type ChatRole = 'user' | 'assistant'
+export type UsageUnit = 'tokens' | 'audio_seconds'
+export type UsageStatus = 'ok' | 'rate_limited' | 'error'
 
 // Citation object stored in chat_messages.citations (jsonb)
 export type Citation = {
@@ -36,6 +39,7 @@ export type Meeting = {
   title: string
   status: MeetingStatus
   source: MeetingSource
+  storage_provider: StorageProvider
   audio_path: string | null
   duration_seconds: number | null
   language: string | null
@@ -113,6 +117,24 @@ export type ChatMessage = {
   created_at: string
 }
 
+export type UsageLog = {
+  id: string
+  created_at: string
+  provider: string
+  model: string
+  operation: string
+  input_tokens: number | null
+  output_tokens: number | null
+  total_tokens: number | null
+  audio_seconds: number | null
+  unit: UsageUnit
+  quantity: number
+  status: UsageStatus
+  http_code: number | null
+  meeting_id: string | null
+  user_id: string | null
+}
+
 // ---------------------------------------------------------------------------
 // Database interface for Supabase generic typing
 // createClient<Database>() gives column-level type inference on all queries.
@@ -172,6 +194,7 @@ export interface Database {
           title?: string
           status?: MeetingStatus
           source?: MeetingSource
+          storage_provider?: StorageProvider
           audio_path?: string | null
           duration_seconds?: number | null
           language?: string | null
@@ -272,6 +295,28 @@ export interface Database {
           created_at?: string
         }
         Update: Partial<ChatMessage>
+        Relationships: NoRelationships
+      }
+      usage_log: {
+        Row: UsageLog
+        Insert: {
+          id?: string
+          created_at?: string
+          provider: string
+          model: string
+          operation: string
+          input_tokens?: number | null
+          output_tokens?: number | null
+          total_tokens?: number | null
+          audio_seconds?: number | null
+          unit: UsageUnit
+          quantity: number
+          status?: UsageStatus
+          http_code?: number | null
+          meeting_id?: string | null
+          user_id?: string | null
+        }
+        Update: Partial<UsageLog>
         Relationships: NoRelationships
       }
     } & { [tableName: string]: MinTableShape }

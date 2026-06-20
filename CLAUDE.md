@@ -253,6 +253,59 @@ the `auth.users → profiles` and `auth.users → meetings` FK `ON DELETE CASCAD
 - Delete and password-reset open confirmation dialogs before running.
 - Global success/error banners with dismiss.
 
+## 9e. AI provider usage tracking design (Phase 10b)
+
+**Schema (`migrations/009_usage_log.sql`) — unit-aware, never conflate units:**
+```
+usage_log: id, created_at, provider, model, operation,
+           input_tokens int null, output_tokens int null, total_tokens int null,
+           audio_seconds numeric null,
+           unit text ('tokens' | 'audio_seconds'),   ← primary metering unit
+           quantity numeric,                          ← total_tokens OR audio_seconds
+           status text ('ok'|'rate_limited'|'error'), http_code int null,
+           meeting_id uuid null, user_id uuid null
+```
+RLS: admin SELECT only; writes via service role. 5 indexes (created_at, provider+model, operation, meeting_id, status).
+
+**KEY RULE: NEVER aggregate `quantity` across different `unit` values.** Tokens and audio-seconds are incommensurable. Always filter by `unit` before summing.
+
+**Central helper — `lib/usage/logUsage.ts`:**
+- `logUsage(UsageEntry): void` — fire-and-forget; a logging failure NEVER breaks the real call.
+- Called immediately after every AI provider request (success, rate-limit, or error).
+- Normalises to `{ unit, quantity }` based on the entry type.
+
+**Instrumentation points (optional `ctx?: { meetingId?, userId? }` added to each):**
+- `lib/gemini/analyze.ts` → `analyzeTranscript(transcript, date?, ctx?)` — logs after each `generateContent` (including the strict-prompt retry), reads `response.usageMetadata` for `promptTokenCount` / `candidatesTokenCount` / `totalTokenCount`.
+- `lib/gemini/embed.ts` → `embedChunks(texts, ctx?)` — logs after each batch; reads `usageMetadata` if present, falls back to `batch.length` as quantity proxy. `operation` can be `'embed'` (pipeline) or `'embed-query'` (RAG retrieval).
+- `lib/gemini/answer.ts` → `answerWithContext({ …, ctx? })` — logs after `generateContent`.
+- `lib/speechmatics/transcribe.ts` → `transcribeWithSpeechmatics(path, ctx?)` — logs after transcript is received; `audio_seconds = max(result.end_time)` across all raw transcript results.
+- `lib/rag/retrieve.ts` → forwards `userId` to `embedChunks` as `embed-query` context.
+- `lib/pipeline/processMeeting.ts` → extracts `user_id` from the claim and passes `usageCtx` to all three provider calls.
+- `app/api/chat/route.ts` → passes `{ meetingId, userId }` as `usageCtx` to `retrieveContext` and `answerWithContext`.
+
+**Admin API — `GET /api/admin/ai-usage?from=&to=&groupBy=`:**
+- Server-enforced by `requireAdmin`.
+- `from`/`to` = ISO 8601 (defaults: last 30 days → now).
+- `groupBy=operation` further splits by operation (default: provider+model+unit only).
+- Fetches filtered rows then aggregates in JS (safe for expected row counts).
+- Response: `{ from, to, rows: AiUsageRow[], dailyTotals: DailyTotal[] }`.
+- `AiUsageRow`: provider, model, operation (if grouped), unit, calls, total_tokens, total_input_tokens, total_output_tokens, total_audio_seconds, rate_limited_count, error_count.
+- `DailyTotal`: date (YYYY-MM-DD), provider, unit, quantity — for the trend chart.
+
+**UI at `/admin/usage` (extended, not a new page):**
+- New "AI Provider Usage" section at top; existing meeting/storage sections below.
+- Date-range selector (from/to inputs) + "Break down by operation" checkbox + Apply button.
+- Summary tiles: Gemini calls, total/input/output tokens, STT calls, audio transcribed, 429s, errors.
+- Two separate tables: "Token-metered (Gemini)" and "Audio-metered (Speechmatics)" — unit-separated.
+- SVG bar chart (no external chart lib): one bar per day, stacked per provider, tooltips, per-unit chart (tokens vs audio_seconds rendered separately).
+- Provider colour legend. Rate-limited/error counts highlighted in amber/red.
+
+**Tests (`tests/usage-log.test.ts`, 14 assertions, all pure):**
+- Admin guard returns 403 for non-admins.
+- Token-unit row: correct field population (input/output/total tokens, null audio_seconds).
+- Audio-seconds-unit row: correct field population (audio_seconds, null token fields).
+- Aggregation: correct per-unit sums; tokens/audio_seconds never bleed across unit groups.
+
 ## 9d. Admin pipeline monitor design (Phase 10a)
 
 **Endpoints (all server-enforced by `requireAdmin`):**
@@ -303,7 +356,8 @@ the `auth.users → profiles` and `auth.users → meetings` FK `ON DELETE CASCAD
 8. ~~**Meeting list actions** (pin, rename, delete)~~ **DONE** (Phase 8 complete — `pinned_at timestamptz null` column on meetings (migration 004) with composite sort index; list sort: pinned-first (most-recently-pinned on top), then created_at desc; per-row pin toggle (📌, optimistic), inline rename (optimistic, Enter to save / Escape to cancel), delete with confirmation dialog ("This permanently deletes the meeting…"); `DELETE /api/meetings/:id` removes audio from Storage before the row delete — Storage failure is logged + warned but does not block the row delete; `PATCH /api/meetings/:id` for rename; `PATCH /api/meetings/:id/pin` for pin toggle; all routes ownership-checked server-side. Apply migration 004 in Supabase dashboard.)
 9. ~~**Admin user management**~~ **DONE** (Phase 9 complete — full `/admin` user-management UI + 5 API routes; all routes server-enforced by `requireAdmin` (reads `app_metadata.role`); pure guard functions in `lib/admin/guards.ts` + 21 unit tests; user list with pagination+search+meeting_count+last_sign_in_at; `PATCH /api/admin/users/:id/role` keeps app_metadata+profiles in sync; last-admin guard on demotion/disable/delete; `PATCH /api/admin/users/:id/status` enables/disables via ban_duration; `POST /api/admin/users/:id/reset-password` uses `auth.admin.generateLink({ type: 'recovery' })`; `DELETE /api/admin/users/:id` cleans up Storage audio files before deleting the auth user; UI shows "You" badge on self-row, disables self-action buttons, optimistic role/status updates with revert, confirmation dialogs for delete + password reset. See section 9c for full design.)
 10. ~~**Admin operational — Area 1: Pipeline/Job Monitoring**~~ **DONE** (Phase 10a complete — `migrations/005_audit_logs.sql` (admin-readable, service-role writes, 4 indexes); `lib/admin/audit.ts` central `writeAuditLog()` fire-and-forget helper + `requestContext()` IP/UA extractor; `GET /api/admin/pipeline/overview` aggregate counts (pending/processing/done/failed/stuck) + avg_processing_secs; `GET /api/admin/pipeline/jobs?status=&page=&perPage=` metadata-only paginated list with owner email/username — NO transcript/notes content; `POST /api/admin/pipeline/:id/requeue` safe re-run: clears transcript_segments/todos/calendar_suggestions (transcript_chunks cascade), resets status to pending + clears summary/notes/language, writes audit log entry `meeting.requeue`, fires processMeeting() non-awaited; `/admin/pipeline` UI with status tiles (click to filter), filter tabs, jobs table with Requeue button per failed/stuck row, "Requeue all stuck/failed" with confirmation dialog, 10s auto-poll; 11 new unit tests in `tests/admin-pipeline.test.ts` (admin guard 403, requeue eligibility, audit entry structure). Apply migration 005 in Supabase dashboard.)
+11. ~~**Admin operational — Area 2: AI Provider Usage Tracking**~~ **DONE** (Phase 10b complete — `migrations/009_usage_log.sql` unit-aware schema (tokens/audio_seconds units never conflated); `lib/usage/logUsage.ts` fire-and-forget central helper; Gemini analyze/embed/answer and Speechmatics all instrumented with optional `ctx?: { meetingId?, userId? }` parameter; processMeeting + chat route pass usageCtx; `GET /api/admin/ai-usage?from=&to=&groupBy=` aggregates in JS; `/admin/usage` page extended with AI usage section: summary tiles, token table + audio table (separate), SVG trend charts per unit, date-range selector; 14 unit tests in `tests/usage-log.test.ts`. Apply migration 009 in Supabase dashboard. See section 9e for full design.)
 
-**Pending — Area 2 (Cost/Quota/Storage) and Area 3 (Audit Log) remain.**
+**Pending — Area 3 (Audit Log UI) remains.**
 
 Keep this section in sync with actual progress; mark phases done as we go.

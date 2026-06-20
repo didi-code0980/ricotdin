@@ -29,17 +29,24 @@ export interface RetrievedChunk {
  * @param query - The user's natural-language question
  * @param userClient - A Supabase client created with the user's JWT (RLS applies)
  * @param meetingId - Scope to one meeting, or null for cross-meeting search
+ * @param userId - Optional; forwarded to embedChunks for usage attribution
  */
 export async function retrieveContext({
   query,
   userClient,
   meetingId = null,
+  userId,
 }: {
   query: string
   userClient: SupabaseClient<Database>
   meetingId?: string | null
+  userId?: string | null
 }): Promise<RetrievedChunk[]> {
-  const embeddings = await embedChunks([query])
+  const embeddings = await embedChunks([query], {
+    operation: 'embed-query',
+    meetingId,
+    userId,
+  })
   const queryEmbedding = embeddings[0]
 
   if (queryEmbedding.length !== EMBEDDING_DIMENSION) {
