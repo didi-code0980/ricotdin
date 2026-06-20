@@ -5,9 +5,10 @@
 //   transcript context (RLS-scoped) → generate grounded answer → persist
 //   assistant message with citations → return { sessionId, message }
 //
+// Access: viewer+ for meeting access (shared-folder members may use RAG chat).
+// Each user gets their own chat_session row even for shared meetings.
 // Retrieval uses the user-scoped client (anon key + JWT) so RLS on
-// transcript_chunks ensures a user can only see their own meetings' data.
-// Writes use the service-role client (no RLS) for background-safe persistence.
+// transcript_chunks enforces shared-folder access automatically.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -15,6 +16,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { createUserClient } from '@/lib/supabase/user-client'
 import { retrieveContext } from '@/lib/rag/retrieve'
 import { answerWithContext } from '@/lib/gemini/answer'
+import { checkMeetingAccess } from '@/lib/access'
 import type { HistoryMessage } from '@/lib/gemini/answer'
 import type { Database } from '@/types/database'
 
@@ -58,6 +60,7 @@ async function authenticateRequest(
 // ---------------------------------------------------------------------------
 // GET /api/chat?meetingId=<id>
 // Returns the most recent chat session + all its messages for this meeting.
+// Access: viewer+ on the meeting.
 // ---------------------------------------------------------------------------
 
 export async function GET(req: NextRequest) {
@@ -73,16 +76,18 @@ export async function GET(req: NextRequest) {
 
   const db = createServerClient()
 
-  // Ownership check
+  // Viewer+ access required to read chat history for a meeting
   const { data: meeting } = await db
     .from('meetings')
-    .select('id, user_id')
+    .select('id, user_id, folder_id')
     .eq('id', meetingId)
     .maybeSingle()
   if (!meeting) return NextResponse.json({ error: 'Meeting not found.' }, { status: 404 })
-  if (meeting.user_id !== userId) return NextResponse.json({ error: 'Forbidden.' }, { status: 403 })
+  if (!(await checkMeetingAccess(db, meeting, userId, 'viewer'))) {
+    return NextResponse.json({ error: 'Forbidden.' }, { status: 403 })
+  }
 
-  // Most recent session for this user + meeting
+  // Most recent session for THIS user + meeting (each user has their own session)
   const { data: session } = await db
     .from('chat_sessions')
     .select('id')
@@ -130,21 +135,22 @@ export async function POST(req: NextRequest) {
   const meetingId = typeof body.meetingId === 'string' ? body.meetingId : null
   const sessionId = typeof body.sessionId === 'string' ? body.sessionId : null
 
-  const db = createServerClient() // service role for writes and ownership checks
+  const db = createServerClient() // service role for writes and access checks
 
-  // Verify meeting ownership if meetingId is provided
+  // Verify viewer+ access to the meeting if meetingId is provided
   if (meetingId) {
     const { data: meeting } = await db
       .from('meetings')
-      .select('id, user_id')
+      .select('id, user_id, folder_id')
       .eq('id', meetingId)
       .maybeSingle()
     if (!meeting) return NextResponse.json({ error: 'Meeting not found.' }, { status: 404 })
-    if (meeting.user_id !== userId)
+    if (!(await checkMeetingAccess(db, meeting, userId, 'viewer'))) {
       return NextResponse.json({ error: 'Forbidden.' }, { status: 403 })
+    }
   }
 
-  // Resolve or create chat session
+  // Resolve or create chat session (each user owns their own session row)
   let resolvedSessionId: string
   if (!sessionId) {
     const { data: session, error: sessionErr } = await db
@@ -190,7 +196,9 @@ export async function POST(req: NextRequest) {
     .reverse() // restore chronological order
     .map((r) => ({ role: r.role, content: r.content }))
 
-  // Retrieve context using the user-scoped client so RLS applies
+  // Retrieve context using the user-scoped client so RLS applies.
+  // After migration 012, transcript_chunks SELECT policy includes shared-folder
+  // members, so viewers of shared meetings can use RAG automatically.
   const userClient = createUserClient(jwt)
   const usageCtx = { meetingId, userId }
   let chunks: Awaited<ReturnType<typeof retrieveContext>>

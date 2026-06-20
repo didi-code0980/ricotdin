@@ -2,6 +2,32 @@
 // Keep in sync with any schema migrations.
 
 export type UserRole = 'user' | 'admin'
+export type FolderRole = 'owner' | 'editor' | 'viewer'
+export type FolderRow = {
+  id: string
+  user_id: string
+  name: string
+  position: number
+  created_at: string
+  updated_at: string
+}
+export type FolderWithRole = FolderRow & {
+  myRole: FolderRole
+  ownerUsername: string | null  // null when myRole = 'owner'; set for shared folders
+}
+export type FolderShareRow = {
+  id: string
+  folder_id: string
+  user_id: string
+  role: 'editor' | 'viewer'
+  invited_by: string | null
+  created_at: string
+}
+export type FolderShareMember = {
+  userId: string
+  username: string
+  role: 'editor' | 'viewer'
+}
 export type MeetingStatus = 'pending' | 'processing' | 'done' | 'failed'
 export type MeetingSource = 'recorded' | 'uploaded' | 'video'
 export type StorageProvider = 'supabase' | 'r2'
@@ -48,6 +74,7 @@ export type Meeting = {
   error_message: string | null
   started_at: string | null
   pinned_at: string | null
+  folder_id: string | null
   created_at: string
   updated_at: string
 }
@@ -204,10 +231,37 @@ export interface Database {
           error_message?: string | null
           started_at?: string | null
           pinned_at?: string | null
+          folder_id?: string | null
           created_at?: string
           updated_at?: string
         }
         Update: Partial<Meeting>
+        Relationships: NoRelationships
+      }
+      folders: {
+        Row: FolderRow
+        Insert: {
+          id?: string
+          user_id: string
+          name: string
+          position?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<FolderRow>
+        Relationships: NoRelationships
+      }
+      folder_shares: {
+        Row: FolderShareRow
+        Insert: {
+          id?: string
+          folder_id: string
+          user_id: string
+          role: 'editor' | 'viewer'
+          invited_by?: string | null
+          created_at?: string
+        }
+        Update: { role?: 'editor' | 'viewer' }
         Relationships: NoRelationships
       }
       transcript_segments: {

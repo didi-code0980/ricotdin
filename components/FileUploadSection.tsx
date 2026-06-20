@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useRef, useState } from 'react'
 import { useUpload } from '@/lib/upload/useUpload'
+import FolderSelector from '@/components/FolderSelector'
 import {
   MAX_UPLOAD_BYTES,
   ALLOWED_AUDIO_EXTENSIONS,
@@ -48,6 +49,7 @@ export default function FileUploadSection({ onCancel }: Props) {
   const [meetingDate, setMeetingDate] = useState<string>(localNow())
   const [isVideo, setIsVideo] = useState(false)
   const [fileDuration, setFileDuration] = useState<number>(0)
+  const [folderId, setFolderId] = useState<string | null>(null)
 
   const { state, meetingId, error: uploadError, upload, reset } = useUpload()
 
@@ -108,6 +110,7 @@ export default function FileUploadSection({ onCancel }: Props) {
       mimeType: file.type || undefined,
       source: isVideo ? 'video' : 'uploaded',
       fileExtension: ext,
+      folderId,
     })
   }
 
@@ -179,6 +182,15 @@ export default function FileUploadSection({ onCancel }: Props) {
             Used to resolve dates in todos and calendar suggestions (e.g. &ldquo;next Tuesday&rdquo;).
           </p>
         </div>
+      )}
+
+      {/* Folder selector — only shown once a valid file is chosen */}
+      {file && state !== 'done' && (
+        <FolderSelector
+          value={folderId}
+          onChange={setFolderId}
+          disabled={uploading}
+        />
       )}
 
       {/* Upload action */}

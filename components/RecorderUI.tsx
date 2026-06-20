@@ -6,6 +6,7 @@ import { useRecorder } from '@/lib/audio/useRecorder'
 import { checkRecordingSupport } from '@/lib/audio/support'
 import { useUpload } from '@/lib/upload/useUpload'
 import FileUploadSection from '@/components/FileUploadSection'
+import FolderSelector from '@/components/FolderSelector'
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60).toString().padStart(2, '0')
@@ -25,6 +26,7 @@ export default function RecorderUI() {
   const { state: uploadState, meetingId, error: uploadError, upload, reset: resetUpload } = useUpload()
   const startedAtRef = useRef<string | null>(null)
   const [showUpload, setShowUpload] = useState(false)
+  const [folderId, setFolderId] = useState<string | null>(null)
 
   // ── Unsupported browser ────────────────────────────────────────────────
 
@@ -159,15 +161,23 @@ export default function RecorderUI() {
 
       {/* Save recording */}
       {state === 'stopped' && blob && (
-        <div className="border-t border-b-border pt-5">
+        <div className="border-t border-b-border pt-5 flex flex-col gap-4">
+          {uploadState === 'idle' && (
+            <FolderSelector
+              value={folderId}
+              onChange={setFolderId}
+              disabled={false}
+            />
+          )}
           {uploadState === 'idle' && (
             <button
-              className="btn-primary"
+              className="btn-primary self-start"
               onClick={() => {
                 void upload(blob, {
                   durationSeconds: elapsedSeconds,
                   startedAt: startedAtRef.current ?? new Date().toISOString(),
                   mimeType: mimeType ?? undefined,
+                  folderId,
                 })
               }}
             >

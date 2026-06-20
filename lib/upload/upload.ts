@@ -20,6 +20,8 @@ export interface RecordingMeta {
   source?: 'recorded' | 'uploaded' | 'video'
   /** File extension with leading dot, e.g. '.mp3'. Used to build the storage path. */
   fileExtension?: string
+  /** UUID of the folder to assign this meeting to. null / undefined = Uncategorized. */
+  folderId?: string | null
 }
 
 export interface UploadResult {
@@ -53,6 +55,7 @@ export async function uploadRecording(
       source: meta.source ?? 'recorded',
       fileExtension: meta.fileExtension,
       mimeType: meta.mimeType,
+      folderId: meta.folderId ?? null,
     }),
   })
 

@@ -1,16 +1,15 @@
 // GET /api/audio-url/[id]   ([id] = meetingId)
 //
-// Returns a short-lived Supabase Storage signed URL for streaming the meeting's
-// audio recording. The recordings bucket is private — this route is the ONLY
-// authorised way the browser gets a playback URL. Never expose permanent URLs.
-//
-// Signed URLs expire after SIGNED_URL_EXPIRY_SECS. If the meeting has no
-// audio_path (e.g. deleted to save storage quota), returns 404.
+// Returns a short-lived signed URL for streaming the meeting's audio recording.
+// Access: viewer+ (meeting owner, folder owner, or shared member with any role).
+// The recordings bucket is private — this route is the ONLY authorised way the
+// browser gets a playback URL. Never expose permanent URLs.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@/lib/supabase/server'
 import { createSignedDownloadUrl } from '@/lib/storage'
+import { checkMeetingAccess } from '@/lib/access'
 import type { Database } from '@/types/database'
 
 const SIGNED_URL_EXPIRY_SECS = 3_600 // 1 hour
@@ -50,12 +49,15 @@ export async function GET(
   const db = createServerClient()
   const { data: meeting } = await db
     .from('meetings')
-    .select('id, user_id, audio_path, storage_provider')
+    .select('id, user_id, folder_id, audio_path, storage_provider')
     .eq('id', meetingId)
     .maybeSingle()
 
   if (!meeting) return NextResponse.json({ error: 'Meeting not found.' }, { status: 404 })
-  if (meeting.user_id !== userId) return NextResponse.json({ error: 'Forbidden.' }, { status: 403 })
+  // Viewer+ access is sufficient to receive a signed audio URL
+  if (!(await checkMeetingAccess(db, meeting, userId, 'viewer'))) {
+    return NextResponse.json({ error: 'Forbidden.' }, { status: 403 })
+  }
   if (!meeting.audio_path) return NextResponse.json({ error: 'No audio for this meeting.' }, { status: 404 })
 
   let signedUrl: string

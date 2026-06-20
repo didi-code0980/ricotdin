@@ -19,6 +19,7 @@ import {
   isVideoExtension,
 } from '@/lib/upload/constants'
 import { createSignedUploadUrl } from '@/lib/storage'
+import { canAssignToFolder } from '@/lib/access'
 import type { Database } from '@/types/database'
 import type { MeetingSource } from '@/types/database'
 
@@ -111,6 +112,7 @@ export async function POST(req: NextRequest) {
     source?: string
     fileExtension?: string
     mimeType?: string
+    folderId?: string | null
   }
   try {
     body = (await req.json()) as typeof body
@@ -157,6 +159,12 @@ export async function POST(req: NextRequest) {
   const title = formatMeetingTitle(body.startedAt)
   const startedAt = body.startedAt ?? new Date().toISOString()
 
+  // Validate folder_id: caller must own it or have editor access to it
+  const folderId = body.folderId ?? null
+  if (folderId && !(await canAssignToFolder(serverClient, folderId, userId))) {
+    return NextResponse.json({ error: 'Folder not found.' }, { status: 404 })
+  }
+
   const { error: insertError } = await serverClient.from('meetings').insert({
     id: meetingId,
     user_id: userId,
@@ -167,6 +175,7 @@ export async function POST(req: NextRequest) {
     audio_path: audioPath,
     duration_seconds: body.durationSeconds ?? null,
     started_at: startedAt,
+    folder_id: folderId,
   })
 
   if (insertError) {

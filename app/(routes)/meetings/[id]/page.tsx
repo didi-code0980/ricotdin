@@ -8,6 +8,7 @@ import ReactMarkdown from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
 import { browserClient } from '@/lib/supabase/browser'
 import { getAccessToken } from '@/lib/supabase/auth'
+import { getMeetingRole, canEdit } from '@/lib/access/roles'
 import ChatPanel from '@/components/ChatPanel'
 import type {
   Meeting,
@@ -17,6 +18,7 @@ import type {
   TodoStatus,
   CalendarSuggestion,
   Citation,
+  FolderWithRole,
 } from '@/types/database'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -93,6 +95,10 @@ export default function MeetingDetailPage() {
   const [chatOpen, setChatOpen]                 = useState(false)
   const [chatExpanded, setChatExpanded]         = useState(false)
   const [showScrollTop, setShowScrollTop]       = useState(false)
+
+  // ── Current user + folder state ───────────────────────────────────────────
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [folders, setFolders] = useState<FolderWithRole[]>([])
 
   const audioRef = useRef<HTMLAudioElement>(null)
   const audioPath = data.tag === 'done' ? data.meeting.audio_path : null
@@ -188,6 +194,24 @@ export default function MeetingDetailPage() {
     void fetchUrl()
     return () => { cancelled = true }
   }, [audioPath, meetingId])
+
+  // ── Load current user + folders ───────────────────────────────────────────
+  useEffect(() => {
+    browserClient.auth.getUser().then(({ data }) => {
+      setCurrentUserId(data.user?.id ?? null)
+    })
+    async function loadFolders() {
+      const token = await getAccessToken()
+      if (!token) return
+      try {
+        const res = await fetch('/api/folders', { headers: { Authorization: `Bearer ${token}` } })
+        if (!res.ok) return
+        const json = (await res.json()) as { folders: FolderWithRole[] }
+        setFolders(json.folders)
+      } catch { /* non-fatal */ }
+    }
+    void loadFolders()
+  }, [])
 
   // ── Scroll-to-top visibility ────────────────────────────────────────────────
 
@@ -326,6 +350,37 @@ export default function MeetingDetailPage() {
     }
   }
 
+  async function moveToFolder(newFolderId: string | null) {
+    const token = await getAccessToken()
+    if (!token) return
+    // Optimistic update on the meeting embedded in page data
+    setData((prev) => {
+      if (prev.tag === 'done') return { ...prev, meeting: { ...prev.meeting, folder_id: newFolderId } }
+      if (prev.tag === 'inflight') return { ...prev, meeting: { ...prev.meeting, folder_id: newFolderId } }
+      if (prev.tag === 'failed') return { ...prev, meeting: { ...prev.meeting, folder_id: newFolderId } }
+      return prev
+    })
+    try {
+      const res = await fetch(`/api/meetings/${meetingId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ folder_id: newFolderId }),
+      })
+      if (!res.ok) {
+        // Revert — re-fetch the meeting
+        const { data: m } = await browserClient.from('meetings').select('*').eq('id', meetingId).maybeSingle()
+        if (m) {
+          setData((prev) => {
+            if (prev.tag === 'done') return { ...prev, meeting: m as Meeting }
+            if (prev.tag === 'inflight') return { ...prev, meeting: m as Meeting }
+            if (prev.tag === 'failed') return { ...prev, meeting: m as Meeting }
+            return prev
+          })
+        }
+      }
+    } catch { /* silent — state already optimistically updated */ }
+  }
+
   async function rerunProcessing() {
     setRerunning(true)
     try {
@@ -389,6 +444,9 @@ export default function MeetingDetailPage() {
             regenLoading={regenLoading}
             regenError={regenError}
             onRegenerate={regenerateAnalysis}
+            folders={folders}
+            onMoveFolder={moveToFolder}
+            currentUserId={currentUserId}
           />
         )}
       </div>
@@ -602,6 +660,9 @@ interface DoneViewProps {
   regenLoading: boolean
   regenError: string | null
   onRegenerate: () => void
+  folders: FolderWithRole[]
+  onMoveFolder: (folderId: string | null) => void
+  currentUserId: string | null
 }
 
 function DoneView({
@@ -610,14 +671,30 @@ function DoneView({
   audioUrl, audioRef, highlightedSegIndex,
   onToggleTodo, onDismissTodo, onDismissCalSug, onDownloadIcs, onSeekTo, onScrollToSegment, onCitationClick,
   regenLoading, regenError, onRegenerate,
+  folders, onMoveFolder, currentUserId,
 }: DoneViewProps) {
   const activeSugs  = calSugs.filter((c) => !dismissedIds.has(c.id))
   const activeTodos = todos.filter((t) => !dismissedTodoIds.has(t.id))
+
+  // ── Role ──────────────────────────────────────────────────────────────────
+  const myRole = currentUserId
+    ? getMeetingRole({ user_id: meeting.user_id, folder_id: meeting.folder_id }, currentUserId, folders)
+    : 'viewer'
+  const canEditThis = canEdit(myRole)
+
+  // Only owned + editor-accessible folders appear in the move dropdown
+  const editableFolders = folders.filter((f) => f.myRole === 'owner' || f.myRole === 'editor')
 
   // ── Inline title editing ──────────────────────────────────────────────────
   const [localTitle, setLocalTitle]     = useState(meeting.title)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft]     = useState('')
+
+  // ── Folder move ───────────────────────────────────────────────────────────
+  const [showMoveFolder, setShowMoveFolder] = useState(false)
+  const currentFolderName = meeting.folder_id
+    ? (folders.find((f) => f.id === meeting.folder_id)?.name ?? null)
+    : null
 
   function startTitleEdit() {
     setTitleDraft(localTitle)
@@ -673,6 +750,7 @@ function DoneView({
         ) : (
           <div className="group flex items-start gap-2 mb-2">
             <h1 className="font-serif text-3xl font-bold text-b-fg leading-snug">{localTitle}</h1>
+            {canEditThis && (
             <button
               onClick={startTitleEdit}
               className="mt-2 flex-shrink-0 p-1.5 rounded-lg text-b-fg/30 hover:text-b-primary hover:bg-b-clay transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
@@ -683,6 +761,7 @@ function DoneView({
                 <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
               </svg>
             </button>
+            )}
           </div>
         )}
         <div className="flex flex-wrap items-center gap-2 text-sm text-b-fg/50 font-sans">
@@ -690,6 +769,55 @@ function DoneView({
           {meeting.duration_seconds != null && <><span>·</span><span>{formatDuration(meeting.duration_seconds)}</span></>}
           {meeting.language && <><span>·</span><span>{meeting.language.toUpperCase()}</span></>}
           <span>·</span><StatusBadge status={meeting.status} />
+        </div>
+
+        {/* Folder row */}
+        <div className="mt-2 flex items-center gap-2">
+          {canEditThis && showMoveFolder ? (
+            <>
+              <select
+                defaultValue={meeting.folder_id ?? ''}
+                autoFocus
+                onChange={(e) => {
+                  const v = e.target.value
+                  setShowMoveFolder(false)
+                  onMoveFolder(v === '' ? null : v)
+                }}
+                className="rounded-xl border border-b-border bg-b-clay px-3 py-1.5 text-sm font-sans text-b-fg focus:outline-none focus:ring-2 focus:ring-b-primary/40 cursor-pointer"
+              >
+                <option value="">Uncategorized</option>
+                {editableFolders.map((f) => (
+                  <option key={f.id} value={f.id}>{f.name}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => setShowMoveFolder(false)}
+                className="text-xs text-b-fg/40 hover:text-b-fg/60 transition-colors font-sans cursor-pointer bg-transparent border-0"
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => { if (canEditThis) setShowMoveFolder(true) }}
+              disabled={!canEditThis}
+              className={[
+                'inline-flex items-center gap-1.5 text-xs font-sans bg-transparent border-0 group',
+                canEditThis
+                  ? 'text-b-fg/40 hover:text-b-fg/70 transition-colors cursor-pointer'
+                  : 'text-b-fg/30 cursor-default',
+              ].join(' ')}
+              title={canEditThis ? 'Move to folder' : undefined}
+            >
+              {currentFolderName ? (
+                <><span className="text-b-primary/70">📁 {currentFolderName}</span>{canEditThis && <span className="opacity-0 group-hover:opacity-100 transition-opacity">· change</span>}</>
+              ) : (
+                <span className={canEditThis ? 'hover:text-b-fg/60' : ''}>
+                  📁 Uncategorized{canEditThis ? ' · move to folder' : ''}
+                </span>
+              )}
+            </button>
+          )}
         </div>
       </div>
 
@@ -765,12 +893,13 @@ function DoneView({
               const isPastDue = !isDone && !!todo.due_date && todo.due_date < new Date().toISOString().slice(0, 10)
               return (
                 <li key={todo.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
-                  <label className="flex items-start gap-3 cursor-pointer flex-1 min-w-0">
+                  <label className={['flex items-start gap-3 flex-1 min-w-0', canEditThis ? 'cursor-pointer' : 'cursor-default'].join(' ')}>
                     <input
                       type="checkbox"
                       checked={isDone}
-                      onChange={() => onToggleTodo(todo.id, status)}
-                      className="mt-0.5 flex-shrink-0 cursor-pointer accent-b-primary"
+                      disabled={!canEditThis}
+                      onChange={() => { if (canEditThis) onToggleTodo(todo.id, status) }}
+                      className={['mt-0.5 flex-shrink-0 accent-b-primary', canEditThis ? 'cursor-pointer' : 'cursor-not-allowed opacity-40'].join(' ')}
                     />
                     <span className="flex-1 min-w-0">
                       <span className={['text-sm font-sans', isDone ? 'line-through text-b-fg/30' : 'text-b-fg'].join(' ')}>
@@ -797,12 +926,14 @@ function DoneView({
                         ↗ source
                       </button>
                     )}
-                    <button
-                      onClick={() => onDismissTodo(todo.id)}
-                      className="text-xs px-2.5 py-1 rounded-full border border-b-border text-b-fg/40 bg-transparent cursor-pointer hover:bg-b-clay transition-colors font-sans"
-                    >
-                      Dismiss
-                    </button>
+                    {canEditThis && (
+                      <button
+                        onClick={() => onDismissTodo(todo.id)}
+                        className="text-xs px-2.5 py-1 rounded-full border border-b-border text-b-fg/40 bg-transparent cursor-pointer hover:bg-b-clay transition-colors font-sans"
+                      >
+                        Dismiss
+                      </button>
+                    )}
                   </div>
                 </li>
               )
@@ -842,12 +973,14 @@ function DoneView({
                       + Calendar
                     </span>
                   )}
-                  <button
-                    onClick={() => onDismissCalSug(sug.id)}
-                    className="text-xs px-2.5 py-1 rounded-full border border-b-border text-b-fg/40 bg-transparent cursor-pointer hover:bg-b-clay transition-colors font-sans"
-                  >
-                    Dismiss
-                  </button>
+                  {canEditThis && (
+                    <button
+                      onClick={() => onDismissCalSug(sug.id)}
+                      className="text-xs px-2.5 py-1 rounded-full border border-b-border text-b-fg/40 bg-transparent cursor-pointer hover:bg-b-clay transition-colors font-sans"
+                    >
+                      Dismiss
+                    </button>
+                  )}
                 </div>
               </li>
             ))}

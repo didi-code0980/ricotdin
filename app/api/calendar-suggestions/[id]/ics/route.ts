@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@/lib/supabase/server'
+import { checkMeetingAccess } from '@/lib/access'
 import { buildSuggestionIcs } from '@/lib/ics'
 import type { Database } from '@/types/database'
 
@@ -56,15 +57,17 @@ export async function GET(
 
   if (!suggestion) return NextResponse.json({ error: 'Suggestion not found.' }, { status: 404 })
 
-  // Verify ownership via parent meeting
+  // Viewer+ access is sufficient to download a calendar file
   const { data: meeting } = await db
     .from('meetings')
-    .select('user_id')
+    .select('user_id, folder_id')
     .eq('id', suggestion.meeting_id)
     .maybeSingle()
 
   if (!meeting) return NextResponse.json({ error: 'Parent meeting not found.' }, { status: 404 })
-  if (meeting.user_id !== userId) return NextResponse.json({ error: 'Forbidden.' }, { status: 403 })
+  if (!(await checkMeetingAccess(db, meeting, userId, 'viewer'))) {
+    return NextResponse.json({ error: 'Forbidden.' }, { status: 403 })
+  }
 
   // proposed_at === null → no specific time; refuse to fabricate a datetime
   if (!suggestion.proposed_at) {
