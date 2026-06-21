@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { getBrowserClient } from '@/lib/supabase/browser'
+import { browserClient } from '@/lib/supabase/browser'
 import { Layers } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -299,8 +299,8 @@ export default function FeaturesPage() {
   const [token, setToken] = useState('')
 
   useEffect(() => {
-    getBrowserClient()
-      .auth.getSession()
+    browserClient.auth
+      .getSession()
       .then(({ data: { session } }) => {
         if (session?.access_token) setToken(session.access_token)
       })
