@@ -441,6 +441,66 @@ Indexes: (user_id, created_at DESC), (event_type, created_at DESC), (created_at 
 - `parseActivityQueryParams`: defaults, parsing, clamping (page ≥ 1, perPage ≤ 100).
 - `isCallerOwn`: match → true; mismatch → false; empty requestedUserId → false.
 
+## 9h. Feature registry design (Phase 15)
+
+**Concept:** The files in `ai-instruction/features/` are read ONE TIME (by the seeder) to populate a DB table. After seeding, the **database is the single source of truth**. All runtime code reads/writes the DB only — no filesystem reads at runtime, no static imports of those files.
+
+**Schema (`migrations/017_features.sql`):**
+```
+features: id, created_at, updated_at, updated_by (text),
+          key text UNIQUE (e.g. 'REC-01'),
+          source_path (original file path, for reference),
+          module_prefix text, module_name text (denormalized),
+          title text, user_story text, description text,
+          content text (full markdown body of the feature section),
+          status text CHECK ('done'|'partial'|'not_started'),
+          priority text CHECK ('high'|'medium'|'low'|null),
+          note_tags text[], depends_on text[], blocks text[],
+          key_files text[], metadata jsonb, change_note text
+```
+RLS: admin SELECT only; all writes via service-role client.
+Auto-bump trigger on updated_at.
+
+**Seeder (`scripts/seed-features.ts`) — THE ONLY PLACE FILES ARE READ:**
+- Reads `ai-instruction/features/*.md` (module files) + `ai-instruction/tracking.md`.
+- Parsing logic lives in `lib/features/parser.ts` as pure functions (testable).
+- `tracking.md` is authoritative for is_done status and description.
+- UPSERTs by `key` — idempotent; re-running is safe.
+- Reports: N features processed (X inserted, Y updated).
+- Run once: `npx tsx scripts/seed-features.ts`
+
+**Pure parser (`lib/features/parser.ts`):**
+- `parseStatus(raw)` — maps ✅/❌/⚠️ or [x] to enum.
+- `parseFeatureSection(key, title, body)` — extracts status, user_story, content.
+- `parseModuleFile(rawMarkdown, sourcePath)` — parses all `### PREFIX-NN` sections.
+- `parseTrackingMd(rawMarkdown)` — parses tracking.md table into a Map.
+- `mergeWithTracking(feature, trackingRow)` — merges file + tracking data; tracking wins for is_done.
+
+**DB-access service (`lib/features/index.ts`, server-only, no filesystem):**
+- `listFeatures(filters?)` — list with module_prefix/status/search/page filters.
+- `getFeature(key)` — fetch by key (e.g. 'REC-01').
+- `updateFeature(id, fields, updatedBy)` — persist edits.
+
+**Admin API (all `requireAdmin`):**
+- `GET /api/admin/features` — list.
+- `GET /api/admin/features/:id` — detail (accepts UUID or key).
+- `PATCH /api/admin/features/:id` — edit; writes one `audit_logs` row (`action: 'feature.update', metadata: { key, changed_fields }`).
+
+**UI at `/admin/features`:**
+- Split-pane: left = filterable/searchable list grouped by module_prefix; right = edit panel for selected feature.
+- Editable: status, priority, title, description, note_tags, depends_on, key_files, content (markdown textarea), change_note.
+- "Features" (Layers icon) added to admin sidebar nav.
+
+**Tests (`tests/features.test.ts`, 33 assertions, all pure):**
+- `parseStatus`: all three values + edge cases.
+- `parseFeatureSection`: status, user_story, content extraction.
+- `parseModuleFile`: feature count, module metadata, key_files, source_path.
+- `parseTrackingMd`: is_done, depends_on, note_tags, priority, description.
+- `mergeWithTracking`: tracking wins for done, partial preserved, fallback to tracking user_story.
+
+**ai-instruction/ directory after seeding:**
+Kept as a static reference for human reading. NOT read at runtime. No runtime code imports from it. If features need to be updated, edit them in the DB at `/admin/features`.
+
 ## 9d. Admin pipeline monitor design (Phase 10a)
 
 **Endpoints (all server-enforced by `requireAdmin`):**
@@ -496,6 +556,8 @@ Indexes: (user_id, created_at DESC), (event_type, created_at DESC), (created_at 
 13. ~~**Provider API key management (SEC-04)**~~ **DONE** (Phase 13 complete — `migrations/014_provider_keys.sql` `provider_keys` table (AES-256-GCM encrypted at rest; admin-readable RLS; service-role writes); `lib/crypto/index.ts` AES-256-GCM helpers — `encryptSecretWithKey`/`decryptSecretWithKey` pure (explicit key buffer) + `encryptSecret`/`decryptSecret` (read KEY_ENCRYPTION_SECRET); `lib/keys/guards.ts` pure `isLastActiveKey(count)` + `maskProviderKey(row)` (never exposes ciphertext/IV/tag/created_by); `lib/keys/provider.ts` `getActiveKeys(provider)` async with 30s TTL cache + env-var fallback + `invalidateKeyCache()`; `GET/POST /api/admin/keys` + `PATCH/DELETE /api/admin/keys/:id` — all admin-enforced, never return ciphertext or plaintext, last-active-key guard blocks disable/delete, every mutation audit-logged with `{ provider, label }` only; `lib/gemini/pool.ts` now async with 30s TTL refresh via `getActiveKeys` + `resetGeminiPool()` export; `lib/speechmatics/client.ts` now async via `getActiveKeys`; `/admin/keys` UI with per-provider tables, write-only add form (password input, one-time confirmation), disable/enable toggle with confirm dialog, delete with confirm; "Keys" added to admin sidebar nav (Key icon); 16 unit tests in `tests/provider-keys.test.ts` (crypto round-trip, tamper detection, last-active guard, maskProviderKey security invariants). See section 9f for full design. Apply migration 014 in Supabase dashboard. **IMPORTANT:** Set KEY_ENCRYPTION_SECRET in .env — losing it makes stored keys unrecoverable.)
 
 13. ~~**User activity log (Phase 14)**~~ **DONE** (Phase 14 complete — `migrations/016_activity_log.sql` activity_log table (admin-read RLS, service-role writes, 4 indexes); `lib/activity/types.ts` ALLOWED_EVENT_TYPES set + ActivityEventType + validateEventType() — `meeting_viewed` intentionally absent with regression-test guard; `lib/activity/parse.ts` parseActivityQueryParams() pure parser; `lib/activity/guards.ts` isCallerOwn() pure guard; `lib/activity/logActivity.ts` fire-and-forget central helper (mirrors writeAuditLog pattern); login + logout instrumented; meeting_created, processing_done/failed, chat_message, meeting_deleted all instrumented; `POST /api/activity` client endpoint (record_start/stop only, isCallerOwn guard, 10/min rate limit); `GET /api/admin/activity` admin feed with userId/eventType/from/to filters, meeting title join; `/admin/users/[id]` Activity tab updated to show activity_log data; `/admin/activity` global feed page with filters, pagination, event-type colour badges; "Activity" nav item (History icon) added to admin sidebar; 15 unit tests in `tests/activity-log.test.ts`. Apply migration 016 in Supabase dashboard. See section 9g for full design.)
+
+14. ~~**Feature registry (Phase 15)**~~ **DONE** (Phase 15 complete — `migrations/017_features.sql` features table (UNIQUE key, module_prefix/name, title, user_story, description, content markdown, status/priority/note_tags/depends_on/blocks/key_files arrays, metadata jsonb, updated_by, change_note; admin SELECT RLS; auto-bump trigger); `lib/features/parser.ts` pure parsing functions (parseStatus, parseFeatureSection, parseModuleFile, parseTrackingMd, mergeWithTracking — no I/O, fully tested); `scripts/seed-features.ts` reads ai-instruction/features/*.md + tracking.md ONE TIME and UPSERTs 65 features by key (idempotent); `lib/features/index.ts` DB-access service (listFeatures, getFeature, updateFeature — service-role, no filesystem access); `GET/PATCH /api/admin/features` + `GET/PATCH /api/admin/features/:id` admin-enforced, PATCH writes audit log (action: feature.update); `/admin/features` split-pane UI: grouped filterable list + inline edit panel with all fields + markdown content textarea; "Features" (Layers icon) added to admin sidebar; 33 unit tests in `tests/features.test.ts`. Apply migration 017, then run `npx tsx scripts/seed-features.ts` once. See section 9h for design. After seeding, ai-instruction/features/ is a static reference only — DB is the source of truth.)
 
 **Pending — Area 3 (Audit Log UI) remains.**
 
