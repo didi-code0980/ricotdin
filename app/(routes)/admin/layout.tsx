@@ -17,6 +17,7 @@ import {
   Key,
   BookOpen,
   History,
+  Layers,
 } from 'lucide-react'
 
 // ── Nav item definition ───────────────────────────────────────────────────────
@@ -37,6 +38,7 @@ const NAV: NavItem[] = [
   { label: 'Audit Log', href: '/admin/audit',     icon: <FileText  size={16} /> },
   { label: 'Health',    href: '/admin/health',    icon: <Heart     size={16} /> },
   { label: 'Config',    href: '/admin/config',    icon: <Settings  size={16} /> },
+  { label: 'Features',  href: '/admin/features',  icon: <Layers    size={16} /> },
   { label: 'API Docs',  href: '/admin/docs',      icon: <BookOpen  size={16} /> },
 ]
 
