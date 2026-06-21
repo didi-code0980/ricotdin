@@ -52,6 +52,22 @@ export interface UpdateFeatureFields {
   change_note?: string
 }
 
+export interface CreateFeatureFields {
+  key: string
+  module_prefix: string
+  module_name: string
+  title: string
+  description?: string
+  user_story?: string
+  content?: string
+  status?: FeatureStatus
+  priority?: 'high' | 'medium' | 'low' | null
+  note_tags?: string[]
+  depends_on?: string[]
+  blocks?: string[]
+  key_files?: string[]
+}
+
 // ── Queries ───────────────────────────────────────────────────────────────────
 
 export async function listFeatures(filters: ListFeaturesFilters = {}): Promise<Feature[]> {
@@ -81,7 +97,7 @@ export async function listFeatures(filters: ListFeaturesFilters = {}): Promise<F
 
   const { data, error } = await query
   if (error) throw new Error(`listFeatures: ${error.message}`)
-  return (data ?? []) as Feature[]
+  return (data ?? []) as unknown as Feature[]
 }
 
 export async function getFeature(key: string): Promise<Feature | null> {
@@ -93,7 +109,38 @@ export async function getFeature(key: string): Promise<Feature | null> {
     .maybeSingle()
 
   if (error) throw new Error(`getFeature: ${error.message}`)
-  return data as Feature | null
+  return data as unknown as Feature | null
+}
+
+export async function createFeature(
+  fields: CreateFeatureFields,
+  createdBy: string,
+): Promise<Feature> {
+  const db = createServerClient()
+  const { data, error } = await db
+    .from('features')
+    .insert({
+      key: fields.key,
+      module_prefix: fields.module_prefix,
+      module_name: fields.module_name,
+      title: fields.title,
+      description: fields.description ?? null,
+      user_story: fields.user_story ?? null,
+      content: fields.content ?? null,
+      status: fields.status ?? 'not_started',
+      priority: fields.priority ?? null,
+      note_tags: fields.note_tags ?? [],
+      depends_on: fields.depends_on ?? [],
+      blocks: fields.blocks ?? [],
+      key_files: fields.key_files ?? [],
+      updated_by: createdBy,
+      metadata: {},
+    })
+    .select()
+    .single()
+
+  if (error) throw new Error(`createFeature: ${error.message}`)
+  return data as unknown as Feature
 }
 
 export async function updateFeature(
@@ -110,5 +157,5 @@ export async function updateFeature(
     .single()
 
   if (error) throw new Error(`updateFeature: ${error.message}`)
-  return data as Feature
+  return data as unknown as Feature
 }

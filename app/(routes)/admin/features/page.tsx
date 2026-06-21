@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { browserClient } from '@/lib/supabase/browser'
-import { Layers } from 'lucide-react'
+import { Layers, Plus, Check, Circle } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -37,9 +37,7 @@ function statusBadge(status: FeatureStatus) {
     not_started: { label: 'Not started', style: { background: '#f1f5f9', color: '#64748b' } },
   }
   const { label, style } = map[status] ?? map.not_started
-  return (
-    <span style={{ ...S.badge, ...style }}>{label}</span>
-  )
+  return <span style={{ ...S.badge, ...style }}>{label}</span>
 }
 
 function priorityChip(p: string | null) {
@@ -49,9 +47,7 @@ function priorityChip(p: string | null) {
     medium: { background: '#ffedd5', color: '#ea580c' },
     low:    { background: '#f0fdf4', color: '#16a34a' },
   }
-  return (
-    <span style={{ ...S.chip, ...(colors[p] ?? {}) }}>{p}</span>
-  )
+  return <span style={{ ...S.chip, ...(colors[p] ?? {}) }}>{p}</span>
 }
 
 function tagChip(tag: string) {
@@ -81,6 +77,180 @@ function ModuleHeader({ prefix, name, count }: { prefix: string; name: string; c
       <span style={S.modulePrefix}>{prefix}</span>
       <span style={S.moduleName}>{name}</span>
       <span style={S.moduleCount}>{count}</span>
+    </div>
+  )
+}
+
+// ── Create form ───────────────────────────────────────────────────────────────
+
+function CreateForm({
+  modules,
+  token,
+  onCreated,
+  onClose,
+}: {
+  modules: Array<{ prefix: string; name: string }>
+  token: string
+  onCreated: (f: Feature) => void
+  onClose: () => void
+}) {
+  const [form, setForm] = useState({
+    key: '',
+    module_prefix: '',
+    module_name: '',
+    title: '',
+    description: '',
+    status: 'not_started' as FeatureStatus,
+    priority: '' as '' | 'high' | 'medium' | 'low',
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function set(field: string, value: string) {
+    setForm((f) => {
+      const next = { ...f, [field]: value }
+      // Auto-fill module_name when prefix matches a known module
+      if (field === 'module_prefix') {
+        const match = modules.find((m) => m.prefix === value.trim().toUpperCase())
+        if (match) next.module_name = match.name
+      }
+      return next
+    })
+    setError(null)
+  }
+
+  async function create() {
+    setSaving(true)
+    setError(null)
+
+    const res = await fetch('/api/admin/features', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        key: form.key.trim().toUpperCase(),
+        module_prefix: form.module_prefix.trim().toUpperCase(),
+        module_name: form.module_name.trim(),
+        title: form.title.trim(),
+        description: form.description.trim() || undefined,
+        status: form.status,
+        priority: form.priority || null,
+      }),
+    })
+    const json = await res.json()
+    setSaving(false)
+
+    if (!res.ok) {
+      setError(json.error ?? 'Create failed.')
+      return
+    }
+    onCreated(json.feature as Feature)
+  }
+
+  return (
+    <div style={S.panel}>
+      <div style={S.panelHeader}>
+        <div>
+          <div style={S.panelKey}>NEW FEATURE</div>
+          <div style={S.panelTitle}>Create feature</div>
+        </div>
+        <button onClick={onClose} style={S.closeBtn} aria-label="Close">✕</button>
+      </div>
+
+      <div style={S.panelBody}>
+        {/* Key */}
+        <label style={S.label}>
+          Feature key <span style={{ color: '#dc2626' }}>*</span>
+          <input
+            value={form.key}
+            onChange={(e) => set('key', e.target.value)}
+            style={S.input}
+            placeholder="e.g. REC-05"
+          />
+        </label>
+
+        {/* Module prefix + name */}
+        <div style={S.row2}>
+          <label style={S.label}>
+            Module prefix <span style={{ color: '#dc2626' }}>*</span>
+            <input
+              list="module-prefixes"
+              value={form.module_prefix}
+              onChange={(e) => set('module_prefix', e.target.value)}
+              style={S.input}
+              placeholder="e.g. REC"
+            />
+            <datalist id="module-prefixes">
+              {modules.map((m) => (
+                <option key={m.prefix} value={m.prefix} />
+              ))}
+            </datalist>
+          </label>
+          <label style={S.label}>
+            Module name <span style={{ color: '#dc2626' }}>*</span>
+            <input
+              value={form.module_name}
+              onChange={(e) => set('module_name', e.target.value)}
+              style={S.input}
+              placeholder="e.g. Recording"
+            />
+          </label>
+        </div>
+
+        {/* Title */}
+        <label style={S.label}>
+          Title <span style={{ color: '#dc2626' }}>*</span>
+          <input
+            value={form.title}
+            onChange={(e) => set('title', e.target.value)}
+            style={S.input}
+            placeholder="Short feature title…"
+          />
+        </label>
+
+        {/* Description */}
+        <label style={S.label}>
+          Description
+          <input
+            value={form.description}
+            onChange={(e) => set('description', e.target.value)}
+            style={S.input}
+            placeholder="One-line description…"
+          />
+        </label>
+
+        {/* Status + Priority */}
+        <div style={S.row2}>
+          <label style={S.label}>
+            Status
+            <select value={form.status} onChange={(e) => set('status', e.target.value)} style={S.select}>
+              <option value="not_started">Not started</option>
+              <option value="partial">Partial</option>
+              <option value="done">Done</option>
+            </select>
+          </label>
+          <label style={S.label}>
+            Priority
+            <select value={form.priority} onChange={(e) => set('priority', e.target.value)} style={S.select}>
+              <option value="">—</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+          </label>
+        </div>
+
+        {error && <div style={S.errorBanner}>{error}</div>}
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={S.cancelBtn}>Cancel</button>
+          <button onClick={create} disabled={saving} style={S.saveBtn}>
+            {saving ? 'Creating…' : 'Create feature'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -296,7 +466,10 @@ export default function FeaturesPage() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<FeatureStatus | ''>('')
   const [selected, setSelected] = useState<Feature | null>(null)
+  const [showCreate, setShowCreate] = useState(false)
   const [token, setToken] = useState('')
+  // Per-row optimistic mark-done in-flight set
+  const [toggling, setToggling] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     browserClient.auth
@@ -352,10 +525,78 @@ export default function FeaturesPage() {
     }
   }
 
+  // Unique modules list for CreateForm datalist
+  const uniqueModules = [...new Map(features.map((f) => [f.module_prefix, { prefix: f.module_prefix, name: f.module_name }])).values()]
+
   function handleSaved(updated: Feature) {
     setFeatures((prev) => prev.map((f) => (f.id === updated.id ? updated : f)))
     setSelected(updated)
   }
+
+  function handleCreated(created: Feature) {
+    setFeatures((prev) => [...prev, created].sort((a, b) =>
+      a.module_prefix !== b.module_prefix
+        ? a.module_prefix.localeCompare(b.module_prefix)
+        : a.key.localeCompare(b.key),
+    ))
+    setShowCreate(false)
+    setSelected(created)
+  }
+
+  async function toggleDone(f: Feature, e: React.MouseEvent) {
+    e.stopPropagation()
+    if (toggling.has(f.id)) return
+
+    const newStatus: FeatureStatus = f.status === 'done' ? 'not_started' : 'done'
+
+    // Optimistic update
+    setFeatures((prev) => prev.map((x) => (x.id === f.id ? { ...x, status: newStatus } : x)))
+    if (selected?.id === f.id) setSelected((s) => s && { ...s, status: newStatus })
+    setToggling((s) => new Set(s).add(f.id))
+
+    try {
+      const res = await fetch(`/api/admin/features/${f.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status: newStatus }),
+      })
+      if (!res.ok) {
+        // Revert on error
+        setFeatures((prev) => prev.map((x) => (x.id === f.id ? { ...x, status: f.status } : x)))
+        if (selected?.id === f.id) setSelected((s) => s && { ...s, status: f.status })
+      }
+    } catch {
+      setFeatures((prev) => prev.map((x) => (x.id === f.id ? { ...x, status: f.status } : x)))
+      if (selected?.id === f.id) setSelected((s) => s && { ...s, status: f.status })
+    } finally {
+      setToggling((s) => { const next = new Set(s); next.delete(f.id); return next })
+    }
+  }
+
+  const rightPanel = showCreate
+    ? (
+      <CreateForm
+        modules={uniqueModules}
+        token={token}
+        onCreated={handleCreated}
+        onClose={() => setShowCreate(false)}
+      />
+    )
+    : selected && token
+      ? (
+        <EditPanel
+          feature={selected}
+          token={token}
+          onSaved={handleSaved}
+          onClose={() => setSelected(null)}
+        />
+      )
+      : null
+
+  const panelOpen = Boolean(rightPanel)
 
   return (
     <div style={S.page}>
@@ -371,19 +612,26 @@ export default function FeaturesPage() {
             </p>
           </div>
         </div>
+        <button
+          onClick={() => { setSelected(null); setShowCreate(true) }}
+          style={S.newBtn}
+        >
+          <Plus size={14} />
+          New feature
+        </button>
       </div>
 
       {/* Filters */}
       <div style={S.filters}>
         <input
           value={search}
-          onChange={(e) => { setSearch(e.target.value); setSelected(null) }}
+          onChange={(e) => { setSearch(e.target.value); setSelected(null); setShowCreate(false) }}
           placeholder="Search key, title, description…"
           style={S.searchInput}
         />
         <select
           value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value as FeatureStatus | ''); setSelected(null) }}
+          onChange={(e) => { setStatusFilter(e.target.value as FeatureStatus | ''); setSelected(null); setShowCreate(false) }}
           style={S.filterSelect}
         >
           <option value="">All statuses</option>
@@ -397,7 +645,7 @@ export default function FeaturesPage() {
       {/* Body */}
       <div style={S.body}>
         {/* List */}
-        <div style={selected ? S.listNarrow : S.listFull}>
+        <div style={panelOpen ? S.listNarrow : S.listFull}>
           {loading && <p style={S.muted}>Loading…</p>}
           {error && <p style={S.errorText}>{error}</p>}
           {!loading && !error && modules.length === 0 && (
@@ -407,38 +655,60 @@ export default function FeaturesPage() {
             <div key={prefix} style={S.moduleSection}>
               <ModuleHeader prefix={prefix} name={name} count={items.length} />
               <div style={S.featureList}>
-                {items.map((f) => (
-                  <button
-                    key={f.id}
-                    onClick={() => setSelected(selected?.id === f.id ? null : f)}
-                    style={{
-                      ...S.featureRow,
-                      ...(selected?.id === f.id ? S.featureRowActive : {}),
-                    }}
-                  >
-                    <span style={S.featureKey}>{f.key}</span>
-                    <span style={S.featureTitle}>{f.title}</span>
-                    <span style={S.featureBadges}>
-                      {statusBadge(f.status)}
-                      {priorityChip(f.priority)}
-                      {f.note_tags.map((t) => tagChip(t))}
-                    </span>
-                  </button>
-                ))}
+                {items.map((f) => {
+                  const isActive = selected?.id === f.id && !showCreate
+                  const isDone = f.status === 'done'
+                  return (
+                    <div
+                      key={f.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => { setShowCreate(false); setSelected(selected?.id === f.id ? null : f) }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setShowCreate(false)
+                          setSelected(selected?.id === f.id ? null : f)
+                        }
+                      }}
+                      style={{
+                        ...S.featureRow,
+                        ...(isActive ? S.featureRowActive : {}),
+                      }}
+                    >
+                      {/* Mark-done toggle */}
+                      <button
+                        onClick={(e) => toggleDone(f, e)}
+                        disabled={toggling.has(f.id)}
+                        title={isDone ? 'Mark as not started' : 'Mark as done'}
+                        style={{
+                          ...S.doneBtn,
+                          ...(isDone ? S.doneBtnDone : {}),
+                        }}
+                        aria-label={isDone ? 'Mark as not started' : 'Mark as done'}
+                      >
+                        {isDone
+                          ? <Check size={11} strokeWidth={3} />
+                          : <Circle size={11} strokeWidth={2} />}
+                      </button>
+
+                      <span style={S.featureKey}>{f.key}</span>
+                      <span style={S.featureTitle}>{f.title}</span>
+                      <span style={S.featureBadges}>
+                        {statusBadge(f.status)}
+                        {priorityChip(f.priority)}
+                        {f.note_tags.map((t) => tagChip(t))}
+                      </span>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           ))}
         </div>
 
-        {/* Edit panel */}
-        {selected && token && (
-          <EditPanel
-            feature={selected}
-            token={token}
-            onSaved={handleSaved}
-            onClose={() => setSelected(null)}
-          />
-        )}
+        {/* Right panel (edit or create) */}
+        {rightPanel}
       </div>
     </div>
   )
@@ -464,6 +734,14 @@ const S: Record<string, React.CSSProperties> = {
   h1: { margin: 0, fontSize: 22, fontWeight: 700, color: '#0f172a' },
   sub: { margin: '4px 0 0', fontSize: 13, color: '#64748b' },
   code: { fontFamily: 'monospace', background: '#f1f5f9', padding: '1px 4px', borderRadius: 3, fontSize: 12 },
+
+  // New feature button
+  newBtn: {
+    display: 'flex', alignItems: 'center', gap: 6,
+    padding: '8px 16px', background: '#1e3a5f', color: '#e2e8f0',
+    border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 600,
+    cursor: 'pointer', flexShrink: 0, marginTop: 4,
+  },
 
   // Filters
   filters: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 },
@@ -503,8 +781,22 @@ const S: Record<string, React.CSSProperties> = {
     background: '#fff', border: '1px solid #e2e8f0', borderRadius: 7,
     textAlign: 'left', cursor: 'pointer', width: '100%',
     transition: 'background 0.1s, border-color 0.1s',
+    userSelect: 'none',
   },
   featureRowActive: { background: '#eff6ff', borderColor: '#93c5fd' },
+
+  // Mark-done button
+  doneBtn: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+    border: '1.5px solid #cbd5e1', background: '#fff',
+    cursor: 'pointer', padding: 0, color: '#94a3b8',
+    transition: 'border-color 0.1s, background 0.1s, color 0.1s',
+  },
+  doneBtnDone: {
+    border: '1.5px solid #16a34a', background: '#dcfce7', color: '#16a34a',
+  },
+
   featureKey: {
     fontFamily: 'monospace', fontSize: 11, fontWeight: 700,
     color: '#475569', minWidth: 56,
@@ -522,7 +814,7 @@ const S: Record<string, React.CSSProperties> = {
     fontSize: 10, fontWeight: 600,
   },
 
-  // Edit panel
+  // Edit / create panel
   panel: {
     flex: 1, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10,
     display: 'flex', flexDirection: 'column', maxHeight: 'calc(100vh - 180px)',
@@ -561,6 +853,11 @@ const S: Record<string, React.CSSProperties> = {
     padding: '9px 24px', background: '#1e3a5f', color: '#f1f5f9',
     border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 600,
     cursor: 'pointer', alignSelf: 'flex-end',
+  },
+  cancelBtn: {
+    padding: '9px 16px', background: '#f1f5f9', color: '#374151',
+    border: '1px solid #e2e8f0', borderRadius: 7, fontSize: 13, fontWeight: 600,
+    cursor: 'pointer',
   },
 
   // Feedback

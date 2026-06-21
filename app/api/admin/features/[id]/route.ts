@@ -78,7 +78,7 @@ export async function PATCH(
   } else {
     const db = createServerClient()
     const { data } = await db.from('features').select('key').eq('id', id).maybeSingle()
-    featureKey = data?.key ?? id
+    featureKey = (data as { key: string } | null)?.key ?? id
   }
 
   let body: Record<string, unknown>
