@@ -173,7 +173,10 @@ Supabase dashboard:
      `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`).
    - After applying: add keys via `/admin/keys` UI; env-var keys continue to work as fallback.
 
-5. **Apply Phase 12 migrations** (run in the SQL editor IN ORDER — 011, 012, 013):
+5. **Apply Phase 14 migration:**
+   - `migrations/016_activity_log.sql` — adds `activity_log` table (admin-read RLS, service-role writes, 4 indexes).
+
+6. **Apply Phase 12 migrations** (run in the SQL editor IN ORDER — 011, 012, 013):
    - `migrations/011_folders.sql` — `folders` table + `meetings.folder_id` FK + owner-only RLS.
    - `migrations/012_folder_shares.sql` — `folder_shares` table + `can_access_meeting()` SQL function
      + updated per-verb RLS on all meeting-related tables and `folders`. Must run AFTER 011.
@@ -377,6 +380,67 @@ RLS: admin SELECT only (metadata, never ciphertext); all writes use service-role
 - `isLastActiveKey` edge cases.
 - `maskProviderKey` never exposes sensitive fields; JSON serialization clean.
 
+## 9g. User activity log design (Phase 14)
+
+**Purpose:** High-volume per-user event log for behavioural observability.
+Distinct from `audit_logs` (which records rare admin actions) — this records
+normal user activity. Viewable by admins only; writes via service-role.
+
+**Schema (`migrations/016_activity_log.sql`):**
+```
+activity_log: id, created_at, user_id (NOT NULL → auth.users ON DELETE CASCADE),
+              event_type text NOT NULL, meeting_id uuid NULL (ON DELETE SET NULL),
+              target_user_id uuid NULL (ON DELETE SET NULL), metadata jsonb NULL,
+              ip text NULL, user_agent text NULL
+```
+RLS: admin SELECT only (`auth.jwt()->>'user_role' = 'admin'`); all inserts use service-role.
+Indexes: (user_id, created_at DESC), (event_type, created_at DESC), (created_at DESC), (meeting_id) WHERE NOT NULL.
+
+**Allowed event types (ALLOWED_EVENT_TYPES in `lib/activity/types.ts`):**
+- Auth: `login`, `logout`
+- Recording (client best-effort): `record_start`, `record_stop`
+- Meeting lifecycle (server): `meeting_created`, `processing_done`, `processing_failed`, `chat_message`, `meeting_deleted`
+- Sharing (schema ready, instrumentation TODO): `meeting_shared`, `meeting_unshared`
+- `meeting_viewed` is **intentionally absent** — too noisy, low value. Enforced by test regression guard.
+
+**Instrumentation points:**
+- `app/api/auth/login/route.ts` → `login` event after successful `signInWithPassword`
+- `app/api/auth/logout/route.ts` → `logout` event (best-effort hook; client calls before clearing session)
+- `app/api/meetings/route.ts` (POST) → `meeting_created` after insert
+- `lib/pipeline/processMeeting.ts` → `processing_done` / `processing_failed`
+- `app/api/chat/route.ts` (POST) → `chat_message` after user message persisted (no content in metadata)
+- `app/api/meetings/[id]/route.ts` (DELETE) → `meeting_deleted` after row delete
+- `app/api/activity` (POST) → browser hook: `record_start`, `record_stop` only
+
+**Central helper (`lib/activity/logActivity.ts`):**
+- `logActivity(ActivityEntry): void` — fire-and-forget; uses service-role client; never throws; never blocks caller.
+
+**Pure helper modules (TDD, no I/O):**
+- `lib/activity/types.ts` — `ALLOWED_EVENT_TYPES`, `CLIENT_EVENT_TYPES`, `ActivityEventType`, `validateEventType()`
+- `lib/activity/parse.ts` — `parseActivityQueryParams(URLSearchParams)` → `{ page, perPage, userId, eventType, from, to }`
+- `lib/activity/guards.ts` — `isCallerOwn(callerUserId, requestedUserId): boolean`
+
+**Endpoints:**
+- `POST /api/activity` — browser hook; accepts only CLIENT_EVENT_TYPES (`record_start`, `record_stop`); validates `isCallerOwn`; in-memory rate limit 10/user/minute. Returns 422 for non-client event types, 403 for cross-user logging.
+- `GET /api/admin/activity?userId=&eventType=&from=&to=&page=&perPage=` — admin-only paginated feed; joins `meetings(title)` (no content); returns `{ rows, total, page, perPage }`.
+
+**UI:**
+- `/admin/users/[id]` — "Activity" tab shows user's activity_log events (replaces previous audit_logs tab).
+- `/admin/activity` — global feed page with filters (userId, eventType, date range) + pagination. Linked from admin sidebar ("Activity" / History icon).
+
+**SECURITY guardrails (non-negotiable):**
+- Metadata NEVER contains meeting content (transcript/notes/summary). Only identifiers and counts.
+- `meeting_viewed` MUST NEVER be added — regression test guards the ALLOWED_EVENT_TYPES set.
+- Client endpoint (`POST /api/activity`) restricted to caller's own userId + rate-limited.
+- Admin endpoints: `requireAdmin` server-enforced; non-admins get 403.
+- Logging is fire-and-forget — a DB failure is logged to console only, never surfaces to users.
+
+**Tests (`tests/activity-log.test.ts`, covers pure helpers):**
+- `validateEventType`: all 11 allowed types accepted; unknown + empty rejected.
+- `meeting_viewed` regression guard: absent from ALLOWED_EVENT_TYPES + validateEventType returns false.
+- `parseActivityQueryParams`: defaults, parsing, clamping (page ≥ 1, perPage ≤ 100).
+- `isCallerOwn`: match → true; mismatch → false; empty requestedUserId → false.
+
 ## 9d. Admin pipeline monitor design (Phase 10a)
 
 **Endpoints (all server-enforced by `requireAdmin`):**
@@ -430,6 +494,8 @@ RLS: admin SELECT only (metadata, never ciphertext); all writes use service-role
 11. ~~**Admin operational — Area 2: AI Provider Usage Tracking**~~ **DONE** (Phase 10b complete — `migrations/009_usage_log.sql` unit-aware schema (tokens/audio_seconds units never conflated); `lib/usage/logUsage.ts` fire-and-forget central helper; Gemini analyze/embed/answer and Speechmatics all instrumented with optional `ctx?: { meetingId?, userId? }` parameter; processMeeting + chat route pass usageCtx; `GET /api/admin/ai-usage?from=&to=&groupBy=` aggregates in JS; `/admin/usage` page extended with AI usage section: summary tiles, token table + audio table (separate), SVG trend charts per unit, date-range selector; 14 unit tests in `tests/usage-log.test.ts`. Apply migration 009 in Supabase dashboard. See section 9e for full design.)
 12. ~~**Shared folders (COM-05 / PRO-06 folders)**~~ **DONE** (Phase 12 complete — `migrations/011_folders.sql` folders table (owner-only RLS, unique name per user, ON DELETE SET NULL for meetings); `migrations/012_folder_shares.sql` folder_shares table + `can_access_meeting(uuid, text)` SQL function as single RLS source-of-truth; per-verb RLS policies replacing FOR ALL on all 9 meeting-related tables + `folders` + `folder_shares`; `lib/access/index.ts` server-side TS helpers (checkMeetingAccess, checkFolderAccess, getMeetingRole, canAssignToFolder) — mirrors SQL function, safe under service-role client; `lib/access/roles.ts` pure client-side helpers (getMeetingRole, canPin, canEdit, canDelete, canManageShares); `GET/POST /api/folders`, `PATCH/DELETE /api/folders/[id]`, `GET/POST /api/folders/[id]/shares`, `PATCH/DELETE /api/folders/[id]/shares/[granteeId]`, `PUT /api/folders/reorder`, `POST /api/users/lookup`; `components/FolderSelector.tsx`; share panel embedded in Manage Folders modal; folder filter pills with 👥 badge for shared folders; `PATCH /api/todos/[id]` and `PATCH /api/calendar-suggestions/[id]` updated to editor+ access via checkMeetingAccess; `GET /api/calendar-suggestions/[id]/ics` updated to viewer+; audio signed-URL route and chat route already used checkMeetingAccess; RAG retrieval scope unchanged (user-scoped client + updated RLS auto-includes shared meetings); 10 unit tests in `tests/folder-shares.test.ts`. Apply migrations 011 then 012 in Supabase dashboard. SEC-03 full RLS review REQUIRED.)
 13. ~~**Provider API key management (SEC-04)**~~ **DONE** (Phase 13 complete — `migrations/014_provider_keys.sql` `provider_keys` table (AES-256-GCM encrypted at rest; admin-readable RLS; service-role writes); `lib/crypto/index.ts` AES-256-GCM helpers — `encryptSecretWithKey`/`decryptSecretWithKey` pure (explicit key buffer) + `encryptSecret`/`decryptSecret` (read KEY_ENCRYPTION_SECRET); `lib/keys/guards.ts` pure `isLastActiveKey(count)` + `maskProviderKey(row)` (never exposes ciphertext/IV/tag/created_by); `lib/keys/provider.ts` `getActiveKeys(provider)` async with 30s TTL cache + env-var fallback + `invalidateKeyCache()`; `GET/POST /api/admin/keys` + `PATCH/DELETE /api/admin/keys/:id` — all admin-enforced, never return ciphertext or plaintext, last-active-key guard blocks disable/delete, every mutation audit-logged with `{ provider, label }` only; `lib/gemini/pool.ts` now async with 30s TTL refresh via `getActiveKeys` + `resetGeminiPool()` export; `lib/speechmatics/client.ts` now async via `getActiveKeys`; `/admin/keys` UI with per-provider tables, write-only add form (password input, one-time confirmation), disable/enable toggle with confirm dialog, delete with confirm; "Keys" added to admin sidebar nav (Key icon); 16 unit tests in `tests/provider-keys.test.ts` (crypto round-trip, tamper detection, last-active guard, maskProviderKey security invariants). See section 9f for full design. Apply migration 014 in Supabase dashboard. **IMPORTANT:** Set KEY_ENCRYPTION_SECRET in .env — losing it makes stored keys unrecoverable.)
+
+13. ~~**User activity log (Phase 14)**~~ **DONE** (Phase 14 complete — `migrations/016_activity_log.sql` activity_log table (admin-read RLS, service-role writes, 4 indexes); `lib/activity/types.ts` ALLOWED_EVENT_TYPES set + ActivityEventType + validateEventType() — `meeting_viewed` intentionally absent with regression-test guard; `lib/activity/parse.ts` parseActivityQueryParams() pure parser; `lib/activity/guards.ts` isCallerOwn() pure guard; `lib/activity/logActivity.ts` fire-and-forget central helper (mirrors writeAuditLog pattern); login + logout instrumented; meeting_created, processing_done/failed, chat_message, meeting_deleted all instrumented; `POST /api/activity` client endpoint (record_start/stop only, isCallerOwn guard, 10/min rate limit); `GET /api/admin/activity` admin feed with userId/eventType/from/to filters, meeting title join; `/admin/users/[id]` Activity tab updated to show activity_log data; `/admin/activity` global feed page with filters, pagination, event-type colour badges; "Activity" nav item (History icon) added to admin sidebar; 15 unit tests in `tests/activity-log.test.ts`. Apply migration 016 in Supabase dashboard. See section 9g for full design.)
 
 **Pending — Area 3 (Audit Log UI) remains.**
 

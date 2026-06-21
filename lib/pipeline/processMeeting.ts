@@ -15,6 +15,7 @@ import { join, extname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
 import { log } from '@/lib/logger'
+import { logActivity } from '@/lib/activity/logActivity'
 import { createServerClient } from '@/lib/supabase/server'
 import { getObjectBytes } from '@/lib/storage'
 import { analyzeTranscript } from '@/lib/gemini/analyze'
@@ -97,6 +98,9 @@ export async function processMeeting(meetingId: string, speakerCount?: number): 
         })
         .eq('id', meetingId)
       log(`[pipeline] ${meetingId}: done (empty transcript — no speech detected)`)
+      if (claimed.user_id) {
+        logActivity({ userId: claimed.user_id, eventType: 'processing_done', meetingId, metadata: { empty_transcript: true } })
+      }
       return
     }
 
@@ -206,6 +210,9 @@ export async function processMeeting(meetingId: string, speakerCount?: number): 
     // ── Mark done ─────────────────────────────────────────────────────────
     await db.from('meetings').update({ status: 'done' }).eq('id', meetingId)
     log(`[pipeline] ${meetingId}: done ✓`)
+    if (claimed.user_id) {
+      logActivity({ userId: claimed.user_id, eventType: 'processing_done', meetingId })
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.error(`[pipeline] ${meetingId}: FAILED —`, message)
@@ -213,6 +220,9 @@ export async function processMeeting(meetingId: string, speakerCount?: number): 
       .from('meetings')
       .update({ status: 'failed', error_message: message.slice(0, 500) })
       .eq('id', meetingId)
+    if (claimed.user_id) {
+      logActivity({ userId: claimed.user_id, eventType: 'processing_failed', meetingId, metadata: { error: message.slice(0, 200) } })
+    }
     throw err
   } finally {
     // Clean up the downloaded source file regardless of success/failure.

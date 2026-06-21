@@ -20,6 +20,8 @@ import {
 } from '@/lib/upload/constants'
 import { createSignedUploadUrl } from '@/lib/storage'
 import { canAssignToFolder } from '@/lib/access'
+import { logActivity } from '@/lib/activity/logActivity'
+import { requestContext } from '@/lib/admin/audit'
 import type { Database } from '@/types/database'
 import type { MeetingSource } from '@/types/database'
 
@@ -204,6 +206,9 @@ export async function POST(req: NextRequest) {
     if (deleteErr) console.warn('[meetings] rollback delete failed:', deleteErr.message)
     return NextResponse.json({ error: 'Failed to create upload URL. Check R2 configuration.' }, { status: 500 })
   }
+
+  const { ipAddress, userAgent } = requestContext(req)
+  logActivity({ userId, eventType: 'meeting_created', meetingId, metadata: { source, title }, ip: ipAddress, userAgent })
 
   return NextResponse.json({ meetingId, uploadUrl, contentType })
 }

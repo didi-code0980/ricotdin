@@ -15,6 +15,8 @@ import {
   ArrowLeft,
   Lock,
   Key,
+  BookOpen,
+  History,
 } from 'lucide-react'
 
 // ── Nav item definition ───────────────────────────────────────────────────────
@@ -27,13 +29,15 @@ type NavItem = {
 }
 
 const NAV: NavItem[] = [
-  { label: 'Users',     href: '/admin',           icon: <Users     size={16} /> },
+  { label: 'Users',     href: '/admin/users',      icon: <Users     size={16} /> },
   { label: 'Pipeline',  href: '/admin/pipeline',  icon: <Activity  size={16} /> },
+  { label: 'Activity',  href: '/admin/activity',  icon: <History   size={16} /> },
   { label: 'Usage',     href: '/admin/usage',     icon: <BarChart2 size={16} /> },
   { label: 'Keys',      href: '/admin/keys',      icon: <Key       size={16} /> },
   { label: 'Audit Log', href: '/admin/audit',     icon: <FileText  size={16} /> },
   { label: 'Health',    href: '/admin/health',    icon: <Heart     size={16} /> },
   { label: 'Config',    href: '/admin/config',    icon: <Settings  size={16} /> },
+  { label: 'API Docs',  href: '/admin/docs',      icon: <BookOpen  size={16} /> },
 ]
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -42,7 +46,6 @@ function Sidebar() {
   const pathname = usePathname()
 
   function isActive(href: string) {
-    if (href === '/admin') return pathname === '/admin'
     return pathname.startsWith(href)
   }
 
@@ -165,13 +168,14 @@ const S: Record<string, React.CSSProperties> = {
   // Layout shell
   shell: {
     display: 'flex',
-    minHeight: '100vh',
+    height: '100vh',
+    overflow: 'hidden',
     fontFamily: 'system-ui, -apple-system, sans-serif',
     background: '#f1f5f9',
   },
   content: {
     flex: 1,
-    overflow: 'auto',
+    overflowY: 'auto',
     minWidth: 0,
   },
 
@@ -182,10 +186,8 @@ const S: Record<string, React.CSSProperties> = {
     background: '#0f172a',
     display: 'flex',
     flexDirection: 'column',
-    minHeight: '100vh',
-    position: 'sticky',
-    top: 0,
     height: '100vh',
+    overflowY: 'auto',
   },
 
   // Brand area

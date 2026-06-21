@@ -17,6 +17,7 @@ import { createUserClient } from '@/lib/supabase/user-client'
 import { retrieveContext } from '@/lib/rag/retrieve'
 import { answerWithContext } from '@/lib/gemini/answer'
 import { checkMeetingAccess } from '@/lib/access'
+import { logActivity } from '@/lib/activity/logActivity'
 import type { HistoryMessage } from '@/lib/gemini/answer'
 import type { Database } from '@/types/database'
 
@@ -182,6 +183,8 @@ export async function POST(req: NextRequest) {
   })
   if (userMsgErr)
     return NextResponse.json({ error: 'Failed to save message.' }, { status: 500 })
+
+  logActivity({ userId, eventType: 'chat_message', meetingId, metadata: { sessionId: resolvedSessionId } })
 
   // Load recent history (last 4 messages before the one we just inserted)
   const { data: historyRows } = await db

@@ -15,6 +15,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@/lib/supabase/server'
 import { normalizeUsername, looksLikeEmail } from '@/lib/auth/validate'
+import { logActivity } from '@/lib/activity/logActivity'
+import { requestContext } from '@/lib/admin/audit'
 import type { Database } from '@/types/database'
 
 const GENERIC_ERROR = 'Invalid credentials. Please check your email or username and password.'
@@ -84,6 +86,15 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ error: GENERIC_ERROR }, { status: 401 })
   }
+
+  const { ipAddress, userAgent } = requestContext(req)
+  logActivity({
+    userId: data.user!.id,
+    eventType: 'login',
+    metadata: { email: data.user?.email ?? null },
+    ip: ipAddress,
+    userAgent,
+  })
 
   return NextResponse.json({
     access_token: data.session.access_token,

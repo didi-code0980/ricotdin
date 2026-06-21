@@ -18,6 +18,8 @@ import { createServerClient } from '@/lib/supabase/server'
 import { requireUser } from '@/lib/auth/server'
 import { deleteObject } from '@/lib/storage'
 import { checkMeetingAccess, canAssignToFolder } from '@/lib/access'
+import { logActivity } from '@/lib/activity/logActivity'
+import { requestContext } from '@/lib/admin/audit'
 
 const MAX_TITLE_LEN = 200
 
@@ -155,6 +157,9 @@ export async function DELETE(
     console.error('[meetings] row delete failed:', deleteErr.message)
     return NextResponse.json({ error: 'Failed to delete meeting.' }, { status: 500 })
   }
+
+  const { ipAddress, userAgent } = requestContext(req)
+  logActivity({ userId: caller.id, eventType: 'meeting_deleted', meetingId, ip: ipAddress, userAgent })
 
   return NextResponse.json({
     ok: true,
