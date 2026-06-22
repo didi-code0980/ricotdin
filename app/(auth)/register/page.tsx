@@ -1,15 +1,29 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { browserClient } from '@/lib/supabase/browser'
 
 export default function RegisterPage() {
+  const router = useRouter()
   const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [verified, setVerified] = useState(false)
+  const [checking, setChecking] = useState(true)
+
+  useEffect(() => {
+    browserClient.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        router.replace('/meetings')
+      } else {
+        setChecking(false)
+      }
+    })
+  }, [router])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -39,6 +53,8 @@ export default function RegisterPage() {
       setLoading(false)
     }
   }
+
+  if (checking) return null
 
   if (verified) {
     return (

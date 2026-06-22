@@ -5,7 +5,6 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { getCurrentRole } from '@/lib/supabase/auth'
 import {
-  Shield,
   Users,
   Activity,
   BarChart2,
@@ -55,13 +54,8 @@ function Sidebar() {
     <aside style={S.sidebar}>
       {/* Brand */}
       <div style={S.brand}>
-        <div style={S.brandIcon}>
-          <Shield size={18} color="#93c5fd" />
-        </div>
-        <div>
-          <div style={S.brandName}>Ricotdin</div>
-          <div style={S.brandSub}>Admin Panel</div>
-        </div>
+        <img src="/short-logo.png" alt="Ricotdin" style={{ height: '32px', width: 'auto' }} />
+        <div style={S.brandSub}>Admin Panel</div>
       </div>
 
       <div style={S.divider} />
@@ -195,25 +189,9 @@ const S: Record<string, React.CSSProperties> = {
   // Brand area
   brand: {
     display: 'flex',
-    alignItems: 'center',
-    gap: 10,
+    flexDirection: 'column' as const,
+    gap: 4,
     padding: '20px 18px 18px',
-  },
-  brandIcon: {
-    width: 34,
-    height: 34,
-    background: '#1e3a5f',
-    borderRadius: 8,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  brandName: {
-    fontSize: 14,
-    fontWeight: 700,
-    color: '#f1f5f9',
-    letterSpacing: '0.02em',
   },
   brandSub: {
     fontSize: 10,
@@ -221,7 +199,7 @@ const S: Record<string, React.CSSProperties> = {
     fontWeight: 500,
     letterSpacing: '0.06em',
     textTransform: 'uppercase',
-    marginTop: 1,
+    marginTop: 2,
   },
 
   // Divider
