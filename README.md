@@ -41,20 +41,28 @@ KEY_ENCRYPTION_SECRET=<64-hex-chars>
 
 ### 2 — Build and run with Compose
 
+The `--env-file .env.local` flag tells Compose to read your file for `${VAR}`
+substitution (needed for the build args). Without it you get "variable is not
+set" warnings and the bundle is built with empty Supabase values.
+
 ```bash
-docker compose up --build
+# Foreground (shows logs)
+docker compose --env-file .env.local up --build
+
+# Background (detached)
+docker compose --env-file .env.local up --build -d
 ```
 
 Open **http://localhost:3333**.
 
 ```bash
-# Run in the background
-docker compose up --build -d
-
 # Tail logs
 docker compose logs -f
 
-# Stop
+# Rebuild after a code change
+docker compose --env-file .env.local up --build -d
+
+# Stop and remove containers
 docker compose down
 ```
 
