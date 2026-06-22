@@ -1,101 +1,164 @@
 # Ricotdin — Meeting Assistant
 
 Record meetings in the browser → AI transcript + summary + to-dos + RAG chatbot.  
-Powered by Next.js, Supabase, and Google Gemini.
+Powered by Next.js 16, Supabase, Google Gemini, and Speechmatics.
+
+**Stack:** Next.js (App Router) · TypeScript · Supabase (Postgres + pgvector + Storage) · nginx · Docker
 
 ---
 
-## Running with Docker
+## Running with Docker (recommended)
 
-The container runs Nginx on **port 3333** as a reverse proxy in front of the Next.js server.
+The container runs nginx on **port 3333** as a reverse proxy in front of Next.js on port 3000.
 
 ### Prerequisites
 
-- Docker 20+
-- A [Supabase](https://supabase.com) project (URL, anon key, service role key)
+- [Docker](https://docs.docker.com/get-docker/) 24+ (with Compose V2)
+- A [Supabase](https://supabase.com) project
 - A [Google AI Studio](https://aistudio.google.com) API key
+- A [Speechmatics](https://speechmatics.com) API key
 
-### 1 — Build the image
+### 1 — Create `.env.local`
 
-`NEXT_PUBLIC_*` variables are inlined into the client bundle at build time, so they must be passed as `--build-arg`:
+```dotenv
+# ── Public (inlined into the browser bundle at build time) ──────────────────
+NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<your-anon-key>
 
-```bash
-docker build --build-arg NEXT_PUBLIC_SUPABASE_URL="https://zytzbinwojhmmemoxbcr.supabase.co" --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp5dHpiaW53b2pobW1lbW94YmNyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MDExMzcsImV4cCI6MjA5NjQ3NzEzN30.smSodXjJwdzOgRKQFvnDZtqOrYcAix2XuK9XgZl-t4c" -t ricotdin .
+# ── Server-only (never sent to the browser or baked into the image) ─────────
+SUPABASE_SERVICE_ROLE_KEY=<your-service-role-key>
+GEMINI_API_KEY=<your-gemini-api-key>
+SPEECHMATICS_API_KEY=<your-speechmatics-api-key>
+
+# 64 hex chars — generate once and keep it safe:
+#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# WARNING: losing this key makes all stored DB API keys unrecoverable.
+KEY_ENCRYPTION_SECRET=<64-hex-chars>
 ```
 
-### 2 — Run the container
+> `.env.local` is in both `.dockerignore` and `.gitignore` — it is never
+> baked into the image and never committed to git.
 
-Server-only secrets are injected at runtime and never touch the image:
+### 2 — Build and run with Compose
 
 ```bash
-docker run -d -p 3333:3333  -e SUPABASE_SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp5dHpiaW53b2pobW1lbW94YmNyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDkwMTEzNywiZXhwIjoyMDk2NDc3MTM3fQ.Nvz-jw37cf8Yf2hBzfLZgUhk6zzdFDeD6UmcLxxMJaI" -e GEMINI_API_KEY="AQ.Ab8RN6JUD1pu8rdhweX0mzPl-5juF9d-N4oYzKfuc4yOT-_p0A"  --name ricotdin ricotdin
+docker compose up --build
 ```
-AQ.Ab8RN6JUD1pu8rdhweX0mzPl-5juF9d-N4oYzKfuc4yOT-_p0A
+
 Open **http://localhost:3333**.
 
-### Using an env file (alternative)
+```bash
+# Run in the background
+docker compose up --build -d
 
-Create `.env.runtime` (do **not** commit it):
+# Tail logs
+docker compose logs -f
 
-```env
-SUPABASE_SERVICE_ROLE_KEY=...
-GEMINI_API_KEY=...
+# Stop
+docker compose down
 ```
+
+### 3 — Build and run with plain Docker
+
+`NEXT_PUBLIC_*` vars must be passed as `--build-arg` so Next.js inlines them at build time:
+
+```bash
+docker build \
+  --build-arg NEXT_PUBLIC_SUPABASE_URL="https://<ref>.supabase.co" \
+  --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="<anon-key>" \
+  -t ricotdin .
+```
+
+Run, injecting server-only secrets at runtime (never at build time):
 
 ```bash
 docker run -d \
   -p 3333:3333 \
-  --env-file .env.runtime \
+  --env-file .env.local \
   --name ricotdin \
   ricotdin
 ```
 
-### Stop / remove
-
 ```bash
+# Stop and remove
 docker stop ricotdin && docker rm ricotdin
 ```
 
-### Rebuild after code changes
+### Port summary
 
-```bash
-docker stop ricotdin && docker rm ricotdin
-docker build --build-arg NEXT_PUBLIC_SUPABASE_URL=... --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=... -t ricotdin .
-docker run -d -p 3333:3333 --env-file .env.runtime --name ricotdin ricotdin
-```
+| Port | Service |
+|------|---------|
+| **3333** | nginx (expose this one) |
+| 3000 | Next.js (internal — not exposed) |
 
 ---
 
 ## Environment variables
 
-| Variable | Where supplied | Description |
+| Variable | Where | Description |
 |---|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | `--build-arg` | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `--build-arg` | Supabase anon key (safe to expose) |
-| `SUPABASE_SERVICE_ROLE_KEY` | runtime `-e` | Service role key — **never expose** |
-| `GEMINI_API_KEY` | runtime `-e` | Google AI Studio key — **never expose** |
+| `NEXT_PUBLIC_SUPABASE_URL` | `--build-arg` / Compose args | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `--build-arg` / Compose args | Supabase anon key (public) |
+| `SUPABASE_SERVICE_ROLE_KEY` | runtime `--env-file` | Service role key — **never expose** |
+| `GEMINI_API_KEY` | runtime `--env-file` | Gemini key fallback — **never expose** |
+| `SPEECHMATICS_API_KEY` | runtime `--env-file` | Speechmatics key fallback — **never expose** |
+| `KEY_ENCRYPTION_SECRET` | runtime `--env-file` | 64 hex chars, encrypts stored DB keys — **never expose** |
+
+Keys can also be managed from the admin UI at `/admin/keys` after first boot;
+env vars serve as fallback when no DB keys are configured.
+
+---
+
+## Database setup
+
+Apply migrations **in order** in the Supabase SQL editor:
+
+```
+migrations/001_profiles.sql
+migrations/002_jwt_hook.sql
+migrations/003_rls_owner_or_admin.sql
+migrations/004_meetings_pinned.sql
+migrations/005_audit_logs.sql
+migrations/009_usage_log.sql
+migrations/011_folders.sql
+migrations/012_folder_shares.sql
+migrations/013_folders_position.sql
+migrations/014_provider_keys.sql
+migrations/016_activity_log.sql
+migrations/017_features.sql
+migrations/018_profiles_extended.sql
+migrations/019_usage_log_key.sql
+```
+
+After applying migrations:
+
+1. **Storage bucket** — Dashboard → Storage → New bucket → Name `recordings` → uncheck "Public bucket"
+2. **Auth hook** — Dashboard → Authentication → Hooks → Custom Access Token → select `public.custom_access_token_hook`
+3. **Seed admin account** — `npx tsx scripts/seed-admin.ts <email>`
+4. **Seed feature registry** — `npx tsx scripts/seed-features.ts`
 
 ---
 
 ## Local development (without Docker)
 
+### Prerequisites
+
+- Node.js 20+
+- ffmpeg on `$PATH` (audio transcoding)
+
+### Setup
+
 ```bash
-cp .env.example .env.local   # fill in all four values
 npm install
-npm run dev                  # http://localhost:3000
+# Copy .env.local from above and fill in your keys
+npm run dev        # http://localhost:3000
 ```
 
-Other useful commands:
-
-```bash
-npm run check   # verify Supabase + Gemini connectivity
-npm run lint    # ESLint
-npm test        # unit tests
-```
-
-### First-time Supabase setup
-
-Before the pipeline works end-to-end, do these once in the Supabase dashboard:
-
-1. **Storage bucket** — Dashboard → Storage → New bucket → Name: `recordings` → uncheck "Public bucket"
-2. **Anonymous sign-ins** — Dashboard → Authentication → Providers → Anonymous sign-ins → Enable
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Dev server with hot reload (port 3000) |
+| `npm run build` | Production build |
+| `npm run start` | Run production server (port 3000) |
+| `npm run lint` | ESLint |
+| `npm run check` | Verify Gemini + Supabase connectivity |
+| `npm test` | Unit test suite |

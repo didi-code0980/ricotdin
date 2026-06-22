@@ -15,7 +15,16 @@ out
 .git
 .gitignore
 
+# Dev/CI files not needed in the image
+tests
+scripts
+ai-instruction
+migrations
+*.test.ts
+
 # Editor / OS noise
 .DS_Store
 *.log
 npm-debug.log*
+.vscode
+.idea
