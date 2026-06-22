@@ -3,9 +3,11 @@
 // Creates a new user account:
 //   1. Validates email, username, password.
 //   2. Checks username uniqueness (server-side, via service role).
-//   3. Creates the auth.users row via admin API — sets app_metadata.role='user'.
-//   4. Inserts a public.profiles row.
-//   5. Signs in and returns the session tokens.
+//   3. Creates the auth.users row via admin API — sets app_metadata.role='user',
+//      email_confirm=true (no email verification for MVP).
+//   4. Immediately disables the account (ban_duration='876600h') so the user
+//      cannot sign in until an admin enables them in /admin/users.
+//   5. Inserts a public.profiles row.
 //
 // SECURITY: role is always forced to 'user'. The client cannot influence it.
 // SECURITY: service role key stays server-only (never returned to client).
@@ -57,11 +59,12 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // ── Create the auth user — Supabase will send a confirmation email ──────────
+  // ── Create the auth user (email_confirm=true skips verification email) ───────
   const { data: adminData, error: createErr } = await db.auth.admin.createUser({
     email,
     password,
-    app_metadata: { role: 'user' }, // ONLY place role is set; never user_metadata
+    email_confirm: true,             // MVP: no email verification required
+    app_metadata: { role: 'user' },  // ONLY place role is set; never user_metadata
   })
 
   if (createErr || !adminData.user) {
@@ -79,6 +82,16 @@ export async function POST(req: NextRequest) {
 
   const userId = adminData.user.id
 
+  // ── Disable the account until an admin approves it ────────────────────────
+  // Uses the same ban_duration mechanism as the admin status toggle.
+  const { error: banErr } = await db.auth.admin.updateUserById(userId, {
+    ban_duration: '876600h', // ~100 years — effectively disabled
+  })
+  if (banErr) {
+    // Non-fatal: log and continue. The account is created; admin can enable manually.
+    console.error('[register] initial ban failed (account created but enabled):', banErr.message)
+  }
+
   // ── Insert profile row ─────────────────────────────────────────────────────
   const { error: profileErr } = await db
     .from('profiles')
@@ -94,5 +107,5 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  return NextResponse.json({ needsVerification: true }, { status: 201 })
+  return NextResponse.json({ pendingApproval: true }, { status: 201 })
 }

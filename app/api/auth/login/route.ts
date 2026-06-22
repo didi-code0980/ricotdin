@@ -78,9 +78,10 @@ export async function POST(req: NextRequest) {
 
   if (error || !data.session) {
     const msg = error?.message?.toLowerCase() ?? ''
-    if (msg.includes('email not confirmed') || (error as { code?: string } | null)?.code === 'email_not_confirmed') {
+    const code = (error as { code?: string } | null)?.code ?? ''
+    if (msg.includes('banned') || code === 'user_banned') {
       return NextResponse.json(
-        { error: 'Please verify your email before signing in. Check your inbox for the confirmation link.' },
+        { error: 'Your account is pending admin approval. You will be able to sign in once an admin enables your account.' },
         { status: 403 },
       )
     }
