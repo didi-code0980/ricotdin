@@ -45,6 +45,11 @@ const patrickHand = Patrick_Hand({
 export const metadata: Metadata = {
   title: "Ricotdin — Meeting Assistant",
   description: "Record meetings, get transcripts, summaries, and to-dos.",
+  icons: {
+    icon: "/long-logo.png",
+    shortcut: "/long-logo.png",
+    apple: "/long-logo.png",
+  },
 };
 
 export default function RootLayout({
