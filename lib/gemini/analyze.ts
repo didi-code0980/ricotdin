@@ -196,7 +196,7 @@ export async function analyzeTranscript(
   log(`[analyze] analysing transcript with ${transcript.segments.length} segments` +
     (meetingDate ? ` (meeting date: ${meetingDate})` : ''))
 
-  return geminiPool.call(async (ai) => {
+  return geminiPool.call(async (ai, keyId) => {
     const response = await ai.models.generateContent({
       model: GEMINI_MODEL,
       contents: buildPrompt(transcript.segments, false, meetingDate),
@@ -213,7 +213,7 @@ export async function analyzeTranscript(
       input_tokens: meta?.promptTokenCount ?? undefined,
       output_tokens: meta?.candidatesTokenCount ?? undefined,
       total_tokens: meta?.totalTokenCount ?? undefined,
-      meeting_id: ctx?.meetingId, user_id: ctx?.userId,
+      meeting_id: ctx?.meetingId, user_id: ctx?.userId, key_id: keyId,
     })
 
     try {
@@ -238,7 +238,7 @@ export async function analyzeTranscript(
         input_tokens: meta2?.promptTokenCount ?? undefined,
         output_tokens: meta2?.candidatesTokenCount ?? undefined,
         total_tokens: meta2?.totalTokenCount ?? undefined,
-        meeting_id: ctx?.meetingId, user_id: ctx?.userId,
+        meeting_id: ctx?.meetingId, user_id: ctx?.userId, key_id: keyId,
       })
       return parseResult(response2.text ?? '')
     }

@@ -30,6 +30,9 @@ export type AiUsageRow = {
   model: string
   operation: string | null   // null when groupBy != 'operation'
   unit: string
+  key_id: string | null
+  key_label: string | null
+  key_last4: string | null
   calls: number
   total_tokens: number | null
   total_input_tokens: number | null
@@ -65,6 +68,7 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = req.nextUrl
   const groupByOperation = searchParams.get('groupBy') === 'operation'
+  const userId = searchParams.get('userId') ?? null
 
   const now = new Date()
   const defaultFrom = new Date(now)
@@ -89,14 +93,27 @@ export async function GET(req: NextRequest) {
   // usage_log is expected to have tens of thousands of rows (not millions),
   // so fetching all rows in range is safe. If the table grows large we can
   // add a dedicated Postgres aggregate RPC via migration.
-  const { data: rows, error } = await db
+  let usageQuery = db
     .from('usage_log')
     .select(
-      'provider, model, operation, unit, quantity, input_tokens, output_tokens, total_tokens, audio_seconds, status',
+      'provider, model, operation, unit, quantity, input_tokens, output_tokens, total_tokens, audio_seconds, status, key_id',
     )
     .gte('created_at', fromDate.toISOString())
     .lte('created_at', toDate.toISOString())
     .order('created_at', { ascending: true })
+
+  if (userId) usageQuery = usageQuery.eq('user_id', userId)
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: rows, error } = await (usageQuery as any) as {
+    data: Array<{
+      provider: string; model: string; operation: string | null; unit: string;
+      quantity: number; input_tokens: number | null; output_tokens: number | null;
+      total_tokens: number | null; audio_seconds: number | null;
+      status: string; key_id: string | null;
+    }> | null;
+    error: { message: string } | null;
+  }
 
   if (error) {
     console.error('[admin/ai-usage] query failed:', error.message)
@@ -108,17 +125,20 @@ export async function GET(req: NextRequest) {
   const groups = new Map<AggKey, AiUsageRow>()
 
   for (const row of rows ?? []) {
-    const key = groupByOperation
-      ? `${row.provider}|${row.model}|${row.operation}|${row.unit}`
-      : `${row.provider}|${row.model}|${row.unit}`
+    const aggKey = groupByOperation
+      ? `${row.provider}|${row.model}|${row.operation}|${row.unit}|${row.key_id ?? ''}`
+      : `${row.provider}|${row.model}|${row.unit}|${row.key_id ?? ''}`
 
-    const existing = groups.get(key)
+    const existing = groups.get(aggKey)
     if (!existing) {
-      groups.set(key, {
+      groups.set(aggKey, {
         provider: row.provider,
         model: row.model,
         operation: groupByOperation ? row.operation : null,
         unit: row.unit,
+        key_id:    row.key_id ?? null,
+        key_label: null,  // enriched after aggregation
+        key_last4: null,
         calls: 1,
         total_tokens:       row.unit === 'tokens'        ? (row.total_tokens ?? 0)   : null,
         total_input_tokens: row.unit === 'tokens'        ? (row.input_tokens ?? 0)   : null,
@@ -141,13 +161,36 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // ── Enrich with key label / last4 ─────────────────────────────────────────
+  const keyIds = [...new Set([...groups.values()].map(r => r.key_id).filter(Boolean))] as string[]
+  if (keyIds.length > 0) {
+    const { data: keyRows } = await db
+      .from('admin_config')
+      .select('id, label, last4')
+      .in('id', keyIds)
+    const keyMeta = new Map<string, { label: string | null; last4: string | null }>()
+    for (const k of keyRows ?? []) {
+      keyMeta.set(k.id as string, { label: k.label as string | null, last4: k.last4 as string | null })
+    }
+    for (const row of groups.values()) {
+      if (row.key_id) {
+        const m = keyMeta.get(row.key_id)
+        if (m) { row.key_label = m.label; row.key_last4 = m.last4 }
+      }
+    }
+  }
+
   // ── Daily totals for trend chart (quantity per provider per day) ──────────
-  const { data: dailyRows, error: dailyErr } = await db
+  let dailyQuery = db
     .from('usage_log')
     .select('created_at, provider, unit, quantity')
     .gte('created_at', fromDate.toISOString())
     .lte('created_at', toDate.toISOString())
     .order('created_at', { ascending: true })
+
+  if (userId) dailyQuery = dailyQuery.eq('user_id', userId)
+
+  const { data: dailyRows, error: dailyErr } = await dailyQuery
 
   if (dailyErr) {
     console.warn('[admin/ai-usage] daily totals query failed:', dailyErr.message)

@@ -41,13 +41,15 @@ export async function embedChunks(texts: string[], ctx?: EmbedContext): Promise<
         `(${batch.length} chunks, total so far ${i})`,
     )
 
-    const response = await geminiPool.call(ai =>
-      ai.models.embedContent({
+    let usedKeyId: string | null = null
+    const response = await geminiPool.call((ai, keyId) => {
+      usedKeyId = keyId
+      return ai.models.embedContent({
         model: GEMINI_EMBEDDING_MODEL,
         contents: batch,
         config: { outputDimensionality: EMBEDDING_DIMENSION },
-      }),
-    )
+      })
+    })
 
     // The Gemini embedding API may not return usageMetadata; use batch size as proxy.
     const meta = (response as Record<string, unknown>).usageMetadata as
@@ -60,7 +62,7 @@ export async function embedChunks(texts: string[], ctx?: EmbedContext): Promise<
       quantity: totalTokens ?? batch.length,
       input_tokens: meta?.promptTokenCount ?? undefined,
       total_tokens: totalTokens,
-      meeting_id: ctx?.meetingId, user_id: ctx?.userId,
+      meeting_id: ctx?.meetingId, user_id: ctx?.userId, key_id: usedKeyId,
     })
 
     const embeddings = response.embeddings

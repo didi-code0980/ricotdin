@@ -200,6 +200,7 @@ function AiUsageTable({ rows }: { rows: AiUsageRow[] }) {
                   <Th>Provider</Th>
                   <Th>Model</Th>
                   <Th>Operation</Th>
+                  <Th>Key</Th>
                   <Th right>Calls</Th>
                   <Th right>Input tokens</Th>
                   <Th right>Output tokens</Th>
@@ -214,6 +215,7 @@ function AiUsageTable({ rows }: { rows: AiUsageRow[] }) {
                     <Td><ProviderBadge p={r.provider} /></Td>
                     <Td><code style={S.code}>{r.model}</code></Td>
                     <Td>{r.operation ?? '—'}</Td>
+                    <Td><KeyCell label={r.key_label} last4={r.key_last4} /></Td>
                     <Td right>{r.calls.toLocaleString()}</Td>
                     <Td right>{fmtTokens(r.total_input_tokens)}</Td>
                     <Td right>{fmtTokens(r.total_output_tokens)}</Td>
@@ -244,6 +246,7 @@ function AiUsageTable({ rows }: { rows: AiUsageRow[] }) {
                   <Th>Provider</Th>
                   <Th>Model</Th>
                   <Th>Operation</Th>
+                  <Th>Key</Th>
                   <Th right>Calls</Th>
                   <Th right>Total audio</Th>
                   <Th right>429s</Th>
@@ -256,6 +259,7 @@ function AiUsageTable({ rows }: { rows: AiUsageRow[] }) {
                     <Td><ProviderBadge p={r.provider} /></Td>
                     <Td><code style={S.code}>{r.model}</code></Td>
                     <Td>{r.operation ?? '—'}</Td>
+                    <Td><KeyCell label={r.key_label} last4={r.key_last4} /></Td>
                     <Td right>{r.calls.toLocaleString()}</Td>
                     <Td right><strong>{fmtMinutes(r.total_audio_seconds)}</strong></Td>
                     <Td right>{r.rate_limited_count > 0
@@ -281,6 +285,18 @@ function ProviderBadge({ p }: { p: string }) {
   return (
     <span style={{ ...S.badge, background: `${providerColor(p)}22`, color: providerColor(p) }}>
       {p}
+    </span>
+  )
+}
+
+function KeyCell({ label, last4 }: { label: string | null; last4: string | null }) {
+  if (!label && !last4) {
+    return <span style={{ color: '#94a3b8', fontSize: 11 }}>env</span>
+  }
+  return (
+    <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+      {label && <span style={{ fontSize: 12, color: '#334155' }}>{label}</span>}
+      {last4 && <code style={{ ...S.code, fontSize: 11 }}>••••{last4}</code>}
     </span>
   )
 }

@@ -150,25 +150,25 @@ export async function answerWithContext({
 }): Promise<AnswerResult> {
   const validChunkIds = new Set(chunks.map((c) => c.id))
 
-  const response = await geminiPool.call(ai =>
-    ai.models.generateContent({
+  const response = await geminiPool.call(async (ai, keyId) => {
+    const res = await ai.models.generateContent({
       model: GEMINI_MODEL,
       contents: buildPrompt(question, chunks, history.slice(-4)),
       config: {
         responseMimeType: 'application/json',
         responseSchema: ANSWER_RESPONSE_SCHEMA,
       },
-    }),
-  )
-
-  const meta = response.usageMetadata
-  logUsage({
-    provider: 'gemini', model: GEMINI_MODEL, operation: 'chat',
-    unit: 'tokens', quantity: meta?.totalTokenCount ?? 0,
-    input_tokens: meta?.promptTokenCount ?? undefined,
-    output_tokens: meta?.candidatesTokenCount ?? undefined,
-    total_tokens: meta?.totalTokenCount ?? undefined,
-    meeting_id: ctx?.meetingId, user_id: ctx?.userId,
+    })
+    const meta = res.usageMetadata
+    logUsage({
+      provider: 'gemini', model: GEMINI_MODEL, operation: 'chat',
+      unit: 'tokens', quantity: meta?.totalTokenCount ?? 0,
+      input_tokens: meta?.promptTokenCount ?? undefined,
+      output_tokens: meta?.candidatesTokenCount ?? undefined,
+      total_tokens: meta?.totalTokenCount ?? undefined,
+      meeting_id: ctx?.meetingId, user_id: ctx?.userId, key_id: keyId,
+    })
+    return res
   })
 
   let parsed: z.infer<typeof AnswerSchema>

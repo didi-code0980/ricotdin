@@ -85,6 +85,8 @@ function readConfig(): PoolConfig {
 
 interface KeyState {
   readonly key: string
+  /** DB id of this key (null for env-var fallback keys). Passed to logUsage. */
+  readonly keyId: string | null
   /** 1-based; used in log messages only — never log the raw key value. */
   readonly index: number
   /** Epoch ms after which this key can be used again. 0 = no cooldown. */
@@ -166,7 +168,7 @@ class GeminiKeyPool {
   private readonly keys: KeyState[]
   private readonly cfg: PoolConfig
 
-  constructor(keys: string[], cfg: PoolConfig) {
+  constructor(keys: Array<{ id: string | null; key: string }>, cfg: PoolConfig) {
     if (keys.length === 0) {
       throw new Error(
         'No Gemini API keys configured. ' +
@@ -174,7 +176,8 @@ class GeminiKeyPool {
       )
     }
     this.keys = keys.map((k, i) => ({
-      key: k,
+      key: k.key,
+      keyId: k.id,
       index: i + 1,
       cooldownUntil: 0,
       lastUsedAt: 0,
@@ -202,6 +205,8 @@ class GeminiKeyPool {
 
   /**
    * Execute `fn` with a healthy GoogleGenAI client.
+   * `fn` receives the client and the DB id of the key used (null for env-var keys).
+   * Existing callers that only use the first parameter continue to work unchanged.
    *
    * On retryable errors the pool puts the used key on cooldown (or disables it),
    * picks the next healthy key via LRU, and retries `fn` from scratch.
@@ -210,7 +215,7 @@ class GeminiKeyPool {
    * inside a single call() so the same key is used throughout (Gemini files are
    * scoped to the uploading key).
    */
-  async call<T>(fn: (ai: GoogleGenAI) => Promise<T>): Promise<T> {
+  async call<T>(fn: (ai: GoogleGenAI, keyId: string | null) => Promise<T>): Promise<T> {
     const maxAttempts =
       this.cfg.maxAttempts > 0
         ? this.cfg.maxAttempts
@@ -253,7 +258,7 @@ class GeminiKeyPool {
       const ai = new GoogleGenAI({ apiKey: keyState.key })
 
       try {
-        const result = await fn(ai)
+        const result = await fn(ai, keyState.keyId)
         keyState.consecutiveFailures = 0
         return result
       } catch (err) {
@@ -318,7 +323,7 @@ class GeminiKeyPool {
 // Key loading — async, reads DB keys via provider (with env-var fallback).
 // ---------------------------------------------------------------------------
 
-import { getActiveKeys } from '../keys/provider'
+import { getActiveKeysWithMeta } from '../keys/provider'
 
 // ---------------------------------------------------------------------------
 // Pool singleton with TTL-based refresh.
@@ -344,7 +349,7 @@ export function resetGeminiPool(): void {
 async function getPoolAsync(): Promise<GeminiKeyPool> {
   const now = Date.now()
   if (!_pool || now - _poolLoadedAt > POOL_TTL_MS) {
-    const keys = await getActiveKeys('gemini')
+    const keys = await getActiveKeysWithMeta('gemini')
     _pool = new GeminiKeyPool(keys, readConfig())
     _poolLoadedAt = now
   }
@@ -352,7 +357,7 @@ async function getPoolAsync(): Promise<GeminiKeyPool> {
 }
 
 export const geminiPool = {
-  async call<T>(fn: (ai: GoogleGenAI) => Promise<T>): Promise<T> {
+  async call<T>(fn: (ai: GoogleGenAI, keyId: string | null) => Promise<T>): Promise<T> {
     const pool = await getPoolAsync()
     return pool.call(fn)
   },

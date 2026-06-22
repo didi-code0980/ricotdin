@@ -32,6 +32,7 @@ export interface UsageEntry {
   // Attribution (metadata only — no content)
   meeting_id?: string | null
   user_id?: string | null
+  key_id?: string | null
 }
 
 /**
@@ -46,6 +47,7 @@ export function logUsage(entry: UsageEntry): void {
 async function _write(entry: UsageEntry): Promise<void> {
   try {
     const db = createServerClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error } = await db.from('usage_log').insert({
       provider:      entry.provider,
       model:         entry.model,
@@ -60,7 +62,8 @@ async function _write(entry: UsageEntry): Promise<void> {
       http_code:     entry.http_code     ?? null,
       meeting_id:    entry.meeting_id    ?? null,
       user_id:       entry.user_id       ?? null,
-    })
+      key_id:        entry.key_id        ?? null,
+    } as any)
     if (error) {
       console.warn('[usage] log insert failed:', error.message)
     }
