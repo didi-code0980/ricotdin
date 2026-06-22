@@ -160,7 +160,13 @@ export function useRecorder(): UseRecorderReturn {
     } catch (err) {
       cleanup()
       const msg = formatError(err)
-      console.error('[Recorder] error:', msg, err)
+      // NotAllowedError is a user action (denied the browser prompt), not a
+      // code bug — warn so Next.js dev overlay doesn't treat it as fatal.
+      if (err instanceof Error && err.name === 'NotAllowedError') {
+        console.warn('[Recorder] permission denied by user')
+      } else {
+        console.error('[Recorder] error:', msg, err)
+      }
       setError(msg)
       setState('error')
     }
