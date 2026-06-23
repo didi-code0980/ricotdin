@@ -21,6 +21,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth/server'
 import { guardDelete } from '@/lib/admin/guards'
+import { deriveUserStatus } from '@/lib/admin/userStatus'
 import { deleteObjects } from '@/lib/storage'
 
 export async function GET(
@@ -60,6 +61,7 @@ export async function GET(
     username: profile?.username ?? null,
     role: (appRole ?? profile?.role ?? 'user') as 'user' | 'admin',
     disabled: !!authUser.banned_until && new Date(authUser.banned_until) > new Date(),
+    status: deriveUserStatus({ bannedUntil: authUser.banned_until, emailConfirmedAt: authUser.email_confirmed_at }),
     meeting_count: meetingCount ?? 0,
     created_at: authUser.created_at,
     last_sign_in_at: authUser.last_sign_in_at ?? null,

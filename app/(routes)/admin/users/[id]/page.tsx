@@ -15,6 +15,7 @@ type UserDetail = {
   username: string | null
   role: 'user' | 'admin'
   disabled: boolean
+  status: 'unverified' | 'active' | 'disabled'
   meeting_count: number
   created_at: string
   last_sign_in_at: string | null
@@ -171,7 +172,8 @@ export default function UserDetailPage() {
               {user.email ?? '—'}
               {user.username && <span style={S.cardUsername}>@{user.username}</span>}
               <span style={user.role === 'admin' ? S.roleAdmin : S.roleUser}>{user.role}</span>
-              {user.disabled && <span style={S.disabledBadge}>Disabled</span>}
+              {user.status === 'disabled' && <span style={S.disabledBadge}>Disabled</span>}
+              {user.status === 'unverified' && <span style={S.unverifiedBadge}>Unverified</span>}
             </div>
             <div style={S.cardMeta}>
               <span style={S.metaItem}><Calendar size={12} /> Joined {fmt(user.created_at)}</span>
@@ -403,6 +405,7 @@ const S: Record<string, CSSProperties> = {
   roleAdmin: { display: 'inline-block', fontSize: 11, fontWeight: 700, background: '#dbeafe', color: '#1d4ed8', padding: '2px 7px', borderRadius: 99 },
   roleUser:  { display: 'inline-block', fontSize: 11, fontWeight: 600, background: '#f0f0f0', color: '#555', padding: '2px 7px', borderRadius: 99 },
   disabledBadge: { display: 'inline-block', fontSize: 11, fontWeight: 600, background: '#fee2e2', color: '#991b1b', padding: '2px 7px', borderRadius: 99 },
+  unverifiedBadge: { display: 'inline-block', fontSize: 11, fontWeight: 600, background: '#fef3c7', color: '#92400e', padding: '2px 7px', borderRadius: 99 },
 
   // Tabs
   tabs: { display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid #e2e8f0', paddingBottom: 0 },

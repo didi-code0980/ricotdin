@@ -14,7 +14,6 @@ import type { Theme } from '@/lib/theme'
 export default function RoutesLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
-  const [ready, setReady] = useState(false)
   const [email, setEmail] = useState<string | null>(null)
   const [username, setUsername] = useState<string | null>(null)
   const [displayName, setDisplayName] = useState<string | null>(null)
@@ -29,7 +28,6 @@ export default function RoutesLayout({ children }: { children: React.ReactNode }
         router.replace('/login')
       } else {
         setEmail(session.user?.email ?? null)
-        setReady(true)
 
         // Sync profile data (theme, display name, avatar) on session open.
         // Non-blocking: ignore errors — localStorage value is always the fallback.
@@ -72,18 +70,9 @@ export default function RoutesLayout({ children }: { children: React.ReactNode }
     return () => document.removeEventListener('mousedown', onMouseDown)
   }, [])
 
-  if (!ready) {
-    // Admin pages have their own loading state — skip the spinner so the
-    // sidebar doesn't flash with a full-screen loader before the page mounts.
-    if (pathname.startsWith('/admin')) return <>{/* admin layout takes over */}</>
-    return (
-      <div className="min-h-screen bg-b-bg flex items-center justify-center">
-        <span className="text-sm text-b-primary font-sans tracking-widest uppercase animate-pulse">
-          Loading…
-        </span>
-      </div>
-    )
-  }
+  // No full-screen "Loading…" gate: render the shell immediately so pages can
+  // show their own skeletons while the session check runs. The useEffect above
+  // still redirects to /login when there is no session.
 
   // Admin pages have their own full-screen layout (dark sidebar shell).
   // Return children directly so the admin layout renders without the top nav.

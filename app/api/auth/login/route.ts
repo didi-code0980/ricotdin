@@ -79,9 +79,15 @@ export async function POST(req: NextRequest) {
   if (error || !data.session) {
     const msg = error?.message?.toLowerCase() ?? ''
     const code = (error as { code?: string } | null)?.code ?? ''
+    if (msg.includes('not confirmed') || code === 'email_not_confirmed') {
+      return NextResponse.json(
+        { error: 'Please verify your email before signing in. Check your inbox for the verification link.' },
+        { status: 403 },
+      )
+    }
     if (msg.includes('banned') || code === 'user_banned') {
       return NextResponse.json(
-        { error: 'Your account is pending admin approval. You will be able to sign in once an admin enables your account.' },
+        { error: 'Your account has been disabled. Please contact an administrator.' },
         { status: 403 },
       )
     }

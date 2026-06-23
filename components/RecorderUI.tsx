@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRecorder } from '@/lib/audio/useRecorder'
 import { checkRecordingSupport } from '@/lib/audio/support'
 import { useUpload } from '@/lib/upload/useUpload'
+import { getAccessToken } from '@/lib/supabase/auth'
 import FileUploadSection from '@/components/FileUploadSection'
 import FolderSelector from '@/components/FolderSelector'
 
@@ -14,7 +15,7 @@ function formatTime(seconds: number): string {
   return `${m}:${s}`
 }
 
-export default function RecorderUI() {
+export default function RecorderUI({ initialFolderId = null }: { initialFolderId?: string | null }) {
   const {
     state, elapsedSeconds, blob, objectUrl, mimeType, trackInfo, error,
     supported, start, stop, reset,
@@ -26,7 +27,37 @@ export default function RecorderUI() {
   const { state: uploadState, meetingId, error: uploadError, upload, reset: resetUpload } = useUpload()
   const startedAtRef = useRef<string | null>(null)
   const [showUpload, setShowUpload] = useState(false)
-  const [folderId, setFolderId] = useState<string | null>(null)
+  const [folderId, setFolderId] = useState<string | null>(initialFolderId)
+  const [moveBusy, setMoveBusy] = useState(false)
+  const [moveError, setMoveError] = useState<string | null>(null)
+
+  // Post-upload: move the created meeting to a folder.
+  async function handleMoveToFolder(target: string | null) {
+    if (!meetingId) return
+    const prev = folderId
+    setFolderId(target) // optimistic
+    setMoveError(null)
+    setMoveBusy(true)
+    try {
+      const token = await getAccessToken()
+      if (!token) { setFolderId(prev); setMoveError('Not authenticated.'); return }
+      const res = await fetch(`/api/meetings/${meetingId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ folder_id: target }),
+      })
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string }
+        setFolderId(prev)
+        setMoveError(j.error ?? 'Failed to move recording.')
+      }
+    } catch {
+      setFolderId(prev)
+      setMoveError('Network error.')
+    } finally {
+      setMoveBusy(false)
+    }
+  }
 
   // ── Unsupported browser ────────────────────────────────────────────────
 
@@ -109,17 +140,17 @@ export default function RecorderUI() {
 
         {(state === 'stopped' || state === 'error') && (
           <button
-            onClick={() => { reset(); resetUpload(); startedAtRef.current = null }}
+            onClick={() => { reset(); resetUpload(); startedAtRef.current = null; setMoveError(null); setFolderId(initialFolderId) }}
             className="btn-secondary"
           >
-            ↺ Reset
+            ↺ Record another
           </button>
         )}
       </div>
 
       {/* File upload section — shown when user picks "Upload a file" in idle state */}
       {state === 'idle' && showUpload && (
-        <FileUploadSection onCancel={() => setShowUpload(false)} />
+        <FileUploadSection onCancel={() => setShowUpload(false)} initialFolderId={initialFolderId} />
       )}
 
       {/* No system audio warning */}
@@ -186,7 +217,13 @@ export default function RecorderUI() {
           )}
 
           {uploadState === 'uploading' && (
-            <p className="text-sm text-b-fg/50 font-sans animate-pulse">Uploading… please wait</p>
+            <div className="flex items-center gap-3 rounded-2xl border border-b-primary/30 bg-b-clay px-4 py-3 self-start">
+              <span
+                className="inline-block w-5 h-5 shrink-0 rounded-full border-2 border-b-primary/25 border-t-b-primary animate-spin"
+                aria-hidden="true"
+              />
+              <span className="text-sm text-b-fg/70 font-sans">Uploading… please wait</span>
+            </div>
           )}
 
           {uploadState === 'error' && (
@@ -199,11 +236,28 @@ export default function RecorderUI() {
           )}
 
           {uploadState === 'done' && meetingId && (
-            <div className="bg-b-clay border border-b-primary/30 rounded-2xl px-4 py-3 text-sm text-b-fg font-sans">
-              ✓ Saved!{' '}
-              <Link href="/meetings" className="text-b-terra font-semibold hover:underline">
-                View all meetings →
-              </Link>
+            <div className="flex flex-col gap-4">
+              <div className="bg-b-clay border border-b-primary/30 rounded-2xl px-4 py-3 text-sm text-b-fg font-sans">
+                ✓ Saved! Your recording is now processing.
+              </div>
+
+              {/* Move the saved recording to a folder */}
+              <FolderSelector
+                value={folderId}
+                onChange={(f) => { void handleMoveToFolder(f) }}
+                disabled={moveBusy}
+              />
+              {moveError && <p className="text-xs text-red-500 font-sans">{moveError}</p>}
+
+              {/* Actions — "Record another" lives in the Reset button above */}
+              <div className="flex items-center gap-3 flex-wrap">
+                <Link href={`/meetings/${meetingId}`} className="btn-primary">
+                  View recording →
+                </Link>
+                <Link href="/meetings" className="text-sm text-b-terra font-semibold font-sans hover:underline">
+                  All meetings
+                </Link>
+              </div>
             </div>
           )}
         </div>

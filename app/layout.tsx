@@ -6,7 +6,12 @@ import {
   Kalam,
   Patrick_Hand,
 } from "next/font/google";
+import { cookies } from "next/headers";
+import { ThemeProvider } from "@/components/ThemeProvider";
+import { type Theme, DEFAULT_THEME, STORAGE_KEY } from "@/lib/theme";
 import "./globals.css";
+
+const VALID_THEMES: Theme[] = ["luxury", "default", "playful"];
 
 // ── Botanical / Organic Serif ────────────────────────────────────────────────
 const playfair = Playfair_Display({
@@ -47,7 +52,7 @@ export const metadata: Metadata = {
   description: "Record meetings, get transcripts, summaries, and to-dos.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
@@ -60,19 +65,17 @@ export default function RootLayout({
     patrickHand.variable,
   ].join(" ");
 
+  // Read the theme from a cookie and apply it to <html data-theme> during SSR.
+  // This avoids the first-paint flash with no inline script, and the same value
+  // seeds the client ThemeProvider so there's no hydration mismatch.
+  const cookieTheme = (await cookies()).get(STORAGE_KEY)?.value;
+  const initialTheme: Theme =
+    cookieTheme && VALID_THEMES.includes(cookieTheme as Theme)
+      ? (cookieTheme as Theme)
+      : DEFAULT_THEME;
+
   return (
-    <html lang="en" className={fontVars} suppressHydrationWarning>
-      {/*
-        Anti-flash script: reads localStorage before React hydrates so the
-        correct data-theme is applied synchronously on first paint.
-      */}
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('ricotdin-theme');if(t&&['luxury','default','playful'].includes(t))document.documentElement.setAttribute('data-theme',t);}catch(e){}})();`,
-          }}
-        />
-      </head>
+    <html lang="en" data-theme={initialTheme} className={fontVars} suppressHydrationWarning>
       <body suppressHydrationWarning>
         {/* Paper grain texture — botanical theme only; hidden via CSS for others */}
         <div
@@ -83,7 +86,9 @@ export default function RootLayout({
             backgroundRepeat: "repeat",
           }}
         />
-        {children}
+        <ThemeProvider initialTheme={initialTheme}>
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

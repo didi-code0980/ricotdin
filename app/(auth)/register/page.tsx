@@ -12,7 +12,8 @@ export default function RegisterPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [pendingApproval, setPendingApproval] = useState(false)
+  const [verifyEmail, setVerifyEmail] = useState(false)
+  const [emailSent, setEmailSent] = useState(true)
   const [checking, setChecking] = useState(true)
 
   useEffect(() => {
@@ -37,7 +38,8 @@ export default function RegisterPage() {
         body: JSON.stringify({ email, username, password }),
       })
       const data = (await res.json()) as {
-        pendingApproval?: boolean
+        verifyEmail?: boolean
+        emailSent?: boolean
         error?: string
       }
 
@@ -46,7 +48,8 @@ export default function RegisterPage() {
         return
       }
 
-      setPendingApproval(true)
+      setEmailSent(data.emailSent ?? true)
+      setVerifyEmail(true)
     } catch {
       setError('Network error. Please try again.')
     } finally {
@@ -56,18 +59,25 @@ export default function RegisterPage() {
 
   if (checking) return null
 
-  if (pendingApproval) {
+  if (verifyEmail) {
     return (
       <div className="w-full max-w-sm">
         <div className="bg-white rounded-3xl border border-b-border shadow-b-xl p-8 text-center">
           <div className="mb-6 flex justify-center">
             <img src="/short-logo.png" alt="Ricotdin" style={{ height: '44px', width: 'auto' }} />
           </div>
-          <p className="font-serif text-xl font-semibold text-b-fg mb-3">Account created</p>
-          <p className="text-sm text-b-fg/60 font-sans mb-6">
-            Your account for <strong className="text-b-fg">{email}</strong> is ready,
-            but sign-in is disabled until an admin approves it.
-          </p>
+          <p className="font-serif text-xl font-semibold text-b-fg mb-3">Verify your email</p>
+          {emailSent ? (
+            <p className="text-sm text-b-fg/60 font-sans mb-6">
+              We sent a verification link to <strong className="text-b-fg">{email}</strong>.
+              Click it to activate your account, then sign in.
+            </p>
+          ) : (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-2xl px-4 py-3 mb-6">
+              Your account was created, but we couldn&apos;t send the verification email.
+              Please contact an administrator.
+            </p>
+          )}
           <Link href="/login" className="btn-primary block w-full text-center">
             Go to sign in
           </Link>

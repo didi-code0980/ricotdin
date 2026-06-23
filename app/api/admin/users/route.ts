@@ -1,8 +1,11 @@
-// GET /api/admin/users?page=1&perPage=20&search=
+// GET /api/admin/users?page=1&perPage=20&search=&month=YYYY-MM
 //
 // Returns a paginated, searchable list of all users.
-// Each row includes: id, email, username, role, disabled, meeting_count,
-// created_at, last_sign_in_at.
+// Each row includes: id, email, username, role, disabled, email_confirmed,
+// status, meeting_count, gemini_tokens, audio_seconds, created_at, last_sign_in_at.
+//
+// `month` (YYYY-MM) scopes the per-user AI usage totals (gemini_tokens +
+// audio_seconds) to a single calendar month; defaults to the current month.
 //
 // Fetches all users via the Admin API (listUsers, max perPage=1000) and applies
 // search + pagination server-side so we can join with profiles + meeting counts.
@@ -13,6 +16,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth/server'
+import { deriveUserStatus } from '@/lib/admin/userStatus'
+import { monthRange, aggregateUsageByUser } from '@/lib/admin/usageByUser'
 
 export async function GET(req: NextRequest) {
   try {
@@ -25,6 +30,7 @@ export async function GET(req: NextRequest) {
   const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10))
   const perPage = Math.min(100, Math.max(1, parseInt(searchParams.get('perPage') ?? '20', 10)))
   const search = searchParams.get('search')?.toLowerCase().trim() ?? ''
+  const usageMonth = monthRange(searchParams.get('month'))
 
   const db = createServerClient()
 
@@ -65,16 +71,35 @@ export async function GET(req: NextRequest) {
     countMap.set(row.user_id, (countMap.get(row.user_id) ?? 0) + 1)
   }
 
+  // Per-user AI usage for the selected month (Gemini tokens + Speechmatics seconds).
+  // Non-fatal: if the query fails, fall back to zeroes rather than failing the page.
+  const { data: usageRows, error: usageErr } = await db
+    .from('usage_log')
+    .select('user_id, unit, total_tokens, audio_seconds')
+    .gte('created_at', usageMonth.startISO)
+    .lt('created_at', usageMonth.endISO)
+  if (usageErr) {
+    console.error('[admin/users] usage_log fetch failed:', usageErr.message)
+  }
+  const usageMap = aggregateUsageByUser(usageRows ?? [])
+
   const allUsers = authUsers.map((u) => {
     const profile = profileMap.get(u.id)
     const appRole = (u.app_metadata as Record<string, unknown>)?.role as string | undefined
+    const disabled = !!u.banned_until && new Date(u.banned_until) > new Date()
+    const usage = usageMap.get(u.id) ?? { geminiTokens: 0, audioSeconds: 0 }
     return {
       id: u.id,
       email: u.email ?? null,
       username: profile?.username ?? null,
       role: (appRole ?? profile?.role ?? 'user') as 'user' | 'admin',
-      disabled: !!u.banned_until && new Date(u.banned_until) > new Date(),
+      disabled,
+      email_confirmed: !!u.email_confirmed_at,
+      // 3-way status: unverified (email not confirmed) | active | disabled (banned)
+      status: deriveUserStatus({ bannedUntil: u.banned_until, emailConfirmedAt: u.email_confirmed_at }),
       meeting_count: countMap.get(u.id) ?? 0,
+      gemini_tokens: usage.geminiTokens,
+      audio_seconds: usage.audioSeconds,
       created_at: u.created_at,
       last_sign_in_at: u.last_sign_in_at ?? null,
     }
@@ -93,5 +118,5 @@ export async function GET(req: NextRequest) {
   const offset = (page - 1) * perPage
   const users = filtered.slice(offset, offset + perPage)
 
-  return NextResponse.json({ users, total, page, perPage })
+  return NextResponse.json({ users, total, page, perPage, month: usageMonth.month })
 }

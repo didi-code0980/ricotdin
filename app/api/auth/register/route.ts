@@ -4,15 +4,19 @@
 //   1. Validates email, username, password.
 //   2. Checks username uniqueness (server-side, via service role).
 //   3. Creates the auth.users row via admin API — sets app_metadata.role='user',
-//      email_confirm=true (no email verification for MVP).
-//   4. Immediately disables the account (ban_duration='876600h') so the user
-//      cannot sign in until an admin enables them in /admin/users.
-//   5. Inserts a public.profiles row.
+//      email_confirm=false (the user must verify their email before sign-in).
+//   4. Inserts a public.profiles row.
+//   5. Sends the email-verification link (anon client `auth.resend`). The user
+//      can sign in immediately after clicking the link — no admin approval.
 //
 // SECURITY: role is always forced to 'user'. The client cannot influence it.
 // SECURITY: service role key stays server-only (never returned to client).
+//
+// NOTE: sending the verification email requires SMTP configured in the Supabase
+// project (Dashboard → Authentication → Emails / SMTP). Without it, no mail goes out.
 
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@/lib/supabase/server'
 import {
   normalizeUsername,
@@ -20,6 +24,7 @@ import {
   validateEmail,
   validatePassword,
 } from '@/lib/auth/validate'
+import type { Database } from '@/types/database'
 
 export async function POST(req: NextRequest) {
   let body: { email?: string; username?: string; password?: string }
@@ -59,11 +64,11 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // ── Create the auth user (email_confirm=true skips verification email) ───────
+  // ── Create the auth user (email_confirm=false → verification required) ───────
   const { data: adminData, error: createErr } = await db.auth.admin.createUser({
     email,
     password,
-    email_confirm: true,             // MVP: no email verification required
+    email_confirm: false,            // user must verify their email before sign-in
     app_metadata: { role: 'user' },  // ONLY place role is set; never user_metadata
   })
 
@@ -82,16 +87,6 @@ export async function POST(req: NextRequest) {
 
   const userId = adminData.user.id
 
-  // ── Disable the account until an admin approves it ────────────────────────
-  // Uses the same ban_duration mechanism as the admin status toggle.
-  const { error: banErr } = await db.auth.admin.updateUserById(userId, {
-    ban_duration: '876600h', // ~100 years — effectively disabled
-  })
-  if (banErr) {
-    // Non-fatal: log and continue. The account is created; admin can enable manually.
-    console.error('[register] initial ban failed (account created but enabled):', banErr.message)
-  }
-
   // ── Insert profile row ─────────────────────────────────────────────────────
   const { error: profileErr } = await db
     .from('profiles')
@@ -107,5 +102,29 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  return NextResponse.json({ pendingApproval: true }, { status: 201 })
+  // ── Send the email-verification link ───────────────────────────────────────
+  // admin.createUser never sends mail itself, so trigger the signup confirmation
+  // explicitly via the anon client. Requires SMTP configured in the Supabase project.
+  const origin = req.headers.get('origin') ?? req.nextUrl.origin
+  const anon = createClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { persistSession: false } },
+  )
+  const { error: mailErr } = await anon.auth.resend({
+    type: 'signup',
+    email,
+    options: { emailRedirectTo: `${origin}/login` },
+  })
+  if (mailErr) {
+    // Non-fatal: the account exists but the verification mail could not be sent
+    // (commonly: SMTP not configured). Surface so the user isn't left guessing.
+    console.error('[register] verification email failed:', mailErr.message)
+    return NextResponse.json(
+      { verifyEmail: true, emailSent: false },
+      { status: 201 },
+    )
+  }
+
+  return NextResponse.json({ verifyEmail: true, emailSent: true }, { status: 201 })
 }

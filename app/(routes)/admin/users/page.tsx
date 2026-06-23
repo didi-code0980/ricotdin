@@ -4,10 +4,13 @@ import type { CSSProperties } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { MoreVertical } from 'lucide-react'
 import { browserClient } from '@/lib/supabase/browser'
 import { getAccessToken, getCurrentRole } from '@/lib/supabase/auth'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+type UserStatus = 'unverified' | 'active' | 'disabled'
 
 type AdminUser = {
   id: string
@@ -15,7 +18,11 @@ type AdminUser = {
   username: string | null
   role: 'user' | 'admin'
   disabled: boolean
+  email_confirmed: boolean
+  status: UserStatus
   meeting_count: number
+  gemini_tokens: number
+  audio_seconds: number
   created_at: string
   last_sign_in_at: string | null
 }
@@ -23,18 +30,43 @@ type AdminUser = {
 type Confirm =
   | { type: 'delete'; user: AdminUser }
   | { type: 'reset-password'; user: AdminUser }
+  | { type: 'role'; user: AdminUser; newRole: 'user' | 'admin' }
+  | { type: 'status'; user: AdminUser; newDisabled: boolean }
   | { type: 'bulk'; action: BulkAction; role?: 'user' | 'admin'; count: number }
 
 type BulkAction = 'disable' | 'enable' | 'set_role'
 
+// Anchored, fixed-position row menu (avoids clipping by the table's overflow).
+type RowMenu = { user: AdminUser; top: number; left: number }
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 const PER_PAGE = 20
+const MENU_WIDTH = 196
+
+function currentMonthValue(): string {
+  const now = new Date()
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
+}
+
+function buildMonthOptions(count = 12): { value: string; label: string }[] {
+  const now = new Date()
+  const opts: { value: string; label: string }[] = []
+  for (let i = 0; i < count; i++) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1))
+    const value = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+    const label = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+    opts.push({ value, label })
+  }
+  return opts
+}
 
 export default function AdminPage() {
   const router = useRouter()
 
   const [loading, setLoading]       = useState(true)
+  const [ready, setReady]           = useState(false)
+  const [refetching, setRefetching] = useState(false)
   const [forbidden, setForbidden]   = useState(false)
   const [users, setUsers]           = useState<AdminUser[]>([])
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
@@ -44,19 +76,23 @@ export default function AdminPage() {
 
   const [search, setSearch]         = useState('')
   const [roleFilter, setRoleFilter] = useState<'all' | 'user' | 'admin'>('all')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'disabled'>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | UserStatus>('all')
+  const [month, setMonth]           = useState<string>(currentMonthValue())
   const [page, setPage]             = useState(1)
 
   const [selected, setSelected]     = useState<Set<string>>(new Set())
   const [bulkRole, setBulkRole]     = useState<'user' | 'admin'>('user')
   const [confirm, setConfirm]       = useState<Confirm | null>(null)
   const [bulkBusy, setBulkBusy]     = useState(false)
+  const [menu, setMenu]             = useState<RowMenu | null>(null)
 
-  async function fetchUsers() {
+  const monthOptions = useMemo(() => buildMonthOptions(12), [])
+
+  async function fetchUsers(usageMonth: string) {
     const token = await getAccessToken()
     if (!token) { router.replace('/login'); return }
 
-    const res = await fetch('/api/admin/users?perPage=1000', {
+    const res = await fetch(`/api/admin/users?perPage=1000&month=${encodeURIComponent(usageMonth)}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
     if (res.status === 403) { setForbidden(true); return }
@@ -66,25 +102,37 @@ export default function AdminPage() {
     setUsers(data.users ?? [])
   }
 
+  // Role check + identity (runs once).
   useEffect(() => {
     async function init() {
       const role = await getCurrentRole()
       if (role !== 'admin') { setForbidden(true); setLoading(false); return }
       const { data: { session } } = await browserClient.auth.getSession()
       setCurrentUserId(session?.user.id ?? null)
-      await fetchUsers()
-      setLoading(false)
+      setReady(true)
     }
     void init()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Fetch (and re-fetch when the usage month changes).
+  useEffect(() => {
+    if (!ready) return
+    let cancelled = false
+    async function run() {
+      setRefetching(true)
+      await fetchUsers(month)
+      if (!cancelled) { setRefetching(false); setLoading(false) }
+    }
+    void run()
+    return () => { cancelled = true }
+  }, [ready, month]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
     return users.filter((u) => {
       if (q && !u.email?.toLowerCase().includes(q) && !u.username?.toLowerCase().includes(q)) return false
       if (roleFilter !== 'all' && u.role !== roleFilter) return false
-      if (statusFilter === 'active'   &&  u.disabled) return false
-      if (statusFilter === 'disabled' && !u.disabled) return false
+      if (statusFilter !== 'all' && u.status !== statusFilter) return false
       return true
     })
   }, [users, search, roleFilter, statusFilter])
@@ -94,14 +142,15 @@ export default function AdminPage() {
 
   function handleSearch(value: string) { setSearch(value); setPage(1); setSelected(new Set()) }
   function handleRoleFilter(v: string) { setRoleFilter(v as 'all' | 'user' | 'admin'); setPage(1); setSelected(new Set()) }
-  function handleStatusFilter(v: string) { setStatusFilter(v as 'all' | 'active' | 'disabled'); setPage(1); setSelected(new Set()) }
+  function handleStatusFilter(v: string) { setStatusFilter(v as 'all' | UserStatus); setPage(1); setSelected(new Set()) }
+  function handleMonth(v: string) { setMonth(v); setMenu(null) }
 
   // ── Row selection ──────────────────────────────────────────────────────────
 
   function toggleSelect(id: string) {
     setSelected((prev) => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) next.delete(id); else next.add(id)
       return next
     })
   }
@@ -116,12 +165,21 @@ export default function AdminPage() {
     }
   }
 
-  // ── Per-row actions ────────────────────────────────────────────────────────
+  // ── Row menu ─────────────────────────────────────────────────────────────────
+
+  function openMenu(user: AdminUser, e: React.MouseEvent) {
+    e.stopPropagation()
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const left = Math.max(8, r.right - MENU_WIDTH)
+    setMenu({ user, top: r.bottom + 4, left })
+  }
+
+  // ── Per-row actions (each invoked after a confirm) ───────────────────────────
 
   async function changeRole(user: AdminUser, newRole: 'user' | 'admin') {
     const token = await getAccessToken()
     if (!token) return
-    setError(null); setSuccess(null); setBusyId(user.id)
+    setConfirm(null); setError(null); setSuccess(null); setBusyId(user.id)
     const prevRole = user.role
     setUsers((prev) => prev.map((u) => u.id === user.id ? { ...u, role: newRole } : u))
     try {
@@ -145,12 +203,11 @@ export default function AdminPage() {
     }
   }
 
-  async function toggleStatus(user: AdminUser) {
+  async function setDisabled(user: AdminUser, newDisabled: boolean) {
     const token = await getAccessToken()
     if (!token) return
-    setError(null); setSuccess(null); setBusyId(user.id)
+    setConfirm(null); setError(null); setSuccess(null); setBusyId(user.id)
     const prevDisabled = user.disabled
-    const newDisabled = !user.disabled
     setUsers((prev) => prev.map((u) => u.id === user.id ? { ...u, disabled: newDisabled } : u))
     try {
       const res = await fetch(`/api/admin/users/${user.id}/status`, {
@@ -243,7 +300,7 @@ export default function AdminPage() {
       } else {
         setSuccess(`Bulk ${action}: applied to ${data.processed ?? 0} user(s).${data.skippedSelf?.length ? ' (Skipped yourself)' : ''}`)
         setSelected(new Set())
-        await fetchUsers()
+        await fetchUsers(month)
       }
     } catch {
       setError('Network error — please try again.')
@@ -307,8 +364,15 @@ export default function AdminPage() {
         <select style={S.filterSelect} value={statusFilter} onChange={(e) => handleStatusFilter(e.target.value)}>
           <option value="all">All statuses</option>
           <option value="active">Active</option>
+          <option value="unverified">Unverified</option>
           <option value="disabled">Disabled</option>
         </select>
+        <span style={S.divider} />
+        <label style={S.usageLabel}>Usage month</label>
+        <select style={S.filterSelect} value={month} onChange={(e) => handleMonth(e.target.value)} title="Choose which month's token / audio usage to display">
+          {monthOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        {refetching && <span style={S.muted}>Updating…</span>}
         <span style={S.countLabel}>
           {filtered.length} {filtered.length === 1 ? 'user' : 'users'}
           {search ? ` matching "${search}"` : ''}
@@ -351,9 +415,13 @@ export default function AdminPage() {
                   onChange={toggleSelectAll}
                 />
               </th>
-              {['Email / Username', 'Role', 'Status', 'Meetings', 'Last sign-in', 'Joined', 'Actions'].map((h) => (
-                <th key={h} style={S.th}>{h}</th>
-              ))}
+              <th style={S.th}>Email / Username</th>
+              <th style={S.th}>Role</th>
+              <th style={S.th}>Status</th>
+              <th style={S.th}>Last sign-in</th>
+              <th style={{ ...S.th, textAlign: 'right' }}>Gemini tokens</th>
+              <th style={{ ...S.th, textAlign: 'right' }}>Script duration</th>
+              <th style={{ ...S.th, textAlign: 'center' }}>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -371,53 +439,53 @@ export default function AdminPage() {
                     />
                   </td>
                   <td style={S.td}>
-                    <div style={{ fontWeight: 500, fontSize: 13 }}>
-                      {u.email ?? '—'}
-                      {isMe && <span style={S.youBadge}>You</span>}
-                    </div>
-                    {u.username && <div style={{ fontSize: 12, color: '#888' }}>@{u.username}</div>}
+                    <Link
+                      href={`/admin/users/${u.id}`}
+                      style={S.userLink}
+                      title="View user details"
+                      onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9' }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+                    >
+                      <span style={{ fontWeight: 500, fontSize: 13, color: '#1d4ed8' }}>
+                        {u.email ?? '—'}
+                        {isMe && <span style={S.youBadge}>You</span>}
+                      </span>
+                      {u.username && <span style={{ fontSize: 12, color: '#888' }}>@{u.username}</span>}
+                    </Link>
                   </td>
                   <td style={S.td}>
                     <span style={u.role === 'admin' ? S.roleAdmin : S.roleUser}>{u.role}</span>
                   </td>
                   <td style={S.td}>
-                    {u.disabled
-                      ? <span style={S.statusDisabled}>Disabled</span>
-                      : <span style={S.statusActive}>Active</span>}
-                  </td>
-                  <td style={{ ...S.td, textAlign: 'right', paddingRight: 20 }}>
-                    {u.meeting_count}
+                    <div style={S.statusStack}>
+                      {u.disabled
+                        ? <span style={S.badgeDisabled}>Disabled</span>
+                        : <span style={S.badgeActive}>Active</span>}
+                      {u.email_confirmed
+                        ? <span style={S.badgeVerified}>✓ Email verified</span>
+                        : <span style={S.badgeUnverified}>Email unverified</span>}
+                    </div>
                   </td>
                   <td style={S.td}>{u.last_sign_in_at ? formatDate(u.last_sign_in_at) : '—'}</td>
-                  <td style={S.td}>{formatDate(u.created_at)}</td>
-                  <td style={S.td}>
-                    <div style={S.actionsCell}>
-                      <Link href={`/admin/users/${u.id}`} style={{ ...S.btn, textDecoration: 'none', color: '#1d4ed8' }}>
-                        View
-                      </Link>
-                      {u.role === 'user' ? (
-                        <button style={S.btn} disabled={busyId === u.id} onClick={() => { void changeRole(u, 'admin') }}>
-                          Make admin
-                        </button>
-                      ) : (
-                        <button style={S.btn} disabled={busyId === u.id || isMe} title={isMe ? 'Cannot demote yourself' : ''} onClick={() => { void changeRole(u, 'user') }}>
-                          Make user
-                        </button>
-                      )}
-                      <button
-                        style={{ ...S.btn, color: u.disabled ? '#166534' : '#92400e' }}
-                        disabled={busyId === u.id || isMe}
-                        onClick={() => { void toggleStatus(u) }}
-                      >
-                        {u.disabled ? 'Enable' : 'Disable'}
-                      </button>
-                      <button style={S.btn} disabled={busyId === u.id || !u.email} onClick={() => setConfirm({ type: 'reset-password', user: u })}>
-                        Reset pwd
-                      </button>
-                      <button style={{ ...S.btn, color: '#991b1b' }} disabled={busyId === u.id || isMe} onClick={() => setConfirm({ type: 'delete', user: u })}>
-                        Delete
-                      </button>
-                    </div>
+                  <td style={{ ...S.td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {u.gemini_tokens > 0
+                      ? <span title={`${u.gemini_tokens.toLocaleString('en-US')} tokens`}>{formatNumber(u.gemini_tokens)}</span>
+                      : <span style={S.muted}>—</span>}
+                  </td>
+                  <td style={{ ...S.td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {u.audio_seconds > 0
+                      ? <span title={`${Math.round(u.audio_seconds)} seconds`}>{formatDuration(u.audio_seconds)}</span>
+                      : <span style={S.muted}>—</span>}
+                  </td>
+                  <td style={{ ...S.td, textAlign: 'center' }}>
+                    <button
+                      style={S.kebabBtn}
+                      aria-label="Actions"
+                      title="Actions"
+                      onClick={(e) => openMenu(u, e)}
+                    >
+                      <MoreVertical size={16} />
+                    </button>
                   </td>
                 </tr>
               )
@@ -439,6 +507,40 @@ export default function AdminPage() {
           <button style={S.pageBtn} disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>Next →</button>
         </div>
       )}
+
+      {/* Row action menu (fixed-positioned; transparent overlay closes it) */}
+      {menu && (() => {
+        const u = menu.user
+        const isMe = u.id === currentUserId
+        return (
+          <div style={S.menuOverlay} onClick={() => setMenu(null)}>
+            <div style={{ ...S.menu, top: menu.top, left: menu.left }} onClick={(e) => e.stopPropagation()}>
+              <Link href={`/admin/users/${u.id}`} style={S.menuItem} onClick={() => setMenu(null)}>
+                View details
+              </Link>
+              {u.role === 'user' ? (
+                <button style={S.menuItem} onClick={() => { setMenu(null); setConfirm({ type: 'role', user: u, newRole: 'admin' }) }}>
+                  Make admin
+                </button>
+              ) : (
+                <button style={menuItemDisable(isMe)} disabled={isMe} title={isMe ? 'Cannot demote yourself' : ''} onClick={() => { setMenu(null); setConfirm({ type: 'role', user: u, newRole: 'user' }) }}>
+                  Make user
+                </button>
+              )}
+              <button style={menuItemDisable(isMe)} disabled={isMe} title={isMe ? 'Cannot change your own status' : ''} onClick={() => { setMenu(null); setConfirm({ type: 'status', user: u, newDisabled: !u.disabled }) }}>
+                {u.disabled ? 'Enable account' : 'Disable account'}
+              </button>
+              <button style={menuItemDisable(!u.email)} disabled={!u.email} title={!u.email ? 'No email on file' : ''} onClick={() => { setMenu(null); setConfirm({ type: 'reset-password', user: u }) }}>
+                Reset password
+              </button>
+              <div style={S.menuSep} />
+              <button style={{ ...menuItemDisable(isMe), color: isMe ? '#c0a0a0' : '#991b1b' }} disabled={isMe} title={isMe ? 'Cannot delete yourself' : ''} onClick={() => { setMenu(null); setConfirm({ type: 'delete', user: u }) }}>
+                Delete user
+              </button>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Confirmation dialogs */}
       {confirm && (
@@ -473,6 +575,44 @@ export default function AdminPage() {
                   </button>
                 </div>
               </>
+            ) : confirm.type === 'role' ? (
+              <>
+                <h3 style={S.dialogTitle}>{confirm.newRole === 'admin' ? 'Make this user an admin?' : 'Make this user a regular user?'}</h3>
+                <p style={S.dialogBody}>
+                  <strong>{confirm.user.email ?? confirm.user.username}</strong> will become{' '}
+                  <strong>{confirm.newRole === 'admin' ? 'an admin' : 'a regular user'}</strong>.
+                  {confirm.newRole === 'admin' && (
+                    <><br /><span style={{ color: '#b45309' }}>Warning: this grants full admin access.</span></>
+                  )}
+                  <br />The change takes effect on their next token refresh.
+                </p>
+                <div style={S.dialogActions}>
+                  <button style={S.btn} onClick={() => setConfirm(null)}>Cancel</button>
+                  <button style={S.primaryBtn} disabled={busyId === confirm.user.id} onClick={() => { void changeRole(confirm.user, confirm.newRole) }}>
+                    {confirm.newRole === 'admin' ? 'Make admin' : 'Make user'}
+                  </button>
+                </div>
+              </>
+            ) : confirm.type === 'status' ? (
+              <>
+                <h3 style={S.dialogTitle}>{confirm.newDisabled ? 'Disable this account?' : 'Enable this account?'}</h3>
+                <p style={S.dialogBody}>
+                  <strong>{confirm.user.email ?? confirm.user.username}</strong>{' '}
+                  {confirm.newDisabled
+                    ? 'will be signed out and blocked from signing in until re-enabled.'
+                    : 'will be able to sign in again.'}
+                </p>
+                <div style={S.dialogActions}>
+                  <button style={S.btn} onClick={() => setConfirm(null)}>Cancel</button>
+                  <button
+                    style={confirm.newDisabled ? S.deleteBtn : S.primaryBtn}
+                    disabled={busyId === confirm.user.id}
+                    onClick={() => { void setDisabled(confirm.user, confirm.newDisabled) }}
+                  >
+                    {confirm.newDisabled ? 'Disable account' : 'Enable account'}
+                  </button>
+                </div>
+              </>
             ) : (
               <>
                 <h3 style={S.dialogTitle}>Confirm bulk action</h3>
@@ -504,17 +644,37 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+function formatNumber(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`
+  if (n >= 10_000)    return `${(n / 1_000).toFixed(0)}k`
+  return n.toLocaleString('en-US')
+}
+
+function formatDuration(seconds: number): string {
+  const s = Math.round(seconds)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  if (h > 0) return `${h}h ${m}m`
+  if (m > 0) return `${m}m ${sec}s`
+  return `${sec}s`
+}
+
+function menuItemDisable(disabled: boolean): CSSProperties {
+  return disabled ? { ...S.menuItem, color: '#bbb', cursor: 'not-allowed' } : S.menuItem
+}
+
 // ── Styles ─────────────────────────────────────────────────────────────────────
 
 const S: Record<string, CSSProperties> = {
-  page: { padding: '28px 32px', maxWidth: 1100 },
+  page: { padding: '28px 32px', maxWidth: 1180 },
   pageHeader: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 },
   h1: { margin: 0, fontSize: 20, fontWeight: 700, color: '#0f172a' },
   adminBadge: {
     fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
     background: '#fee2e2', color: '#991b1b', padding: '3px 8px', borderRadius: 99,
   },
-  muted: { color: '#888', fontSize: 14 },
+  muted: { color: '#888', fontSize: 13 },
   errBanner: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     background: '#fff0f0', border: '1px solid #f55', borderRadius: 6,
@@ -535,6 +695,8 @@ const S: Record<string, CSSProperties> = {
     fontSize: 13, padding: '6px 10px', border: '1px solid #d0d0d0',
     borderRadius: 6, background: '#fff', cursor: 'pointer', outline: 'none',
   },
+  divider: { width: 1, alignSelf: 'stretch', background: '#e2e8f0', margin: '0 2px' },
+  usageLabel: { fontSize: 12, fontWeight: 600, color: '#475569' },
   countLabel: { fontSize: 13, color: '#888', marginLeft: 4 },
   bulkBar: {
     display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
@@ -553,7 +715,11 @@ const S: Record<string, CSSProperties> = {
     background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: 12,
   },
   td: { padding: '10px 12px', borderBottom: '1px solid #f1f5f9', verticalAlign: 'middle' },
-  disabledRow: { opacity: 0.5 },
+  userLink: {
+    display: 'flex', flexDirection: 'column', gap: 1, textDecoration: 'none',
+    color: 'inherit', cursor: 'pointer', borderRadius: 6, margin: '-4px -6px', padding: '4px 6px',
+  },
+  disabledRow: { background: '#fcfcfd', color: '#94a3b8' },
   selectedRow: { background: '#eff6ff' },
   youBadge: {
     display: 'inline-block', marginLeft: 6, fontSize: 10, fontWeight: 700,
@@ -562,16 +728,35 @@ const S: Record<string, CSSProperties> = {
   },
   roleAdmin: { display: 'inline-block', fontSize: 11, fontWeight: 700, background: '#dbeafe', color: '#1d4ed8', padding: '2px 7px', borderRadius: 99 },
   roleUser:  { display: 'inline-block', fontSize: 11, fontWeight: 600, background: '#f0f0f0', color: '#555', padding: '2px 7px', borderRadius: 99 },
-  statusActive:   { fontSize: 12, color: '#166534' },
-  statusDisabled: { fontSize: 12, color: '#991b1b' },
-  actionsCell: { display: 'flex', gap: 4, flexWrap: 'wrap' },
-  btn: {
-    fontSize: 11, padding: '3px 8px', border: '1px solid #d0d0d0',
-    borderRadius: 5, background: '#fff', cursor: 'pointer', color: '#333', whiteSpace: 'nowrap',
+  statusStack: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 },
+  badgeActive:     { fontSize: 11, fontWeight: 600, background: '#dcfce7', color: '#166534', padding: '2px 7px', borderRadius: 99 },
+  badgeDisabled:   { fontSize: 11, fontWeight: 700, background: '#fee2e2', color: '#991b1b', padding: '2px 7px', borderRadius: 99 },
+  badgeVerified:   { fontSize: 10.5, fontWeight: 600, color: '#15803d' },
+  badgeUnverified: { fontSize: 10.5, fontWeight: 600, color: '#b45309' },
+  kebabBtn: {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    width: 30, height: 30, border: '1px solid transparent', borderRadius: 7,
+    background: 'transparent', cursor: 'pointer', color: '#475569',
   },
+  menuOverlay: { position: 'fixed', inset: 0, zIndex: 90, background: 'transparent' },
+  menu: {
+    position: 'fixed', width: MENU_WIDTH, background: '#fff', border: '1px solid #e2e8f0',
+    borderRadius: 10, boxShadow: '0 12px 32px rgba(15,23,42,0.16)', padding: 6, zIndex: 91,
+    display: 'flex', flexDirection: 'column',
+  },
+  menuItem: {
+    display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px',
+    border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer',
+    fontSize: 13, fontWeight: 500, color: '#1f2937', textDecoration: 'none', fontFamily: 'inherit',
+  },
+  menuSep: { height: 1, background: '#f0f0f4', margin: '4px 6px' },
   pagination: { display: 'flex', alignItems: 'center', gap: 12, marginTop: 16, justifyContent: 'center' },
   pageBtn: { fontSize: 13, padding: '5px 14px', border: '1px solid #d0d0d0', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#333' },
   pageLabel: { fontSize: 13, color: '#555' },
+  btn: {
+    fontSize: 13, padding: '7px 14px', border: '1px solid #d0d0d0',
+    borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#333', whiteSpace: 'nowrap',
+  },
   overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 },
   dialog: { background: '#fff', borderRadius: 10, padding: '24px 28px', maxWidth: 430, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' },
   dialogTitle: { margin: '0 0 12px', fontSize: 17, fontWeight: 700, color: '#111' },

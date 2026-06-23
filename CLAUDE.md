@@ -203,10 +203,20 @@ Supabase dashboard:
 - `signInWithPassword(resolvedEmail, password)` is called on the server.
 - The mapping is NEVER exposed to the client; generic errors are returned on failure.
 
-**Registration:**
+**Registration (email verification required):**
 - `POST /api/auth/register` creates the user via `auth.admin.createUser` with
-  `app_metadata: { role: 'user' }`. Client cannot choose a role.
+  `app_metadata: { role: 'user' }` and **`email_confirm: false`**. Client cannot choose a role.
 - Profile row is inserted immediately after; on failure the auth user is cleaned up.
+- Verification email is sent via the anon client `auth.resend({ type: 'signup', email,
+  options: { emailRedirectTo: '<origin>/login' } })` — `admin.createUser` never sends mail
+  itself. Returns `{ verifyEmail: true, emailSent: boolean }`.
+- **No admin-approval gate** (the old auto-ban on signup was removed). The user can sign in
+  as soon as they click the verification link; it lands on `/login` and the browser client
+  picks up the session from the URL (`detectSessionInUrl`).
+- `POST /api/auth/login` maps the Supabase `email_not_confirmed` error to a 403 with a
+  "verify your email" message. A `user_banned` error now means an admin-disabled account.
+- **Dashboard prerequisite:** Authentication → Providers → Email → "Confirm email" ON, and
+  SMTP configured (Authentication → Emails / SMTP). Without SMTP no verification mail is sent.
 
 **RLS: OWNER-OR-ADMIN:**
 - All tables use `auth.uid() = owner_id OR auth.jwt()->>'user_role' = 'admin'`.
@@ -231,8 +241,14 @@ role key** (server-side only). `auth.users` is not queryable from the browser.
 
 **Endpoints:**
 - `GET /api/admin/users?page&perPage&search` — paginated list with email, username, role,
-  disabled status, meeting_count, last_sign_in_at, created_at. Up to 1000 users fetched
-  from Admin API; search + pagination applied server-side.
+  disabled (banned) + `status`, meeting_count, last_sign_in_at, created_at. Up to 1000 users
+  fetched from Admin API; search + pagination applied server-side.
+  - **`status` is a 3-way derived value** (`lib/admin/userStatus.ts` → `deriveUserStatus`, pure +
+    tested in `tests/user-status.test.ts`): `disabled` (banned_until in future) takes precedence;
+    else `unverified` (email_confirmed_at null — signed up, not yet verified); else `active`.
+    The admin list/detail UI shows an Unverified / Active / Disabled badge + status filter.
+    NEVER conflate "unverified" with "disabled" — they are different signals (email_confirmed_at
+    vs banned_until).
 - `PATCH /api/admin/users/:id/role` — change role to `'user'` or `'admin'`.
 - `PATCH /api/admin/users/:id/status` — `{ disabled: boolean }` → enable/disable via
   `ban_duration = '876600h'` (disable) or `'none'` (enable).
