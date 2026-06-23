@@ -23,13 +23,13 @@ export const THEMES: {
     swatch1: '#4F46E5',
     swatch2: '#7C3AED',
   },
-  {
-    id: 'playful',
-    label: 'Playful',
-    tagline: 'Sketchy · Fun · Human',
-    swatch1: '#ff4d4d',
-    swatch2: '#2d5da1',
-  },
+  // {
+  //   id: 'playful',
+  //   label: 'Playful',
+  //   tagline: 'Sketchy · Fun · Human',
+  //   swatch1: '#ff4d4d',
+  //   swatch2: '#2d5da1',
+  // },
 ]
 
 export const DEFAULT_THEME: Theme = 'luxury'

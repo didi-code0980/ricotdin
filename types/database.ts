@@ -54,6 +54,9 @@ export type Profile = {
   username: string // unique, lowercase, 3-30 chars [a-z0-9_-]
   role: UserRole
   created_at: string
+  display_name?: string | null
+  avatar_key?: string | null
+  theme_preference?: 'luxury' | 'default' | 'playful' | null
 }
 
 // Use `type` aliases (not `interface`) for Row shapes so that when supabase-js v2

@@ -1,0 +1,87 @@
+// POST /api/profile/change-password
+//
+// Self-service password change.
+// Requires the user to prove knowledge of their current password before updating.
+// Flow:
+//   1. requireUser — verify JWT, get user email.
+//   2. Re-authenticate with signInWithPassword(email, currentPassword).
+//   3. Validate newPassword with the same rules as sign-up.
+//   4. Call auth.updateUser({ password: newPassword }) with the user's session.
+//
+// The Supabase Admin API is NOT used here so we can't bypass the re-auth step.
+
+import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
+import { requireUser } from '@/lib/auth/server'
+import { validatePassword } from '@/lib/auth/validate'
+import type { Database } from '@/types/database'
+
+export async function POST(req: NextRequest) {
+  let user
+  try {
+    user = await requireUser(req)
+  } catch (res) {
+    return res as NextResponse
+  }
+
+  const email = user.email
+  if (!email) {
+    return NextResponse.json({ error: 'Account has no email address.' }, { status: 400 })
+  }
+
+  let body: Record<string, unknown>
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 })
+  }
+
+  const { currentPassword, newPassword } = body
+
+  if (typeof currentPassword !== 'string' || typeof newPassword !== 'string') {
+    return NextResponse.json(
+      { error: 'currentPassword and newPassword are required strings.' },
+      { status: 400 },
+    )
+  }
+
+  // Validate new password strength (same rules as sign-up)
+  const pwErr = validatePassword(newPassword)
+  if (pwErr) return NextResponse.json({ error: pwErr }, { status: 422 })
+
+  if (newPassword === currentPassword) {
+    return NextResponse.json(
+      { error: 'New password must be different from the current password.' },
+      { status: 422 },
+    )
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+  // Step 1: Re-authenticate to verify current password
+  const verifyClient = createClient<Database>(supabaseUrl, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+  const { error: signInErr } = await verifyClient.auth.signInWithPassword({
+    email,
+    password: currentPassword,
+  })
+  if (signInErr) {
+    return NextResponse.json({ error: 'Current password is incorrect.' }, { status: 401 })
+  }
+
+  // Step 2: Update password using the caller's own session token
+  const token = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim()
+  const userClient = createClient<Database>(supabaseUrl, anonKey, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+  const { error: updateErr } = await userClient.auth.updateUser({ password: newPassword })
+  if (updateErr) {
+    console.error('[POST /api/profile/change-password] updateUser failed:', updateErr.message)
+    return NextResponse.json({ error: 'Failed to update password.' }, { status: 500 })
+  }
+
+  return NextResponse.json({ ok: true })
+}

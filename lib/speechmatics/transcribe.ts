@@ -26,30 +26,30 @@ import type { TranscriptResult } from '@/types/pipeline'
 const POLL_INTERVAL_MS = 5_000      // check job status every 5 s
 const POLL_TIMEOUT_MS = 30 * 60_000 // give up after 30 min
 
+// Speechmatics rejection message when auto language detection lacks confidence.
+// On this specific error we retry once with language='en' as a safe fallback.
+const LANG_DETECT_FAIL = 'Language identification could not identify'
+
 // Within a single speaker's turn, split into a new segment when there is a
 // silence gap longer than this. Prevents one-speaker recordings from producing
 // a single 20-minute segment that is unusable in the UI.
 const PAUSE_SPLIT_THRESHOLD_S = 3.0
 
 // Build the Speechmatics job config.
+// language: 'auto' (default) enables Speechmatics' built-in language detection.
+// Pass an explicit BCP-47 code (e.g. 'en') when retrying after a detection failure.
 // speakerCount: when provided, fixes the diarizer to exactly that many speakers.
-// Without it, max_speakers: 10 tells Speechmatics to look for up to 10 speakers
-// rather than defaulting conservatively (which can collapse multi-speaker audio
-// into a single label on mono recordings).
-export function buildJobConfig(speakerCount?: number) {
+export function buildJobConfig(speakerCount?: number, language = 'auto') {
   return {
     type: 'transcription',
     transcription_config: {
-      language: 'en',
+      language,
       diarization: 'speaker',
       operating_point: 'enhanced',
       enable_entities: true,
       punctuation_overrides: {
         permitted_marks: ['.', ',', '?', '!'],
       },
-      // 0.7 is moderately above the API default of 0.5 — splits distinct voices
-      // without over-fragmenting. When speakerCount is provided, max_speakers caps
-      // detection to exactly that many labels.
       speaker_diarization_config: {
         speaker_sensitivity: 0.5,
         ...(speakerCount != null ? { max_speakers: speakerCount } : {}),
@@ -231,12 +231,12 @@ function mimeTypeFromPath(path: string): string {
   return map[ext] ?? 'application/octet-stream'
 }
 
-async function submitJob(audioPath: string, speakerCount?: number): Promise<string> {
+async function submitJob(audioPath: string, speakerCount?: number, language?: string): Promise<string> {
   const audioBuffer = await readFile(audioPath)
   const mimeType = mimeTypeFromPath(audioPath)
   const ext = extname(audioPath) || '.webm'
 
-  const jobConfig = buildJobConfig(speakerCount)
+  const jobConfig = buildJobConfig(speakerCount, language)
   log(`[speechmatics] submitting config: ${JSON.stringify(jobConfig)}`)
   log(`[speechmatics] audio: path=${audioPath}, size=${audioBuffer.length} bytes, mime=${mimeType}`)
 
@@ -324,10 +324,21 @@ export async function transcribeWithSpeechmatics(
   }
 
   try {
-    const jobId = await submitJob(jobAudioPath, ctx?.speakerCount)
+    let jobId = await submitJob(jobAudioPath, ctx?.speakerCount)
     log(`[speechmatics] job submitted: id=${jobId}`)
 
-    await pollUntilDone(jobId)
+    try {
+      await pollUntilDone(jobId)
+    } catch (pollErr) {
+      if (pollErr instanceof Error && pollErr.message.includes(LANG_DETECT_FAIL)) {
+        log('[speechmatics] language auto-detection rejected — retrying with language=en')
+        jobId = await submitJob(jobAudioPath, ctx?.speakerCount, 'en')
+        log(`[speechmatics] retry job submitted: id=${jobId}`)
+        await pollUntilDone(jobId)
+      } else {
+        throw pollErr
+      }
+    }
     log(`[speechmatics] job done, fetching transcript`)
 
     const raw = await speechmaticsRequest<SpeechmaticsTranscript>(

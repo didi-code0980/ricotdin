@@ -51,11 +51,11 @@ function Sidebar() {
   }
 
   return (
-    <aside style={S.sidebar}>
+    <aside style={S.sidebar} >
       {/* Brand */}
-      <div style={S.brand}>
-        <img src="/short-logo.png" alt="Ricotdin" style={{ height: '32px', width: 'auto' }} />
-        <div style={S.brandSub}>Admin Panel</div>
+      <div style={{display: 'block', padding: "10px 20px"} }>
+        <img src="/short-logo-w.png" alt="Ricotdin" style={{ height: '50px', width: '50px', display: 'inline-block' }} />
+        <span style={S.brandSub}>Admin Panel</span>
       </div>
 
       <div style={S.divider} />
@@ -194,12 +194,13 @@ const S: Record<string, React.CSSProperties> = {
     padding: '20px 18px 18px',
   },
   brandSub: {
-    fontSize: 10,
+    fontSize: 14,
     color: '#64748b',
-    fontWeight: 500,
+    fontWeight: 700,
     letterSpacing: '0.06em',
     textTransform: 'uppercase',
     marginTop: 2,
+    marginLeft: 10,
   },
 
   // Divider

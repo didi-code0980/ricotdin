@@ -237,7 +237,7 @@ export default function LandingPage() {
           {/* Logo */}
           <Link href="/" className="flex items-center" aria-label="Ricotdin home">
             <img
-              src="/long-logo.png"
+              src="/short-logo.png"
               alt="Ricotdin"
               style={{ height: '36px', width: 'auto' }}
             />
@@ -758,7 +758,7 @@ export default function LandingPage() {
             <div className="max-w-xs">
               <Link href="/" aria-label="Ricotdin home" className="inline-block mb-2">
                 <img
-                  src="/long-logo.png"
+                  src="/short-logo.png"
                   alt="Ricotdin"
                   style={{ height: '32px', width: 'auto' }}
                 />

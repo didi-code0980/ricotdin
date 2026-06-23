@@ -23,6 +23,49 @@ import { requireAdmin } from '@/lib/auth/server'
 import { guardDelete } from '@/lib/admin/guards'
 import { deleteObjects } from '@/lib/storage'
 
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    await requireAdmin(req)
+  } catch (res) {
+    return res as NextResponse
+  }
+
+  const { id: targetId } = await params
+  const db = createServerClient()
+
+  const { data: { user: authUser }, error: userErr } = await db.auth.admin.getUserById(targetId)
+  if (userErr || !authUser) {
+    return NextResponse.json({ error: 'User not found.' }, { status: 404 })
+  }
+
+  const { data: profile } = await db
+    .from('profiles')
+    .select('username, role')
+    .eq('id', targetId)
+    .maybeSingle()
+
+  const { count: meetingCount } = await db
+    .from('meetings')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', targetId)
+
+  const appRole = (authUser.app_metadata as Record<string, unknown>)?.role as string | undefined
+
+  return NextResponse.json({
+    id: authUser.id,
+    email: authUser.email ?? null,
+    username: profile?.username ?? null,
+    role: (appRole ?? profile?.role ?? 'user') as 'user' | 'admin',
+    disabled: !!authUser.banned_until && new Date(authUser.banned_until) > new Date(),
+    meeting_count: meetingCount ?? 0,
+    created_at: authUser.created_at,
+    last_sign_in_at: authUser.last_sign_in_at ?? null,
+  })
+}
+
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },

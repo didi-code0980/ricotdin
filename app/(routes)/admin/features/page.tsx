@@ -783,7 +783,7 @@ const S: Record<string, React.CSSProperties> = {
     transition: 'background 0.1s, border-color 0.1s',
     userSelect: 'none',
   },
-  featureRowActive: { background: '#eff6ff', borderColor: '#93c5fd' },
+  featureRowActive: { background: '#eff6ff', border: '1px solid #93c5fd' },
 
   // Mark-done button
   doneBtn: {

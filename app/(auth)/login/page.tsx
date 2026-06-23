@@ -66,7 +66,7 @@ export default function LoginPage() {
       <div className="bg-white rounded-3xl border border-b-border shadow-b-xl p-8 relative">
         {/* Wordmark */}
         <div className="mb-6 text-center flex justify-center">
-          <img src="/short-logo.png" alt="Ricotdin" style={{ height: '44px', width: 'auto' }} />
+          <img src="/long-logo.png" alt="Ricotdin" style={{ height: '50px', width: 'auto' }} />
         </div>
 
         <p className="text-center font-serif text-xl font-semibold text-b-fg mb-6">

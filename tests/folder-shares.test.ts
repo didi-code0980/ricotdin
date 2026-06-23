@@ -17,15 +17,15 @@ const OTHER = 'user-other'
 
 const OWNED_FOLDER: FolderWithRole = {
   id: 'folder-owned', user_id: ME, name: 'Mine', position: 0,
-  created_at: '', updated_at: '', myRole: 'owner', ownerUsername: null,
+  created_at: '', updated_at: '', myRole: 'owner', ownerUsername: null, memberCount: 0,
 }
 const EDITOR_FOLDER: FolderWithRole = {
   id: 'folder-editor', user_id: OTHER, name: 'Shared-E', position: 0,
-  created_at: '', updated_at: '', myRole: 'editor', ownerUsername: 'alice',
+  created_at: '', updated_at: '', myRole: 'editor', ownerUsername: 'alice', memberCount: 0,
 }
 const VIEWER_FOLDER: FolderWithRole = {
   id: 'folder-viewer', user_id: OTHER, name: 'Shared-V', position: 0,
-  created_at: '', updated_at: '', myRole: 'viewer', ownerUsername: 'bob',
+  created_at: '', updated_at: '', myRole: 'viewer', ownerUsername: 'bob', memberCount: 0,
 }
 
 const FOLDERS = [OWNED_FOLDER, EDITOR_FOLDER, VIEWER_FOLDER]

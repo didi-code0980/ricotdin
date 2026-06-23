@@ -1,5 +1,6 @@
 // PATCH  /api/folders/:id — rename a folder
-// DELETE /api/folders/:id — delete a folder (meetings fall back to Uncategorized via ON DELETE SET NULL)
+// DELETE /api/folders/:id?deleteMeetings=true — delete folder + all meetings inside (with Storage cleanup)
+// DELETE /api/folders/:id                     — delete folder only; meetings move to Uncategorized (ON DELETE SET NULL)
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
@@ -87,7 +88,32 @@ export async function DELETE(
 
   if (fetchError || !existing) return NextResponse.json({ error: 'Folder not found.' }, { status: 404 })
 
-  // Deleting the folder sets meetings.folder_id = NULL via ON DELETE SET NULL
+  const deleteMeetings = req.nextUrl.searchParams.get('deleteMeetings') === 'true'
+
+  if (deleteMeetings) {
+    // Collect audio paths so we can clean up Storage before deleting rows
+    const { data: meetingRows } = await serverClient
+      .from('meetings')
+      .select('id, audio_path')
+      .eq('folder_id', id)
+
+    const audioPaths = (meetingRows ?? [])
+      .map((m) => m.audio_path)
+      .filter((p): p is string => typeof p === 'string' && p.length > 0)
+
+    if (audioPaths.length > 0) {
+      await serverClient.storage.from('recordings').remove(audioPaths)
+      // Storage failure is non-fatal — proceed with row deletion regardless
+    }
+
+    // Delete all meetings in the folder (transcript_segments, todos etc. cascade)
+    const meetingIds = (meetingRows ?? []).map((m) => m.id)
+    if (meetingIds.length > 0) {
+      await serverClient.from('meetings').delete().in('id', meetingIds)
+    }
+  }
+
+  // Delete the folder; when deleteMeetings=false, ON DELETE SET NULL moves meetings to Uncategorized
   const { error } = await serverClient
     .from('folders')
     .delete()

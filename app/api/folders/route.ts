@@ -44,10 +44,24 @@ export async function GET(req: NextRequest) {
 
   if (ownedErr) return NextResponse.json({ error: ownedErr.message }, { status: 500 })
 
+  // Count members (folder_shares rows) for each owned folder
+  const ownedIds = (ownedData ?? []).map((f) => f.id)
+  let memberCounts: Record<string, number> = {}
+  if (ownedIds.length > 0) {
+    const { data: shareCountRows } = await db
+      .from('folder_shares')
+      .select('folder_id')
+      .in('folder_id', ownedIds)
+    for (const row of shareCountRows ?? []) {
+      memberCounts[row.folder_id] = (memberCounts[row.folder_id] ?? 0) + 1
+    }
+  }
+
   const owned: FolderWithRole[] = (ownedData ?? []).map((f) => ({
     ...f,
     myRole: 'owner' as const,
     ownerUsername: null,
+    memberCount: memberCounts[f.id] ?? 0,
   }))
 
   // Shared folders: find all folder_shares rows for this user
@@ -85,6 +99,7 @@ export async function GET(req: NextRequest) {
         ...f,
         myRole: (shareRow?.role ?? 'viewer') as 'editor' | 'viewer',
         ownerUsername: ownerProfile?.username ?? null,
+        memberCount: 0,
       }
     })
   }
@@ -128,5 +143,5 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
-  return NextResponse.json({ folder: { ...data, myRole: 'owner', ownerUsername: null } }, { status: 201 })
+  return NextResponse.json({ folder: { ...data, myRole: 'owner', ownerUsername: null, memberCount: 0 } }, { status: 201 })
 }

@@ -659,7 +659,7 @@ export default function ProfilePage() {
           <CardTitle>Preferences</CardTitle>
           <CardDivider />
 
-          {/* Appearance */}
+          {/* Appearance — temporarily hidden
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 20 }}>
             <div>
               <div style={{ fontSize: 14, fontWeight: 600, color: FG, fontFamily: FONT }}>Appearance</div>
@@ -693,6 +693,7 @@ export default function ProfilePage() {
               })}
             </div>
           </div>
+          */}
 
           {/* Language (deferred) */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>

@@ -107,7 +107,7 @@ export default function RoutesLayout({ children }: { children: React.ReactNode }
         <div className="max-w-5xl mx-auto px-4 sm:px-6 flex items-center justify-between h-14">
           {/* Logo */}
           <Link href="/meetings" aria-label="Ricotdin home">
-            <img src="/long-logo.png" alt="Ricotdin" style={{ height: '30px', width: 'auto' }} />
+            <img src="/short-logo.png" alt="Ricotdin" style={{ height: '30px', width: 'auto' }} />
           </Link>
 
           {/* Nav links */}

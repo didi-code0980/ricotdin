@@ -57,11 +57,26 @@ describe('buildJobConfig', () => {
     assert.ok(sdc?.speaker_sensitivity != null, 'speaker_sensitivity preserved alongside max_speakers')
   })
 
-  it('always enables speaker diarization and enhanced operating point', () => {
+  it('uses language auto-detection, speaker diarization, and enhanced operating point', () => {
     const cfg = buildJobConfig()
     const tc = cfg.transcription_config
+    assert.equal(tc.language, 'auto')
     assert.equal(tc.diarization, 'speaker')
     assert.equal(tc.operating_point, 'enhanced')
+  })
+
+  it('uses an explicit language when provided as fallback override', () => {
+    const cfg = buildJobConfig(undefined, 'en')
+    assert.equal(cfg.transcription_config.language, 'en')
+  })
+
+  it('explicit language does not affect other config fields', () => {
+    const cfg = buildJobConfig(2, 'vi')
+    const tc = cfg.transcription_config
+    assert.equal(tc.language, 'vi')
+    assert.equal(tc.diarization, 'speaker')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    assert.equal((tc as any).speaker_diarization_config?.max_speakers, 2)
   })
 })
 
