@@ -54,6 +54,7 @@ export default function MeetingsPage() {
 
   // ── folder state ───────────────────────────────────────────────────────────
   const [folders, setFolders]           = useState<FolderWithRole[]>([])
+  const [foldersLoading, setFoldersLoading] = useState(true)
   const [manageFoldersOpen, setManageFoldersOpen]   = useState(false)
   const [newFolderName, setNewFolderName]   = useState('')
   const [newFolderError, setNewFolderError] = useState<string | null>(null)
@@ -125,13 +126,14 @@ export default function MeetingsPage() {
   useEffect(() => {
     async function loadFolders() {
       const token = await getAccessToken()
-      if (!token) return
+      if (!token) { setFoldersLoading(false); return }
       try {
         const res = await fetch('/api/folders', { headers: { Authorization: `Bearer ${token}` } })
         if (!res.ok) return
         const json = (await res.json()) as { folders: FolderWithRole[] }
         setFolders(json.folders)
       } catch { /* non-fatal */ }
+      finally { setFoldersLoading(false) }
     }
     void loadFolders()
   }, [])
@@ -522,6 +524,9 @@ export default function MeetingsPage() {
 
 
   // ── derived ────────────────────────────────────────────────────────────────
+  // Show skeletons until BOTH the meeting list and the folder list have loaded,
+  // so the page doesn't pop content in twice (meetings first, folders after).
+  const isInitialLoading = loadState === 'loading' || foldersLoading
   const confirmTarget = confirmDeleteId ? meetings.find((m) => m.id === confirmDeleteId) : null
   const sharingFolder = sharingFolderId ? folders.find((f) => f.id === sharingFolderId) : null
   const editableFolders = folders.filter((f) => f.myRole === 'owner' || f.myRole === 'editor')
@@ -592,6 +597,11 @@ export default function MeetingsPage() {
         border: `1px solid ${m.pinned_at ? '#ddd9fb' : '#edeef3'}`,
         borderRadius: 16, padding: '14px 16px',
         boxShadow: m.pinned_at ? '0 4px 14px rgba(108,92,231,0.1)' : undefined,
+        // While this card's kebab menu is open, lift the whole card above sibling
+        // cards so the dropdown (which is trapped inside the card's hover-transform
+        // stacking context) isn't overlapped by the next card.
+        position: 'relative',
+        zIndex: openMenuId === m.id ? 100 : undefined,
       }}>
         {/* Play / pin tile */}
         <span style={{
@@ -757,12 +767,41 @@ export default function MeetingsPage() {
           </div>
         )}
 
-        {/* ── Loading skeletons ── */}
-        {loadState === 'loading' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
-            {[1, 2, 3].map((i) => (
-              <div key={i} style={{ height: 76, borderRadius: 16, background: '#e9eaef', animation: 'pulse 1.5s ease-in-out infinite', animationDelay: `${i * 100}ms` }} />
-            ))}
+        {/* ── Loading skeletons — mirror the real layout (folder grid + meeting rows) ── */}
+        {isInitialLoading && loadState !== 'error' && (
+          <div>
+            {/* Folders section skeleton */}
+            <section style={{ marginBottom: 36 }}>
+              <div style={{ width: 90, height: 12, borderRadius: 6, background: '#e9eaef', animation: 'pulse 1.5s ease-in-out infinite', marginBottom: 16 }} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                {[0, 1, 2, 3].map((i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, background: '#fff', border: '1.5px solid #edeef3', borderRadius: 18, padding: 16 }}>
+                    <div style={{ width: 44, height: 44, flexShrink: 0, borderRadius: 12, background: '#e9eaef', animation: 'pulse 1.5s ease-in-out infinite', animationDelay: `${i * 80}ms` }} />
+                    <div style={{ flex: 1, paddingTop: 4 }}>
+                      <div style={{ width: '60%', height: 12, borderRadius: 6, background: '#e9eaef', animation: 'pulse 1.5s ease-in-out infinite', animationDelay: `${i * 80}ms`, marginBottom: 8 }} />
+                      <div style={{ width: '35%', height: 10, borderRadius: 5, background: '#eef0f3', animation: 'pulse 1.5s ease-in-out infinite', animationDelay: `${i * 80}ms` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* Meeting list skeleton */}
+            <section>
+              <div style={{ width: 130, height: 12, borderRadius: 6, background: '#e9eaef', animation: 'pulse 1.5s ease-in-out infinite', marginBottom: 14 }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {[0, 1, 2, 3].map((i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14, background: '#fff', border: '1px solid #edeef3', borderRadius: 16, padding: '14px 16px' }}>
+                    <div style={{ width: 46, height: 46, flexShrink: 0, borderRadius: 12, background: '#e9eaef', animation: 'pulse 1.5s ease-in-out infinite', animationDelay: `${i * 90}ms` }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ width: '45%', height: 13, borderRadius: 6, background: '#e9eaef', animation: 'pulse 1.5s ease-in-out infinite', animationDelay: `${i * 90}ms`, marginBottom: 9 }} />
+                      <div style={{ width: '28%', height: 10, borderRadius: 5, background: '#eef0f3', animation: 'pulse 1.5s ease-in-out infinite', animationDelay: `${i * 90}ms` }} />
+                    </div>
+                    <div style={{ width: 30, height: 30, flexShrink: 0, borderRadius: 9, background: '#eef0f3', animation: 'pulse 1.5s ease-in-out infinite', animationDelay: `${i * 90}ms` }} />
+                  </div>
+                ))}
+              </div>
+            </section>
           </div>
         )}
 
@@ -772,7 +811,7 @@ export default function MeetingsPage() {
         )}
 
         {/* ── Empty state ── */}
-        {loadState === 'ready' && meetings.length === 0 && folders.length === 0 && (
+        {!isInitialLoading && loadState === 'ready' && meetings.length === 0 && folders.length === 0 && (
           <div style={{ textAlign: 'center', padding: '80px 0' }}>
             <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#efedfd', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: 28 }}>🎙</div>
             <p style={{ fontSize: 20, fontWeight: 800, color: '#15161c', marginBottom: 8 }}>No meetings yet</p>
@@ -784,7 +823,7 @@ export default function MeetingsPage() {
         )}
 
         {/* ── Main content ── */}
-        {loadState === 'ready' && (meetings.length > 0 || folders.length > 0) && (
+        {!isInitialLoading && loadState === 'ready' && (meetings.length > 0 || folders.length > 0) && (
           <>
 
             {/* 1. PINNED */}
@@ -843,6 +882,10 @@ export default function MeetingsPage() {
                             boxShadow: isDragging ? 'none' : '0 2px 8px rgba(20,22,40,0.06)',
                             opacity: isDragging ? 0.4 : 1,
                             userSelect: 'none',
+                            // Lift above sibling cards while this card's kebab menu is open so the
+                            // dropdown (trapped in the hover-transform stacking context) stays clickable.
+                            position: 'relative',
+                            zIndex: openMenuId === f.id ? 100 : undefined,
                           }}
                         >
                           {isRenaming ? (

@@ -354,6 +354,7 @@ export default function ProfilePage() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const [avatarSaving, setAvatarSaving] = useState(false)
   const [avatarError, setAvatarError] = useState<string | null>(null)
+  const [confirmRemoveAvatar, setConfirmRemoveAvatar] = useState(false)
 
   // ── Notifications (local state only — PRF-10 deferred) ────────────────────
   const [notif, setNotif] = useState({ summaries: true, shares: true, updates: false })
@@ -455,6 +456,7 @@ export default function ProfilePage() {
       if (!res.ok) { const j = await res.json().catch(() => ({})); setAvatarError((j as { error?: string }).error ?? 'Failed to remove.'); return }
       setAvatarUrl(null)
       setProfile((p) => p ? { ...p, avatar_key: null, avatar_url: null } : p)
+      setConfirmRemoveAvatar(false)
     } catch { setAvatarError('Network error.') }
     finally { setAvatarSaving(false) }
   }
@@ -492,6 +494,12 @@ export default function ProfilePage() {
   }
 
   const initials = getInitials(profile.display_name, profile.username)
+
+  // Disable the save buttons until there's something to save.
+  const profileDirty =
+    displayName.trim() !== (profile.display_name ?? '') ||
+    username.trim().toLowerCase() !== profile.username
+  const passwordFilled = currentPw !== '' && newPw !== '' && confirmPw !== ''
 
   return (
     <div style={{ minHeight: '100vh', background: 'rgb(var(--t-fg-rgb) / 0.03)', fontFamily: FONT }}>
@@ -538,7 +546,7 @@ export default function ProfilePage() {
                 <button
                   type="button"
                   disabled={avatarSaving}
-                  onClick={() => { void handleAvatarRemove() }}
+                  onClick={() => { setAvatarError(null); setConfirmRemoveAvatar(true) }}
                   style={{ padding: '9px 12px', borderRadius: 10, border: 'none', background: 'transparent', cursor: avatarSaving ? 'default' : 'pointer', fontFamily: FONT, fontSize: 13, fontWeight: 600, color: MUTED, opacity: avatarSaving ? 0.5 : 1 }}
                   onMouseEnter={(e) => { if (!avatarSaving) (e.currentTarget as HTMLButtonElement).style.color = '#ef5a6f' }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = MUTED }}
@@ -589,7 +597,7 @@ export default function ProfilePage() {
             {profileSuccess && <div style={{ marginTop: 14 }}><SuccessMsg msg={profileSuccess} onDismiss={() => setProfileSuccess(null)} /></div>}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-              <PrimaryBtn type="submit" disabled={profileSaving}>
+              <PrimaryBtn type="submit" disabled={profileSaving || !profileDirty}>
                 {profileSaving ? 'Saving…' : 'Save profile'}
               </PrimaryBtn>
             </div>
@@ -647,7 +655,7 @@ export default function ProfilePage() {
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 16 }}>
               <span style={{ fontSize: 12, fontWeight: 500, color: MUTED, fontFamily: FONT }}>Use at least 8 characters.</span>
-              <PrimaryBtn type="submit" disabled={pwSaving}>
+              <PrimaryBtn type="submit" disabled={pwSaving || !passwordFilled}>
                 {pwSaving ? 'Updating…' : 'Update password'}
               </PrimaryBtn>
             </div>
@@ -765,6 +773,37 @@ export default function ProfilePage() {
         </Card>
 
       </main>
+
+      {/* Remove-avatar confirmation */}
+      {confirmRemoveAvatar && (
+        <div
+          onClick={() => { if (!avatarSaving) setConfirmRemoveAvatar(false) }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(20,22,40,0.4)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: '100%', maxWidth: 380, background: BG, border: `1px solid ${BORDER}`, borderRadius: 16, padding: 24, boxShadow: '0 24px 60px rgba(20,22,40,0.28)', fontFamily: FONT }}
+          >
+            <div style={{ fontSize: 16, fontWeight: 700, color: FG, marginBottom: 8 }}>Remove profile photo?</div>
+            <div style={{ fontSize: 13.5, fontWeight: 500, color: MUTED, lineHeight: 1.5, marginBottom: 20 }}>
+              Your avatar will be removed and replaced with your initials. You can upload a new photo any time.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <SecondaryBtn onClick={() => setConfirmRemoveAvatar(false)} disabled={avatarSaving}>Cancel</SecondaryBtn>
+              <button
+                type="button"
+                disabled={avatarSaving}
+                onClick={() => { void handleAvatarRemove() }}
+                style={{ padding: '10px 18px', borderRadius: 11, border: 'none', background: '#ef5a6f', cursor: avatarSaving ? 'default' : 'pointer', fontFamily: FONT, fontSize: 13.5, fontWeight: 700, color: '#fff', opacity: avatarSaving ? 0.65 : 1 }}
+              >
+                {avatarSaving ? 'Removing…' : 'Remove'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

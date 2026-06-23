@@ -1,12 +1,30 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import RecorderUI from '@/components/RecorderUI'
 
-export default function RecordPage() {
+function RecorderLoading() {
+  return (
+    <div className="card-botanical text-center py-10 text-sm text-b-fg/40 font-sans animate-pulse">
+      Loading recorder…
+    </div>
+  )
+}
+
+function RecordContent() {
+  // If the user came from a folder view (/record?folder=<id>), pre-select that
+  // folder so the recording / uploaded file lands there by default.
+  const searchParams = useSearchParams()
+  const initialFolderId = searchParams.get('folder')
+
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
 
+  return mounted ? <RecorderUI initialFolderId={initialFolderId} /> : <RecorderLoading />
+}
+
+export default function RecordPage() {
   return (
     <div className="max-w-2xl mx-auto px-4 sm:px-6 py-10">
       <div className="mb-8 text-center">
@@ -19,13 +37,9 @@ export default function RecordPage() {
         </p>
       </div>
 
-      {mounted ? (
-        <RecorderUI />
-      ) : (
-        <div className="card-botanical text-center py-10 text-sm text-b-fg/40 font-sans animate-pulse">
-          Loading recorder…
-        </div>
-      )}
+      <Suspense fallback={<RecorderLoading />}>
+        <RecordContent />
+      </Suspense>
     </div>
   )
 }

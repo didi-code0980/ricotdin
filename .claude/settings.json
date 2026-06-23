@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "PowerShell(winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements --silent)",
+      "Bash(npx node *)",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\(p.scripts.test\\)\")",
+      "Bash(node --import tsx --test tests/usage-by-user.test.ts)",
+      "PowerShell(npx eslint \"app/\\(routes\\)/admin/users/page.tsx\" 2>&1 | Select-Object -First 20; \"exit: $LASTEXITCODE\")",
+      "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 15; \"tsc: $LASTEXITCODE\"; npx eslint \"app/\\(routes\\)/admin/users/page.tsx\" 2>&1 | Select-Object -First 15; \"eslint: $LASTEXITCODE\")"
+    ]
+  }
+}

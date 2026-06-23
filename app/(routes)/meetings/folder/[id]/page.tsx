@@ -568,7 +568,7 @@ export default function FolderMeetingsPage() {
               </button>
             )}
             <Link
-              href="/record"
+              href={`/record?folder=${folderId}`}
               style={{ padding: '9px 18px', borderRadius: 999, border: 'none', background: 'linear-gradient(135deg,#7c6ff7,#6c5ce7)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'none', display: 'inline-block' }}
             >
               + New recording
@@ -623,7 +623,7 @@ export default function FolderMeetingsPage() {
             </div>
             <p style={{ fontSize: 18, fontWeight: 700, color: '#15161c', marginBottom: 8 }}>No meetings in this folder</p>
             <p style={{ fontSize: 14, color: '#9a9bab', marginBottom: 24 }}>Record a meeting and move it here.</p>
-            <Link href="/record" style={{ padding: '10px 22px', borderRadius: 999, border: 'none', background: 'linear-gradient(135deg,#7c6ff7,#6c5ce7)', color: '#fff', fontSize: 14, fontWeight: 700, textDecoration: 'none', display: 'inline-block' }}>
+            <Link href={`/record?folder=${folderId}`} style={{ padding: '10px 22px', borderRadius: 999, border: 'none', background: 'linear-gradient(135deg,#7c6ff7,#6c5ce7)', color: '#fff', fontSize: 14, fontWeight: 700, textDecoration: 'none', display: 'inline-block' }}>
               + New recording
             </Link>
           </div>

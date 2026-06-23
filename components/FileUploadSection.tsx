@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useRef, useState } from 'react'
 import { useUpload } from '@/lib/upload/useUpload'
+import { getAccessToken } from '@/lib/supabase/auth'
 import FolderSelector from '@/components/FolderSelector'
 import {
   MAX_UPLOAD_BYTES,
@@ -40,16 +41,18 @@ function localNow(): string {
 
 interface Props {
   onCancel: () => void
+  /** Pre-selected folder (e.g. when the user came from a folder view). */
+  initialFolderId?: string | null
 }
 
-export default function FileUploadSection({ onCancel }: Props) {
+export default function FileUploadSection({ onCancel, initialFolderId = null }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [file, setFile] = useState<File | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
   const [meetingDate, setMeetingDate] = useState<string>(localNow())
   const [isVideo, setIsVideo] = useState(false)
   const [fileDuration, setFileDuration] = useState<number>(0)
-  const [folderId, setFolderId] = useState<string | null>(null)
+  const [folderId, setFolderId] = useState<string | null>(initialFolderId)
 
   const { state, meetingId, error: uploadError, upload, reset } = useUpload()
 
@@ -115,6 +118,50 @@ export default function FileUploadSection({ onCancel }: Props) {
   }
 
   const uploading = state === 'uploading'
+
+  // ── Post-upload: move the created meeting to a folder ──────────────────────
+  const [moveBusy, setMoveBusy] = useState(false)
+  const [moveError, setMoveError] = useState<string | null>(null)
+
+  async function handleMoveToFolder(target: string | null) {
+    if (!meetingId) return
+    const prev = folderId
+    setFolderId(target) // optimistic
+    setMoveError(null)
+    setMoveBusy(true)
+    try {
+      const token = await getAccessToken()
+      if (!token) { setFolderId(prev); setMoveError('Not authenticated.'); return }
+      const res = await fetch(`/api/meetings/${meetingId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ folder_id: target }),
+      })
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string }
+        setFolderId(prev)
+        setMoveError(j.error ?? 'Failed to move recording.')
+      }
+    } catch {
+      setFolderId(prev)
+      setMoveError('Network error.')
+    } finally {
+      setMoveBusy(false)
+    }
+  }
+
+  // ── Reset everything to upload another file ────────────────────────────────
+  function handleUploadAnother() {
+    setFile(null)
+    setFileError(null)
+    setIsVideo(false)
+    setFileDuration(0)
+    setMeetingDate(localNow())
+    setMoveError(null)
+    if (inputRef.current) inputRef.current.value = ''
+    reset()
+    // folderId is intentionally kept so consecutive uploads can target the same folder.
+  }
 
   return (
     <div className="flex flex-col gap-4 pt-4 border-t border-b-border">
@@ -201,11 +248,17 @@ export default function FileUploadSection({ onCancel }: Props) {
       )}
 
       {uploading && (
-        <p className="text-sm text-b-fg/50 font-sans animate-pulse">
-          {isVideo
-            ? 'Uploading video and extracting audio… this may take a minute'
-            : 'Uploading… this may take a moment for large files'}
-        </p>
+        <div className="flex items-center gap-3 rounded-2xl border border-b-primary/30 bg-b-clay px-4 py-3">
+          <span
+            className="inline-block w-5 h-5 shrink-0 rounded-full border-2 border-b-primary/25 border-t-b-primary animate-spin"
+            aria-hidden="true"
+          />
+          <span className="text-sm text-b-fg/70 font-sans">
+            {isVideo
+              ? 'Uploading video and extracting audio… this may take a minute'
+              : 'Uploading… this may take a moment for large files'}
+          </span>
+        </div>
       )}
 
       {state === 'error' && (
@@ -220,11 +273,31 @@ export default function FileUploadSection({ onCancel }: Props) {
       )}
 
       {state === 'done' && meetingId && (
-        <div className="bg-b-clay border border-b-primary/30 rounded-2xl px-4 py-3 text-sm text-b-fg font-sans">
-          ✓ Uploaded!{' '}
-          <Link href="/meetings" className="text-b-terra font-semibold hover:underline">
-            View all meetings →
-          </Link>
+        <div className="flex flex-col gap-4">
+          <div className="bg-b-clay border border-b-primary/30 rounded-2xl px-4 py-3 text-sm text-b-fg font-sans">
+            ✓ Uploaded! Your recording is now processing.
+          </div>
+
+          {/* Move the uploaded recording to a folder */}
+          <FolderSelector
+            value={folderId}
+            onChange={(f) => { void handleMoveToFolder(f) }}
+            disabled={moveBusy}
+          />
+          {moveError && <p className="text-xs text-red-500 font-sans">{moveError}</p>}
+
+          {/* Actions */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <Link href={`/meetings/${meetingId}`} className="btn-primary">
+              View recording →
+            </Link>
+            <button type="button" onClick={handleUploadAnother} className="btn-secondary">
+              ↑ Upload another file
+            </button>
+            <Link href="/meetings" className="text-sm text-b-terra font-semibold font-sans hover:underline">
+              All meetings
+            </Link>
+          </div>
         </div>
       )}
 
