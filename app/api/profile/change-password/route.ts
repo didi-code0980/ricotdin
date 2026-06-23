@@ -59,11 +59,13 @@ export async function POST(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
-  // Step 1: Re-authenticate to verify current password
-  const verifyClient = createClient<Database>(supabaseUrl, anonKey, {
+  // Step 1: Re-authenticate to verify current password.
+  // signInWithPassword stores the resulting session in the client's memory even
+  // with persistSession:false, so we can call updateUser on the same client.
+  const authClient = createClient<Database>(supabaseUrl, anonKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   })
-  const { error: signInErr } = await verifyClient.auth.signInWithPassword({
+  const { error: signInErr } = await authClient.auth.signInWithPassword({
     email,
     password: currentPassword,
   })
@@ -71,13 +73,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Current password is incorrect.' }, { status: 401 })
   }
 
-  // Step 2: Update password using the caller's own session token
-  const token = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim()
-  const userClient = createClient<Database>(supabaseUrl, anonKey, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  })
-  const { error: updateErr } = await userClient.auth.updateUser({ password: newPassword })
+  // Step 2: Update password — reuse the same client (session is in memory from step 1).
+  // A second client with global.headers.Authorization does NOT work: the Auth SDK
+  // reads from its internal session state, not from HTTP headers.
+  const { error: updateErr } = await authClient.auth.updateUser({ password: newPassword })
   if (updateErr) {
     console.error('[POST /api/profile/change-password] updateUser failed:', updateErr.message)
     return NextResponse.json({ error: 'Failed to update password.' }, { status: 500 })
