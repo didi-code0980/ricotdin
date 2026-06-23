@@ -353,13 +353,27 @@ export default function FolderMeetingsPage() {
   const isOwned = folder?.myRole === 'owner'
   const isShared = isOwned ? (folder?.memberCount ?? 0) > 0 : true
 
+// ── Theme-aware constants ─────────────────────────────────────────────────────
+const T = {
+  bg:       'rgb(var(--t-bg-rgb))',
+  fg:       'rgb(var(--t-fg-rgb))',
+  primary:  'rgb(var(--t-primary-rgb))',
+  secondary:'rgb(var(--t-secondary-rgb))',
+  border:   'rgb(var(--t-border-rgb))',
+  clay:     'rgb(var(--t-clay-rgb))',
+  fgMuted:  'rgb(var(--t-fg-rgb) / 0.5)',
+  fgSubtle: 'rgb(var(--t-fg-rgb) / 0.35)',
+  font:     'var(--t-font-body)',
+  radius:   'var(--t-radius-card)',
+}
+
   // ── inner helpers ──────────────────────────────────────────────────────────
   function KebabDots() {
     return (
       <>
-        <span style={{ width: 3.5, height: 3.5, borderRadius: '50%', background: '#9a9bab', display: 'block' }} />
-        <span style={{ width: 3.5, height: 3.5, borderRadius: '50%', background: '#9a9bab', display: 'block' }} />
-        <span style={{ width: 3.5, height: 3.5, borderRadius: '50%', background: '#9a9bab', display: 'block' }} />
+        <span style={{ width: 3.5, height: 3.5, borderRadius: '50%', background: T.fgMuted, display: 'block' }} />
+        <span style={{ width: 3.5, height: 3.5, borderRadius: '50%', background: T.fgMuted, display: 'block' }} />
+        <span style={{ width: 3.5, height: 3.5, borderRadius: '50%', background: T.fgMuted, display: 'block' }} />
       </>
     )
   }
@@ -374,37 +388,37 @@ export default function FolderMeetingsPage() {
     const canDeleteThis = canDelete(myRole)
 
     const statusStyle: Record<string, { color: string; bg: string }> = {
-      done:       { color: '#14a06c', bg: '#e3f6ed' },
-      pending:    { color: '#8a8b9a', bg: '#f0f0f4' },
-      processing: { color: '#6c5ce7', bg: '#efedfd' },
-      failed:     { color: '#ef5a6f', bg: '#fdeef0' },
+      done:       { color: '#059669', bg: 'rgb(209 250 229)' },
+      pending:    { color: T.fgMuted, bg: T.clay },
+      processing: { color: T.primary, bg: `${T.primary}15` },
+      failed:     { color: 'rgb(220 38 38)', bg: 'rgb(254 226 226)' },
     }
     const ss = statusStyle[m.status] ?? statusStyle.pending
 
     const menuItemBase: CSSProperties = {
       width: '100%', textAlign: 'left', padding: '9px 12px', border: 'none',
       background: 'transparent', borderRadius: 8, cursor: 'pointer',
-      fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#2c2d3a',
+      fontFamily: T.font, fontSize: 13, fontWeight: 600, color: T.fg,
       display: 'flex', alignItems: 'center', gap: 9,
     }
 
     return (
       <div style={{
         display: 'flex', alignItems: 'flex-start', gap: 14,
-        background: '#fff',
-        border: `1px solid ${m.pinned_at ? '#ddd9fb' : '#edeef3'}`,
-        borderRadius: 16, padding: '14px 16px',
-        boxShadow: m.pinned_at ? '0 4px 14px rgba(108,92,231,0.1)' : undefined,
+        background: 'white',
+        border: `1px solid ${m.pinned_at ? T.primary + '50' : T.border}`,
+        borderRadius: T.radius, padding: '14px 16px',
+        boxShadow: m.pinned_at ? 'var(--t-shadow-sm)' : undefined,
       }}>
         {/* Play / pin tile */}
         <span style={{
           width: 46, height: 46, flexShrink: 0, borderRadius: 12,
-          background: 'linear-gradient(135deg,#efedfd,#e7f7f0)',
+          background: `linear-gradient(135deg, ${T.primary}18, ${T.primary}0a)`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           {m.pinned_at
             ? <span style={{ fontSize: 18 }}>📌</span>
-            : <span style={{ width: 0, height: 0, borderStyle: 'solid', borderWidth: '7px 0 7px 11px', borderColor: 'transparent transparent transparent #6c5ce7', marginLeft: 2 }} />
+            : <span style={{ width: 0, height: 0, borderStyle: 'solid', borderWidth: '7px 0 7px 11px', borderColor: `transparent transparent transparent ${T.primary}`, marginLeft: 2 }} />
           }
         </span>
 
@@ -413,7 +427,7 @@ export default function FolderMeetingsPage() {
           {editingId === m.id ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input
-                style={{ flex: 1, minWidth: 0, padding: '6px 12px', borderRadius: 10, border: '1px solid #6c5ce7', background: '#f9f9ff', fontSize: 14, fontWeight: 600, fontFamily: 'inherit', outline: 'none' }}
+                style={{ flex: 1, minWidth: 0, padding: '6px 12px', borderRadius: 'var(--t-radius-input)', border: `1px solid ${T.primary}`, background: T.clay, fontSize: 14, fontWeight: 600, fontFamily: T.font, outline: 'none' }}
                 value={editTitle}
                 maxLength={200}
                 autoFocus
@@ -423,26 +437,26 @@ export default function FolderMeetingsPage() {
                   if (e.key === 'Escape') setEditingId(null)
                 }}
               />
-              <button disabled={busyId === m.id} onClick={() => void saveRename(m.id)} style={{ padding: '6px 14px', borderRadius: 999, border: 'none', background: '#6c5ce7', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>Save</button>
-              <button onClick={() => setEditingId(null)} style={{ padding: '6px 14px', borderRadius: 999, border: '1px solid #e3e4ec', background: '#fff', color: '#6b6c7b', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>Cancel</button>
+              <button disabled={busyId === m.id} onClick={() => void saveRename(m.id)} style={{ padding: '6px 14px', borderRadius: 999, border: 'none', background: T.primary, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: T.font, flexShrink: 0 }}>Save</button>
+              <button onClick={() => setEditingId(null)} style={{ padding: '6px 14px', borderRadius: 999, border: `1px solid ${T.border}`, background: 'white', color: T.fgSubtle, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: T.font, flexShrink: 0 }}>Cancel</button>
             </div>
           ) : (
             <Link href={`/meetings/${m.id}`} style={{ textDecoration: 'none' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                <span style={{ fontSize: 14.5, fontWeight: 700, color: '#15161c', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: 14.5, fontWeight: 700, color: T.fg, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {m.title}
                 </span>
                 <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.05em', color: ss.color, background: ss.bg, borderRadius: 6, padding: '3px 7px', flexShrink: 0 }}>
                   {m.status.toUpperCase()}
                 </span>
               </div>
-              <div style={{ fontSize: 12, fontWeight: 500, color: '#9a9bab', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 12, fontWeight: 500, color: T.fgMuted, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 <span>{formatDate(m.created_at)}</span>
                 {m.duration_seconds != null && (
-                  <><span style={{ width: 3, height: 3, borderRadius: '50%', background: '#cfd0db', display: 'inline-block' }} /><span>{formatDuration(m.duration_seconds)}</span></>
+                  <><span style={{ width: 3, height: 3, borderRadius: '50%', background: T.border, display: 'inline-block' }} /><span>{formatDuration(m.duration_seconds)}</span></>
                 )}
                 {myRole !== 'owner' && (
-                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', color: '#8a8b9a', background: '#f0f0f4', borderRadius: 5, padding: '2px 6px', textTransform: 'uppercase' }}>{myRole}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', color: T.fgMuted, background: T.clay, borderRadius: 5, padding: '2px 6px', textTransform: 'uppercase' }}>{myRole}</span>
                 )}
               </div>
             </Link>
@@ -454,12 +468,12 @@ export default function FolderMeetingsPage() {
                 defaultValue={m.folder_id ?? ''}
                 onChange={(e) => { const v = e.target.value; void moveMeeting(m.id, v === '' ? null : v) }}
                 autoFocus
-                style={{ flex: 1, borderRadius: 10, border: '1px solid #e3e4ec', background: '#f9f9ff', padding: '7px 10px', fontSize: 13, fontFamily: 'inherit', color: '#15161c', outline: 'none', cursor: 'pointer' }}
+                style={{ flex: 1, borderRadius: 'var(--t-radius-input)', border: `1px solid ${T.border}`, background: T.clay, padding: '7px 10px', fontSize: 13, fontFamily: T.font, color: T.fg, outline: 'none', cursor: 'pointer' }}
               >
                 <option value="">Uncategorized</option>
                 {editableFolders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
               </select>
-              <button onClick={() => setMovingMeetingId(null)} style={{ flexShrink: 0, padding: '7px 14px', borderRadius: 10, border: '1px solid #e3e4ec', background: '#fff', color: '#6b6c7b', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
+              <button onClick={() => setMovingMeetingId(null)} style={{ flexShrink: 0, padding: '7px 14px', borderRadius: 'var(--t-radius-input)', border: `1px solid ${T.border}`, background: 'white', color: T.fgSubtle, fontSize: 12, cursor: 'pointer', fontFamily: T.font }}>Cancel</button>
             </div>
           )}
         </div>
@@ -472,23 +486,23 @@ export default function FolderMeetingsPage() {
               style={{ width: 30, height: 30, borderRadius: 9, border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2.5 }}
             ><KebabDots /></button>
             {openMenuId === m.id && (
-              <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, width: 160, background: '#fff', border: '1px solid #ececf1', borderRadius: 13, boxShadow: '0 16px 40px rgba(20,22,40,0.16)', padding: 6, zIndex: 50 }}>
-                <a href={`/meetings/${m.id}`} onClick={() => setOpenMenuId(null)} style={{ ...menuItemBase, textDecoration: 'none' }}><span style={{ color: '#9a9bab' }}>▷</span> Open</a>
+              <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, width: 160, background: 'white', border: `1px solid ${T.border}`, borderRadius: 12, boxShadow: 'var(--t-shadow-xl)', padding: 6, zIndex: 50 }}>
+                <a href={`/meetings/${m.id}`} onClick={() => setOpenMenuId(null)} style={{ ...menuItemBase, textDecoration: 'none' }}><span style={{ color: T.fgMuted }}>▷</span> Open</a>
                 {canPinThis && (
                   <button disabled={busyId === m.id} onClick={() => { setOpenMenuId(null); void togglePin(m) }} style={menuItemBase}>
-                    <span style={{ color: '#9a9bab' }}>📌</span> {m.pinned_at ? 'Unpin' : 'Pin to top'}
+                    <span style={{ color: T.fgMuted }}>📌</span> {m.pinned_at ? 'Unpin' : 'Pin to top'}
                   </button>
                 )}
                 {canEditThis && (
-                  <button disabled={busyId === m.id} onClick={() => { setOpenMenuId(null); startRename(m) }} style={menuItemBase}><span style={{ color: '#9a9bab' }}>✎</span> Rename</button>
+                  <button disabled={busyId === m.id} onClick={() => { setOpenMenuId(null); startRename(m) }} style={menuItemBase}><span style={{ color: T.fgMuted }}>✎</span> Rename</button>
                 )}
                 {canEditThis && (
-                  <button disabled={busyId === m.id} onClick={() => { setOpenMenuId(null); setMovingMeetingId(m.id); setActionError(null) }} style={menuItemBase}><span style={{ color: '#9a9bab' }}>↗</span> Move to…</button>
+                  <button disabled={busyId === m.id} onClick={() => { setOpenMenuId(null); setMovingMeetingId(m.id); setActionError(null) }} style={menuItemBase}><span style={{ color: T.fgMuted }}>↗</span> Move to…</button>
                 )}
                 {canDeleteThis && (
                   <>
-                    <div style={{ height: 1, background: '#f0f0f4', margin: '4px 6px' }} />
-                    <button disabled={busyId === m.id} onClick={() => { setOpenMenuId(null); setConfirmDeleteId(m.id) }} style={{ ...menuItemBase, fontWeight: 700, color: '#ef5a6f' }}><span>🗑</span> Delete</button>
+                    <div style={{ height: 1, background: T.clay, margin: '4px 6px' }} />
+                    <button disabled={busyId === m.id} onClick={() => { setOpenMenuId(null); setConfirmDeleteId(m.id) }} style={{ ...menuItemBase, fontWeight: 700, color: 'rgb(239 68 68)' }}><span>🗑</span> Delete</button>
                   </>
                 )}
               </div>
@@ -500,10 +514,10 @@ export default function FolderMeetingsPage() {
   }
 
   // ── render ─────────────────────────────────────────────────────────────────
-  const iconTileBg = isShared ? '#efedfd' : '#fef3d6'
+  const iconTileBg = isShared ? `${T.primary}15` : 'rgb(254 243 199)'
 
   return (
-    <div style={{ background: '#f4f5f8', minHeight: '100vh', fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
+    <div style={{ background: T.bg, minHeight: '100vh', fontFamily: T.font }}>
 
       {/* Click-away overlay for open kebab menus */}
       {openMenuId && (
@@ -517,14 +531,14 @@ export default function FolderMeetingsPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <Link
               href="/meetings"
-              style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#9a9bab', fontSize: 13, fontWeight: 600, textDecoration: 'none', flexShrink: 0 }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, color: T.fgMuted, fontSize: 13, fontWeight: 600, textDecoration: 'none', flexShrink: 0 }}
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                 <path d="M10 12L6 8l4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
               All meetings
             </Link>
-            <span style={{ color: '#d0d1db', fontSize: 16 }}>/</span>
+            <span style={{ color: T.border, fontSize: 16 }}>/</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               {/* Folder icon tile */}
               <span style={{ width: 44, height: 44, borderRadius: 12, background: iconTileBg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -542,11 +556,11 @@ export default function FolderMeetingsPage() {
                 )}
               </span>
               <div>
-                <h1 style={{ fontSize: 24, fontWeight: 800, color: '#15161c', letterSpacing: '-0.01em', margin: 0 }}>
+                <h1 style={{ fontSize: 24, fontWeight: 800, color: T.fg, letterSpacing: '-0.01em', margin: 0, fontFamily: 'var(--t-font-heading)' }}>
                   {loadState === 'loading' ? '…' : (folder?.name ?? 'Folder')}
                 </h1>
                 {loadState === 'ready' && (
-                  <p style={{ fontSize: 12, color: '#9a9bab', fontWeight: 500, margin: '2px 0 0' }}>
+                  <p style={{ fontSize: 12, color: T.fgMuted, fontWeight: 500, margin: '2px 0 0' }}>
                     {meetings.length} meeting{meetings.length !== 1 ? 's' : ''}
                     {isOwned && (folder?.memberCount ?? 0) > 0 && ` · shared with ${folder!.memberCount} ${folder!.memberCount === 1 ? 'person' : 'people'}`}
                     {!isOwned && folder && ` · shared by @${folder.ownerUsername ?? '?'} · ${folder.myRole}`}
@@ -561,7 +575,7 @@ export default function FolderMeetingsPage() {
             {isOwned && (
               <button
                 onClick={() => void openSharePanel()}
-                style={{ padding: '9px 18px', borderRadius: 999, border: '1.5px solid #dddee8', background: '#fff', color: '#15161c', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6 }}
+                style={{ padding: '9px 18px', borderRadius: 999, border: `1.5px solid ${T.border}`, background: 'white', color: T.fg, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: T.font, display: 'flex', alignItems: 'center', gap: 6 }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="9" cy="7" r="3" stroke="#6c5ce7" strokeWidth="2"/><path d="M3 20c0-3.3 2.7-6 6-6" stroke="#6c5ce7" strokeWidth="2" strokeLinecap="round"/><path d="M16 11a5 5 0 0 1 5 5M19 13l2 3-3 1" stroke="#9a9bab" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 Share
@@ -569,7 +583,7 @@ export default function FolderMeetingsPage() {
             )}
             <Link
               href={`/record?folder=${folderId}`}
-              style={{ padding: '9px 18px', borderRadius: 999, border: 'none', background: 'linear-gradient(135deg,#7c6ff7,#6c5ce7)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'none', display: 'inline-block' }}
+              style={{ padding: '9px 18px', borderRadius: 999, border: 'none', background: T.primary, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: T.font, textDecoration: 'none', display: 'inline-block' }}
             >
               + New recording
             </Link>
@@ -578,15 +592,15 @@ export default function FolderMeetingsPage() {
 
         {/* ── Banners ── */}
         {actionError && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, background: '#fdeef0', border: '1px solid #f9c6cc', borderRadius: 12, padding: '10px 16px', marginBottom: 16, fontSize: 13, color: '#c0202e', fontWeight: 600 }}>
+          <div className="banner-error">
             <span>{actionError}</span>
-            <button onClick={() => setActionError(null)} style={{ background: 'none', border: 'none', color: '#c0202e', cursor: 'pointer', fontSize: 16, opacity: 0.6, fontFamily: 'inherit' }}>✕</button>
+            <button onClick={() => setActionError(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: 16, opacity: 0.6 }}>✕</button>
           </div>
         )}
         {actionWarning && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, background: '#fef6e4', border: '1px solid #f3d78a', borderRadius: 12, padding: '10px 16px', marginBottom: 16, fontSize: 13, color: '#8a5700', fontWeight: 600 }}>
+          <div className="banner-warning">
             <span>{actionWarning}</span>
-            <button onClick={() => setActionWarning(null)} style={{ background: 'none', border: 'none', color: '#8a5700', cursor: 'pointer', fontSize: 16, opacity: 0.6, fontFamily: 'inherit' }}>✕</button>
+            <button onClick={() => setActionWarning(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: 16, opacity: 0.6 }}>✕</button>
           </div>
         )}
 
@@ -594,22 +608,22 @@ export default function FolderMeetingsPage() {
         {loadState === 'loading' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {[1, 2, 3].map((i) => (
-              <div key={i} style={{ height: 76, borderRadius: 16, background: '#e9eaef', opacity: 0.7, animationDelay: `${i * 100}ms` }} />
+              <div key={i} style={{ height: 76, borderRadius: T.radius, background: T.border, opacity: 0.7, animationDelay: `${i * 100}ms` }} />
             ))}
           </div>
         )}
 
         {/* ── Error ── */}
         {loadState === 'error' && (
-          <div style={{ background: '#fdeef0', border: '1px solid #f9c6cc', borderRadius: 12, padding: '12px 16px', fontSize: 13, color: '#c0202e', fontWeight: 600 }}>{loadError}</div>
+          <div className="banner-error">{loadError}</div>
         )}
 
         {/* ── Folder not found ── */}
         {loadState === 'ready' && !folder && (
           <div style={{ textAlign: 'center', padding: '80px 0' }}>
-            <p style={{ fontSize: 18, fontWeight: 700, color: '#15161c', marginBottom: 8 }}>Folder not found</p>
-            <p style={{ fontSize: 14, color: '#9a9bab', marginBottom: 24 }}>This folder may have been deleted or you don&apos;t have access.</p>
-            <Link href="/meetings" style={{ padding: '10px 22px', borderRadius: 999, border: 'none', background: 'linear-gradient(135deg,#7c6ff7,#6c5ce7)', color: '#fff', fontSize: 14, fontWeight: 700, textDecoration: 'none', display: 'inline-block' }}>
+            <p style={{ fontSize: 18, fontWeight: 700, color: T.fg, marginBottom: 8, fontFamily: 'var(--t-font-heading)' }}>Folder not found</p>
+            <p style={{ fontSize: 14, color: T.fgMuted, marginBottom: 24 }}>This folder may have been deleted or you don&apos;t have access.</p>
+            <Link href="/meetings" style={{ padding: '10px 22px', borderRadius: 999, border: 'none', background: T.primary, color: '#fff', fontSize: 14, fontWeight: 700, textDecoration: 'none', display: 'inline-block' }}>
               Back to meetings
             </Link>
           </div>
@@ -621,9 +635,9 @@ export default function FolderMeetingsPage() {
             <div style={{ width: 56, height: 56, borderRadius: 16, background: iconTileBg, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: 26 }}>
               {isShared ? '👥' : '📁'}
             </div>
-            <p style={{ fontSize: 18, fontWeight: 700, color: '#15161c', marginBottom: 8 }}>No meetings in this folder</p>
-            <p style={{ fontSize: 14, color: '#9a9bab', marginBottom: 24 }}>Record a meeting and move it here.</p>
-            <Link href={`/record?folder=${folderId}`} style={{ padding: '10px 22px', borderRadius: 999, border: 'none', background: 'linear-gradient(135deg,#7c6ff7,#6c5ce7)', color: '#fff', fontSize: 14, fontWeight: 700, textDecoration: 'none', display: 'inline-block' }}>
+            <p style={{ fontSize: 18, fontWeight: 700, color: T.fg, marginBottom: 8, fontFamily: 'var(--t-font-heading)' }}>No meetings in this folder</p>
+            <p style={{ fontSize: 14, color: T.fgMuted, marginBottom: 24 }}>Record a meeting and move it here.</p>
+            <Link href={`/record?folder=${folderId}`} style={{ padding: '10px 22px', borderRadius: 999, border: 'none', background: T.primary, color: '#fff', fontSize: 14, fontWeight: 700, textDecoration: 'none', display: 'inline-block' }}>
               + New recording
             </Link>
           </div>
@@ -645,21 +659,21 @@ export default function FolderMeetingsPage() {
           onClick={() => setConfirmDeleteId(null)}
         >
           <div
-            style={{ background: '#fff', borderRadius: 24, border: '1px solid #edeef3', boxShadow: '0 24px 60px rgba(20,22,40,0.22)', padding: 32, maxWidth: 420, width: '100%' }}
+            style={{ background: 'white', borderRadius: T.radius, border: `1px solid ${T.border}`, boxShadow: 'var(--t-shadow-xl)', padding: 32, maxWidth: 420, width: '100%' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 style={{ fontSize: 20, fontWeight: 800, color: '#15161c', marginBottom: 12 }}>Delete this meeting?</h3>
-            <p style={{ fontSize: 14, color: '#6b6c7b', lineHeight: 1.6, marginBottom: 24 }}>
-              <strong style={{ color: '#15161c' }}>&ldquo;{confirmTarget.title}&rdquo;</strong>
+            <h3 style={{ fontSize: 20, fontWeight: 800, color: T.fg, marginBottom: 12, fontFamily: 'var(--t-font-heading)' }}>Delete this meeting?</h3>
+            <p style={{ fontSize: 14, color: T.fgMuted, lineHeight: 1.6, marginBottom: 24 }}>
+              <strong style={{ color: T.fg }}>&ldquo;{confirmTarget.title}&rdquo;</strong>
               <br />
               This permanently deletes the meeting, transcript, todos, and recording. This can&apos;t be undone.
             </p>
             <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-              <button onClick={() => setConfirmDeleteId(null)} style={{ padding: '10px 20px', borderRadius: 999, border: '1.5px solid #e3e4ec', background: '#fff', color: '#6b6c7b', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
+              <button onClick={() => setConfirmDeleteId(null)} style={{ padding: '10px 20px', borderRadius: 999, border: `1.5px solid ${T.border}`, background: 'white', color: T.fgSubtle, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: T.font }}>Cancel</button>
               <button
                 disabled={busyId === confirmTarget.id}
                 onClick={() => void deleteMeeting(confirmTarget.id)}
-                style={{ padding: '10px 20px', borderRadius: 999, border: 'none', background: '#ef5a6f', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', opacity: busyId === confirmTarget.id ? 0.65 : 1 }}
+                style={{ padding: '10px 20px', borderRadius: 999, border: 'none', background: 'rgb(239 68 68)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: T.font, opacity: busyId === confirmTarget.id ? 0.65 : 1 }}
               >
                 Delete permanently
               </button>
@@ -675,39 +689,39 @@ export default function FolderMeetingsPage() {
           onClick={() => { setSharingOpen(false); setShareError(null) }}
         >
           <div
-            style={{ background: '#fff', borderRadius: 24, border: '1px solid #edeef3', boxShadow: '0 24px 60px rgba(20,22,40,0.22)', padding: 32, maxWidth: 440, width: '100%', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+            style={{ background: 'white', borderRadius: T.radius, border: `1px solid ${T.border}`, boxShadow: 'var(--t-shadow-xl)', padding: 32, maxWidth: 440, width: '100%', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-              <h3 style={{ fontSize: 18, fontWeight: 800, color: '#15161c', margin: 0 }}>Share &ldquo;{folder?.name}&rdquo;</h3>
-              <button onClick={() => { setSharingOpen(false); setShareError(null) }} style={{ background: 'none', border: 'none', color: '#9a9bab', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>✕</button>
+              <h3 style={{ fontSize: 18, fontWeight: 800, color: T.fg, margin: 0, fontFamily: 'var(--t-font-heading)' }}>Share &ldquo;{folder?.name}&rdquo;</h3>
+              <button onClick={() => { setSharingOpen(false); setShareError(null) }} style={{ background: 'none', border: 'none', color: T.fgMuted, cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>✕</button>
             </div>
 
-            {shareError && <p style={{ fontSize: 12, color: '#ef5a6f', marginBottom: 10 }}>{shareError}</p>}
+            {shareError && <p style={{ fontSize: 12, color: 'rgb(239 68 68)', marginBottom: 10 }}>{shareError}</p>}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', flex: 1, minHeight: 0, marginBottom: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 12, background: '#f8f9fb' }}>
-                <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: '#15161c' }}>You</span>
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#9a9bab', background: '#f0f0f4', borderRadius: 6, padding: '2px 8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Owner</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 12, background: T.clay }}>
+                <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.fg }}>You</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: T.fgMuted, background: T.clay, borderRadius: 6, padding: '2px 8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Owner</span>
               </div>
-              {shareBusy && <p style={{ fontSize: 12, color: '#9a9bab', textAlign: 'center', padding: '8px 0' }}>Loading members…</p>}
+              {shareBusy && <p style={{ fontSize: 12, color: T.fgMuted, textAlign: 'center', padding: '8px 0' }}>Loading members…</p>}
               {!shareBusy && shareMembers.map((member) => (
-                <div key={member.userId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 12, border: '1px solid #edeef3' }}>
-                  <span style={{ flex: 1, fontSize: 13, color: '#15161c', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>@{member.username}</span>
-                  <select value={member.role} onChange={(e) => void changeShareRole(member.userId, e.target.value as 'editor' | 'viewer')} style={{ fontSize: 12, border: '1px solid #e3e4ec', borderRadius: 8, padding: '3px 6px', background: '#fff', color: '#15161c', cursor: 'pointer', fontFamily: 'inherit' }}>
+                <div key={member.userId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 12, border: `1px solid ${T.border}` }}>
+                  <span style={{ flex: 1, fontSize: 13, color: T.fg, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>@{member.username}</span>
+                  <select value={member.role} onChange={(e) => void changeShareRole(member.userId, e.target.value as 'editor' | 'viewer')} style={{ fontSize: 12, border: `1px solid ${T.border}`, borderRadius: 8, padding: '3px 6px', background: 'white', color: T.fg, cursor: 'pointer', fontFamily: T.font }}>
                     <option value="viewer">Viewer</option>
                     <option value="editor">Editor</option>
                   </select>
-                  <button onClick={() => void removeMember(member.userId)} style={{ fontSize: 12, color: '#ef5a6f', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '2px 6px' }}>Remove</button>
+                  <button onClick={() => void removeMember(member.userId)} style={{ fontSize: 12, color: 'rgb(239 68 68)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: T.font, padding: '2px 6px' }}>Remove</button>
                 </div>
               ))}
               {!shareBusy && shareMembers.length === 0 && (
-                <p style={{ fontSize: 12, color: '#9a9bab', textAlign: 'center', padding: '8px 0' }}>No members yet — add someone below.</p>
+                <p style={{ fontSize: 12, color: T.fgMuted, textAlign: 'center', padding: '8px 0' }}>No members yet — add someone below.</p>
               )}
             </div>
 
-            <div style={{ borderTop: '1px solid #edeef3', paddingTop: 16 }}>
-              <p style={{ fontSize: 11, fontWeight: 700, color: '#9a9bab', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Add member</p>
+            <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 16 }}>
+              <p style={{ fontSize: 11, fontWeight: 700, color: T.fgMuted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Add member</p>
               <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
                 <input
                   type="text"
@@ -716,16 +730,16 @@ export default function FolderMeetingsPage() {
                   placeholder="Email or @username"
                   disabled={addShareBusy}
                   onKeyDown={(e) => { if (e.key === 'Enter') void addShareMember() }}
-                  style={{ flex: 1, minWidth: 0, padding: '8px 12px', borderRadius: 10, border: '1px solid #e3e4ec', background: '#f8f9fb', fontSize: 13, fontFamily: 'inherit', color: '#15161c', outline: 'none' }}
+                  style={{ flex: 1, minWidth: 0, padding: '8px 12px', borderRadius: 'var(--t-radius-input)', border: `1px solid ${T.border}`, background: T.clay, fontSize: 13, fontFamily: T.font, color: T.fg, outline: 'none' }}
                 />
-                <select value={addShareRole} onChange={(e) => setAddShareRole(e.target.value as 'editor' | 'viewer')} style={{ fontSize: 13, border: '1px solid #e3e4ec', borderRadius: 10, padding: '8px 10px', background: '#f8f9fb', color: '#15161c', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>
+                <select value={addShareRole} onChange={(e) => setAddShareRole(e.target.value as 'editor' | 'viewer')} style={{ fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 'var(--t-radius-input)', padding: '8px 10px', background: T.clay, color: T.fg, cursor: 'pointer', fontFamily: T.font, flexShrink: 0 }}>
                   <option value="viewer">Viewer</option>
                   <option value="editor">Editor</option>
                 </select>
-                <button onClick={() => void addShareMember()} disabled={!addShareIdentifier.trim() || addShareBusy} style={{ flexShrink: 0, padding: '8px 16px', borderRadius: 10, border: 'none', background: '#6c5ce7', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', opacity: !addShareIdentifier.trim() || addShareBusy ? 0.5 : 1 }}>Add</button>
+                <button onClick={() => void addShareMember()} disabled={!addShareIdentifier.trim() || addShareBusy} style={{ flexShrink: 0, padding: '8px 16px', borderRadius: 'var(--t-radius-input)', border: 'none', background: T.primary, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: T.font, opacity: !addShareIdentifier.trim() || addShareBusy ? 0.5 : 1 }}>Add</button>
               </div>
-              {addShareError && <p style={{ fontSize: 12, color: '#ef5a6f' }}>{addShareError}</p>}
-              <p style={{ fontSize: 11, color: '#9a9bab', margin: '4px 0 0' }}>Viewer: read-only · Editor: can rename and delete meetings</p>
+              {addShareError && <p style={{ fontSize: 12, color: 'rgb(239 68 68)' }}>{addShareError}</p>}
+              <p style={{ fontSize: 11, color: T.fgMuted, margin: '4px 0 0' }}>Viewer: read-only · Editor: can rename and delete meetings</p>
             </div>
           </div>
         </div>

@@ -62,7 +62,7 @@ function formatMemberSince(iso: string): string {
 // Shared sub-components
 // ---------------------------------------------------------------------------
 
-const FONT = "'Plus Jakarta Sans', system-ui, sans-serif"
+const FONT = 'var(--t-font-body)'
 const PRIMARY = 'rgb(var(--t-primary-rgb))'
 const FG = 'rgb(var(--t-fg-rgb))'
 const BG = 'rgb(var(--t-bg-rgb))'
@@ -76,7 +76,7 @@ function Card({ children, style }: { children: React.ReactNode; style?: React.CS
     <section style={{
       background: BG,
       border: `1px solid ${BORDER}`,
-      borderRadius: 18,
+      borderRadius: 'var(--t-radius-card)',
       padding: '22px 24px',
       ...style,
     }}>
@@ -103,6 +103,20 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   )
 }
 
+function EyeIcon({ visible }: { visible: boolean }) {
+  return visible ? (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
+    </svg>
+  ) : (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+      <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+      <line x1="1" y1="1" x2="23" y2="23" />
+    </svg>
+  )
+}
+
 function TextInput({
   value,
   onChange,
@@ -125,9 +139,12 @@ function TextInput({
   autoComplete?: string
 }) {
   const [focused, setFocused] = useState(false)
-  return (
+  const [showPw, setShowPw] = useState(false)
+  const isPassword = type === 'password'
+
+  const inputEl = (
     <input
-      type={type}
+      type={isPassword ? (showPw ? 'text' : 'password') : type}
       value={value}
       onChange={onChange ? (e) => onChange(e.target.value) : undefined}
       readOnly={readOnly}
@@ -140,8 +157,8 @@ function TextInput({
       onBlur={() => setFocused(false)}
       style={{
         width: '100%',
-        padding: '11px 14px',
-        borderRadius: 11,
+        padding: isPassword ? '11px 42px 11px 14px' : '11px 14px',
+        borderRadius: 'var(--t-radius-input)',
         border: focused ? `1px solid ${PRIMARY}` : `1px solid ${BORDER}`,
         background: readOnly ? 'rgb(var(--t-fg-rgb) / 0.04)' : INPUT_BG,
         fontFamily: FONT,
@@ -154,6 +171,36 @@ function TextInput({
         transition: 'border-color .15s, box-shadow .15s',
       }}
     />
+  )
+
+  if (!isPassword) return inputEl
+
+  return (
+    <div style={{ position: 'relative' }}>
+      {inputEl}
+      <button
+        type="button"
+        tabIndex={-1}
+        onClick={() => setShowPw((v) => !v)}
+        aria-label={showPw ? 'Hide password' : 'Show password'}
+        style={{
+          position: 'absolute',
+          right: 12,
+          top: '50%',
+          transform: 'translateY(-50%)',
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          cursor: 'pointer',
+          color: MUTED,
+          display: 'flex',
+          alignItems: 'center',
+          lineHeight: 0,
+        }}
+      >
+        <EyeIcon visible={showPw} />
+      </button>
+    </div>
   )
 }
 
@@ -175,7 +222,7 @@ function PrimaryBtn({
       disabled={disabled}
       style={{
         padding: '10px 18px',
-        borderRadius: 11,
+        borderRadius: 'var(--t-radius-btn)',
         border: 'none',
         background: `linear-gradient(135deg, rgb(var(--t-primary-rgb) / 0.9), rgb(var(--t-primary-rgb)))`,
         cursor: disabled ? 'default' : 'pointer',
@@ -619,7 +666,7 @@ export default function ProfilePage() {
               { label: 'Recordings', value: profile.meeting_count },
               { label: 'Folders', value: profile.folder_count },
             ].map(({ label, value }) => (
-              <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '11px 14px', borderRadius: 11, background: 'rgb(var(--t-fg-rgb) / 0.02)', border: `1px solid ${BORDER}` }}>
+              <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '11px 14px', borderRadius: 'var(--t-radius-input)', background: 'rgb(var(--t-fg-rgb) / 0.02)', border: `1px solid ${BORDER}` }}>
                 <span style={{ fontSize: 12.5, fontWeight: 600, color: MUTED, fontFamily: FONT }}>{label}</span>
                 {typeof value === 'object'
                   ? value
@@ -673,7 +720,7 @@ export default function ProfilePage() {
               <div style={{ fontSize: 14, fontWeight: 600, color: FG, fontFamily: FONT }}>Appearance</div>
               <div style={{ fontSize: 12.5, fontWeight: 500, color: MUTED, marginTop: 2, fontFamily: FONT }}>Choose how Ricotdin looks.</div>
             </div>
-            <div style={{ display: 'flex', background: 'rgb(var(--t-fg-rgb) / 0.06)', padding: 4, borderRadius: 11, gap: 4, flexShrink: 0 }}>
+            <div style={{ display: 'flex', background: 'rgb(var(--t-fg-rgb) / 0.06)', padding: 4, borderRadius: 'var(--t-radius-input)', gap: 4, flexShrink: 0 }}>
               {THEMES.map((t) => {
                 const active = currentTheme === t.id
                 return (
@@ -709,7 +756,7 @@ export default function ProfilePage() {
               <div style={{ fontSize: 14, fontWeight: 600, color: FG, fontFamily: FONT }}>Language</div>
               <div style={{ fontSize: 12.5, fontWeight: 500, color: MUTED, marginTop: 2, fontFamily: FONT }}>Used across menus and email.</div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '10px 14px', borderRadius: 11, border: `1px solid ${BORDER}`, background: INPUT_BG, fontSize: 13.5, fontWeight: 600, color: MUTED, fontFamily: FONT, cursor: 'not-allowed', userSelect: 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '10px 14px', borderRadius: 'var(--t-radius-input)', border: `1px solid ${BORDER}`, background: INPUT_BG, fontSize: 13.5, fontWeight: 600, color: MUTED, fontFamily: FONT, cursor: 'not-allowed', userSelect: 'none' }}>
               English (US) <span style={{ color: MUTED, fontSize: 10, marginLeft: 4 }}>▾</span>
             </div>
           </div>
@@ -749,7 +796,7 @@ export default function ProfilePage() {
             <button
               type="button"
               onClick={() => { void handleSignOut() }}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', borderRadius: 11, border: `1px solid ${BORDER}`, background: BG, cursor: 'pointer', fontFamily: FONT, fontSize: 13.5, fontWeight: 700, color: FG }}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', borderRadius: 'var(--t-radius-input)', border: `1px solid ${BORDER}`, background: BG, cursor: 'pointer', fontFamily: FONT, fontSize: 13.5, fontWeight: 700, color: FG }}
             >
               <span>⏻</span> Sign out
             </button>
@@ -765,7 +812,7 @@ export default function ProfilePage() {
               type="button"
               disabled
               title="Coming soon"
-              style={{ flexShrink: 0, padding: '10px 18px', borderRadius: 11, border: '1px solid #ef5a6f', background: '#fff', cursor: 'not-allowed', fontFamily: FONT, fontSize: 13.5, fontWeight: 700, color: '#ef5a6f', opacity: 0.5 }}
+              style={{ flexShrink: 0, padding: '10px 18px', borderRadius: 'var(--t-radius-input)', border: '1px solid #ef5a6f', background: '#fff', cursor: 'not-allowed', fontFamily: FONT, fontSize: 13.5, fontWeight: 700, color: '#ef5a6f', opacity: 0.5 }}
             >
               Delete
             </button>
@@ -796,7 +843,7 @@ export default function ProfilePage() {
                 type="button"
                 disabled={avatarSaving}
                 onClick={() => { void handleAvatarRemove() }}
-                style={{ padding: '10px 18px', borderRadius: 11, border: 'none', background: '#ef5a6f', cursor: avatarSaving ? 'default' : 'pointer', fontFamily: FONT, fontSize: 13.5, fontWeight: 700, color: '#fff', opacity: avatarSaving ? 0.65 : 1 }}
+                style={{ padding: '10px 18px', borderRadius: 'var(--t-radius-input)', border: 'none', background: '#ef5a6f', cursor: avatarSaving ? 'default' : 'pointer', fontFamily: FONT, fontSize: 13.5, fontWeight: 700, color: '#fff', opacity: avatarSaving ? 0.65 : 1 }}
               >
                 {avatarSaving ? 'Removing…' : 'Remove'}
               </button>

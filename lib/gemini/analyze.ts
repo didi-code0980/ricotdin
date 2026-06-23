@@ -108,17 +108,21 @@ function buildPrompt(
 
   const base = `You are a meeting assistant. Analyse the following meeting transcript.
 ${dateContext}
+LANGUAGE RULE: Detect the primary language of the transcript. Write ALL output fields
+(summary, notes_markdown, todo content, calendar event titles) in that SAME language.
+Do NOT translate or switch to English unless the transcript itself is in English.
+
 TRANSCRIPT (each line prefixed with its 0-based segment index [N]):
 ${transcriptText}
 
 Instructions:
-1. Write a concise summary (2–5 sentences).
-2. Write structured meeting notes in Markdown (headings, bullet points).
+1. Write a concise summary (2–5 sentences) in the transcript's language.
+2. Write structured meeting notes in Markdown (headings, bullet points) in the transcript's language.
 3. Extract every action item / to-do. For each, note the assignee and due date
-   if mentioned, and the segment index [N] where it was stated.
+   if mentioned, and the segment index [N] where it was stated. Write content in the transcript's language.
 4. Extract every proposed meeting / calendar event. Record the proposed datetime
    (ISO 8601) if determinable, the raw phrasing from the transcript, and the
-   segment index [N] where it was mentioned.
+   segment index [N] where it was mentioned. Write title in the transcript's language.
 
 Use null for assignee/due_date/proposed_at/source_segment_index when not available.
 For due_date use YYYY-MM-DD format.`

@@ -604,7 +604,7 @@ function ProcessingView({ meeting }: { meeting: Meeting }) {
       <div className="card-botanical text-center py-10 mt-4">
         <div
           className="w-10 h-10 rounded-full border-2 border-b-border mx-auto mb-4"
-          style={{ borderTopColor: '#8C9A84', animation: 'spin 1s linear infinite' }}
+          style={{ borderTopColor: 'rgb(var(--t-primary-rgb))', animation: 'spin 1s linear infinite' }}
         />
         <p className="font-serif text-lg font-semibold text-b-fg mb-1">
           {meeting.status === 'pending' ? 'Queued for processing…' : 'Processing recording…'}
@@ -841,7 +841,7 @@ function DoneView({
           <div className="flex items-center gap-2.5 py-2">
             <div
               className="w-4 h-4 rounded-full border-2 border-b-border flex-shrink-0"
-              style={{ borderTopColor: '#8C9A84', animation: 'spin 1s linear infinite' }}
+              style={{ borderTopColor: 'rgb(var(--t-primary-rgb))', animation: 'spin 1s linear infinite' }}
             />
             <span className="text-sm text-b-fg/50 font-sans">Generating…</span>
           </div>
@@ -862,7 +862,7 @@ function DoneView({
           <div className="flex items-center gap-2.5 py-2">
             <div
               className="w-4 h-4 rounded-full border-2 border-b-border flex-shrink-0"
-              style={{ borderTopColor: '#8C9A84', animation: 'spin 1s linear infinite' }}
+              style={{ borderTopColor: 'rgb(var(--t-primary-rgb))', animation: 'spin 1s linear infinite' }}
             />
             <span className="text-sm text-b-fg/50 font-sans">Generating…</span>
           </div>
