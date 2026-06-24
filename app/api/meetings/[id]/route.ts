@@ -10,7 +10,8 @@
 //   handles all child rows.
 //
 // SECURITY:
-//   PATCH/DELETE require editor+ access (meeting owner, folder owner, or editor member).
+//   PATCH requires editor+ access (meeting owner, folder owner, or editor member).
+//   DELETE requires owner-only (SEC-03 FINDING-2).
 //   Folder destination on PATCH requires the caller to have editor+ on that folder.
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -132,8 +133,8 @@ export async function DELETE(
 
   if (!meeting) return NextResponse.json({ error: 'Meeting not found.' }, { status: 404 })
 
-  // Editor+ required to delete — editors can delete meetings they don't own
-  if (!(await checkMeetingAccess(db, meeting, caller.id, 'editor'))) {
+  // Only the meeting owner may delete (FINDING-2 / SEC-03)
+  if (meeting.user_id !== caller.id) {
     return NextResponse.json({ error: 'Forbidden.' }, { status: 403 })
   }
 

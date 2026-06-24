@@ -1,7 +1,7 @@
 # SEC-03 — Full RLS / Access-Control Audit
 
 **Date:** 2026-06-25  
-**Status:** Phase 1 complete — findings and proposed remediations. No schema or policy changed.  
+**Status:** Phase 3 complete — all 6 findings implemented in migrations 022–025.  
 **Scope:** All Postgres tables, RLS policies, SECURITY DEFINER functions, route-layer access checks — triggered by COM-05 (folder sharing) and new QUO tables.  
 **FIX_IN_THIS_RUN = false.** Approve specific items before Phase 3 begins.
 
