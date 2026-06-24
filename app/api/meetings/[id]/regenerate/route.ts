@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireUser } from '@/lib/auth/server'
 import { analyzeTranscript } from '@/lib/gemini/analyze'
+import { logger } from '@/lib/logger'
 import type { TranscriptResult } from '@/types/pipeline'
 
 export async function POST(
@@ -45,7 +46,7 @@ export async function POST(
     .order('segment_index')
 
   if (segErr) {
-    console.error('[regenerate] segments fetch failed:', segErr.message)
+    logger.error('[regenerate] segments fetch failed', { detail: segErr.message })
     return NextResponse.json({ error: 'Failed to load transcript.' }, { status: 500 })
   }
 
@@ -82,14 +83,14 @@ export async function POST(
       .eq('id', meetingId)
 
     if (updateErr) {
-      console.error('[regenerate] meetings update failed:', updateErr.message)
+      logger.error('[regenerate] meetings update failed', { detail: updateErr.message })
       return NextResponse.json({ error: 'Failed to save results.' }, { status: 500 })
     }
 
     return NextResponse.json({ ok: true, summary: analysis.summary, notes: analysis.notes_markdown })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Analysis failed.'
-    console.error('[regenerate] analyzeTranscript failed:', message)
+    logger.error('[regenerate] analyzeTranscript failed', { detail: message })
     return NextResponse.json({ error: message.slice(0, 300) }, { status: 502 })
   }
 }

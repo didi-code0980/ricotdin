@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/auth/server'
 import { createSignedUploadUrl } from '@/lib/storage'
+import { logger } from '@/lib/logger'
 
 const ALLOWED_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024 // 2 MB
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
   try {
     uploadUrl = await createSignedUploadUrl({ key: avatarKey, contentType })
   } catch (e) {
-    console.error('[POST /api/profile/avatar] presigned URL failed:', e)
+    logger.error('[POST /api/profile/avatar] presigned URL failed', { detail: String(e) })
     return NextResponse.json({ error: 'Failed to generate upload URL.' }, { status: 500 })
   }
 

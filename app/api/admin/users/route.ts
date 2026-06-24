@@ -18,6 +18,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth/server'
 import { deriveUserStatus } from '@/lib/admin/userStatus'
 import { monthRange, aggregateUsageByUser } from '@/lib/admin/usageByUser'
+import { logger } from '@/lib/logger'
 
 export async function GET(req: NextRequest) {
   try {
@@ -40,7 +41,7 @@ export async function GET(req: NextRequest) {
     perPage: 1000,
   })
   if (usersErr) {
-    console.error('[admin/users] listUsers failed:', usersErr.message)
+    logger.error('[admin/users] listUsers failed', { detail: usersErr.message })
     return NextResponse.json({ error: 'Failed to fetch users.' }, { status: 500 })
   }
 
@@ -50,7 +51,7 @@ export async function GET(req: NextRequest) {
     .select('id, username, role')
 
   if (profilesErr) {
-    console.error('[admin/users] profiles fetch failed:', profilesErr.message)
+    logger.error('[admin/users] profiles fetch failed', { detail: profilesErr.message })
     return NextResponse.json({ error: 'Failed to fetch profiles.' }, { status: 500 })
   }
 
@@ -60,7 +61,7 @@ export async function GET(req: NextRequest) {
     .select('user_id')
 
   if (meetingsErr) {
-    console.error('[admin/users] meetings count failed:', meetingsErr.message)
+    logger.error('[admin/users] meetings count failed', { detail: meetingsErr.message })
     // Non-fatal — show 0 rather than failing the whole request
   }
 
@@ -79,7 +80,7 @@ export async function GET(req: NextRequest) {
     .gte('created_at', usageMonth.startISO)
     .lt('created_at', usageMonth.endISO)
   if (usageErr) {
-    console.error('[admin/users] usage_log fetch failed:', usageErr.message)
+    logger.error('[admin/users] usage_log fetch failed', { detail: usageErr.message })
   }
   const usageMap = aggregateUsageByUser(usageRows ?? [])
 

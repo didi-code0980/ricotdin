@@ -12,6 +12,7 @@ import { requireUser } from '@/lib/auth/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { createSignedDownloadUrl, deleteObject } from '@/lib/storage'
 import { normalizeUsername, validateUsername } from '@/lib/auth/validate'
+import { logger } from '@/lib/logger'
 import type { Database, Profile } from '@/types/database'
 
 type Theme = 'luxury' | 'default' | 'playful'
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest) {
     .single()
 
   if (profileErr || !profile) {
-    console.error('[GET /api/profile] profile fetch failed:', profileErr?.message)
+    logger.error('[GET /api/profile] profile fetch failed', { detail: profileErr?.message })
     return NextResponse.json({ error: 'Profile not found.' }, { status: 404 })
   }
 
@@ -50,8 +51,8 @@ export async function GET(req: NextRequest) {
       db.from('folders').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
     ])
 
-  if (countErr) console.error('[GET /api/profile] meeting count failed:', countErr.message)
-  if (folderCountErr) console.error('[GET /api/profile] folder count failed:', folderCountErr.message)
+  if (countErr) logger.error('[GET /api/profile] meeting count failed', { detail: countErr.message })
+  if (folderCountErr) logger.error('[GET /api/profile] folder count failed', { detail: folderCountErr.message })
 
   // Resolve avatar signed URL if a key is stored
   let avatarUrl: string | null = null
@@ -63,7 +64,7 @@ export async function GET(req: NextRequest) {
         expiresIn: 3600,
       })
     } catch (e) {
-      console.error('[GET /api/profile] avatar signed URL failed:', e)
+      logger.error('[GET /api/profile] avatar signed URL failed', { detail: String(e) })
     }
   }
 
@@ -179,7 +180,7 @@ export async function PATCH(req: NextRequest) {
       try {
         await deleteObject({ key: oldKey, provider: 'r2' })
       } catch (e) {
-        console.error('[PATCH /api/profile] old avatar delete failed (non-fatal):', e)
+        logger.error('[PATCH /api/profile] old avatar delete failed (non-fatal)', { detail: String(e) })
       }
     }
 
@@ -205,7 +206,7 @@ export async function PATCH(req: NextRequest) {
     .eq('id', user.id)
 
   if (updateErr) {
-    console.error('[PATCH /api/profile] update failed:', updateErr.message)
+    logger.error('[PATCH /api/profile] update failed', { detail: updateErr.message })
     if (updateErr.code === '23505') {
       return NextResponse.json({ error: 'Username is already taken.' }, { status: 409 })
     }

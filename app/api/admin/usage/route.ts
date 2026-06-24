@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth/server'
 import { computeMeetingStats, computeStorageStats } from '@/lib/admin/usage'
+import { logger } from '@/lib/logger'
 
 export async function GET(req: NextRequest) {
   try {
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
     .select('status, created_at')
 
   if (meetingsErr) {
-    console.error('[admin/usage] meetings query failed:', meetingsErr.message)
+    logger.error('[admin/usage] meetings query failed', { detail: meetingsErr.message })
     return NextResponse.json({ error: 'Failed to fetch meeting stats.' }, { status: 500 })
   }
 
@@ -36,7 +37,7 @@ export async function GET(req: NextRequest) {
     .list('', { limit: 10000, offset: 0, sortBy: { column: 'created_at', order: 'asc' } })
 
   if (storageErr) {
-    console.error('[admin/usage] storage list failed:', storageErr.message)
+    logger.error('[admin/usage] storage list failed', { detail: storageErr.message })
     // Non-fatal: return meeting stats with empty storage stats
   }
 

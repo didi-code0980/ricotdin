@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@/lib/supabase/server'
 import { checkMeetingAccess } from '@/lib/access'
+import { logger } from '@/lib/logger'
 import type { Database, TodoStatus } from '@/types/database'
 
 const ALLOWED_STATUSES: TodoStatus[] = ['open', 'done', 'dismissed']
@@ -85,7 +86,7 @@ export async function PATCH(
   const { error: updateErr } = await db.from('todos').update({ status }).eq('id', todoId)
 
   if (updateErr) {
-    console.error('[todos] update failed:', updateErr.message)
+    logger.error('[todos] update failed', { detail: updateErr.message })
     return NextResponse.json({ error: 'Failed to update todo.' }, { status: 500 })
   }
 

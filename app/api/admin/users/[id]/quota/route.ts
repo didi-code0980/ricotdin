@@ -14,6 +14,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth/server'
 import { applyQuotaMovement } from '@/lib/quota/applyQuotaMovement'
 import { writeAuditLog, requestContext } from '@/lib/admin/audit'
+import { logger } from '@/lib/logger'
 
 // ---------------------------------------------------------------------------
 // GET — balance + recent ledger (admin view of any user)
@@ -46,8 +47,8 @@ export async function GET(
       .limit(20),
   ])
 
-  if (walletRes.error) console.error('[admin/quota] wallet error:', walletRes.error.message)
-  if (ledgerRes.error) console.error('[admin/quota] ledger error:', ledgerRes.error.message)
+  if (walletRes.error) logger.error('[admin/quota] wallet error', { detail: walletRes.error.message })
+  if (ledgerRes.error) logger.error('[admin/quota] ledger error', { detail: ledgerRes.error.message })
 
   return NextResponse.json({
     wallet: walletRes.data

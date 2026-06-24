@@ -27,6 +27,7 @@ import {
   uploadBytes,
   deleteObject,
 } from '@/lib/storage'
+import { logger } from '@/lib/logger'
 import type { Database } from '@/types/database'
 
 async function requireUser(req: NextRequest): Promise<string> {
@@ -65,10 +66,10 @@ async function rejectUpload(
   reason: string,
 ): Promise<NextResponse> {
   await deleteObject({ key: storagePath, provider }).catch((e: unknown) => {
-    console.warn('[uploaded] storage cleanup failed:', e)
+    logger.warn('[uploaded] storage cleanup failed', { detail: String(e) })
   })
   const { error: deleteErr } = await serverClient.from('meetings').delete().eq('id', meetingId)
-  if (deleteErr) console.warn('[uploaded] meeting row cleanup failed:', deleteErr.message)
+  if (deleteErr) logger.warn('[uploaded] meeting row cleanup failed', { detail: deleteErr.message })
   return NextResponse.json({ error: reason }, { status: 422 })
 }
 
@@ -108,7 +109,7 @@ export async function POST(
       key: meeting.audio_path,
       provider: meeting.storage_provider,
     }).catch((e: unknown) => {
-      console.warn('[uploaded] getObjectSize error (non-fatal):', e)
+      logger.warn('[uploaded] getObjectSize error (non-fatal)', { detail: String(e) })
       return null
     })
 
@@ -166,7 +167,7 @@ export async function POST(
 
       // Delete the original video — the mp3 is the authoritative file now
       await deleteObject({ key: videoPath, provider }).catch((e: unknown) => {
-        console.warn('[uploaded] video cleanup after extraction failed (non-fatal):', e)
+        logger.warn('[uploaded] video cleanup after extraction failed (non-fatal)', { detail: String(e) })
       })
 
     } catch (err) {
@@ -175,7 +176,7 @@ export async function POST(
       // If the mp3 was already written to storage but the row update failed, remove it
       if (audioUploaded) {
         await deleteObject({ key: finalAudioPath, provider }).catch((e: unknown) => {
-          console.warn('[uploaded] partial audio cleanup failed:', e)
+          logger.warn('[uploaded] partial audio cleanup failed', { detail: String(e) })
         })
       }
       const reason = err instanceof Error ? err.message : 'Video audio extraction failed.'
@@ -203,7 +204,7 @@ export async function POST(
         expiresIn: 120, // 2-minute TTL
       })
     } catch (e: unknown) {
-      console.warn('[uploaded] could not generate signed read URL for ffprobe:', e)
+      logger.warn('[uploaded] could not generate signed read URL for ffprobe', { detail: String(e) })
     }
 
     if (audioUrl) {

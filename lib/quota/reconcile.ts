@@ -11,7 +11,7 @@
 //   • An external cron hitting that route every ~5 minutes (recommended)
 //   • instrumentation.ts + setInterval (deferred until REL-01 durable queue lands)
 
-import { log } from '@/lib/logger'
+import { log, logger } from '@/lib/logger'
 import { createServerClient } from '@/lib/supabase/server'
 import { applyQuotaMovement } from './applyQuotaMovement'
 
@@ -42,7 +42,7 @@ export async function reconcileStuckReservations(): Promise<{ reconciled: number
     .lt('updated_at', cutoff)
 
   if (fetchErr) {
-    console.error('[quota-reconcile] failed to fetch stuck meetings:', fetchErr.message)
+    logger.error('[quota-reconcile] failed to fetch stuck meetings', { detail: fetchErr.message })
     return { reconciled: 0 }
   }
 
@@ -119,13 +119,13 @@ export async function reconcileStuckReservations(): Promise<{ reconciled: number
         .eq('status', 'processing')
 
       if (updateErr) {
-        console.warn(`[quota-reconcile] failed to mark ${meeting.id} as failed:`, updateErr.message)
+        logger.warn('[quota-reconcile] failed to mark meeting as failed', { meetingId: meeting.id, detail: updateErr.message })
       } else {
         log(`[quota-reconcile] reclaimed reservation for meeting ${meeting.id} (estimate=${estimateSecs}s)`)
         reconciled++
       }
     } catch (err) {
-      console.error(`[quota-reconcile] error processing meeting ${meeting.id}:`, err)
+      logger.error('[quota-reconcile] error processing meeting', { meetingId: meeting.id, detail: String(err) })
       // Continue with remaining meetings — one failure shouldn't block the sweep.
     }
   }

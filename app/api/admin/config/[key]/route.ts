@@ -11,6 +11,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth/server'
 import { isValidConfigValue } from '@/lib/admin/config'
 import { writeAuditLog, requestContext } from '@/lib/admin/audit'
+import { logger } from '@/lib/logger'
 
 export async function PATCH(
   req: NextRequest,
@@ -50,7 +51,7 @@ export async function PATCH(
     .maybeSingle()
 
   if (selectErr) {
-    console.error('[admin/config/:key] select failed:', selectErr.message)
+    logger.error('[admin/config/:key] select failed', { detail: selectErr.message })
     return NextResponse.json({ error: 'Failed to look up config key.' }, { status: 500 })
   }
   if (!existing) {
@@ -65,7 +66,7 @@ export async function PATCH(
     .single()
 
   if (updateErr) {
-    console.error('[admin/config/:key] update failed:', updateErr.message)
+    logger.error('[admin/config/:key] update failed', { detail: updateErr.message })
     return NextResponse.json({ error: 'Failed to update config.' }, { status: 500 })
   }
 

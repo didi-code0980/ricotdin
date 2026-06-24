@@ -5,6 +5,7 @@
 // Pattern mirrors lib/admin/audit.ts → writeAuditLog().
 
 import { createServerClient } from '@/lib/supabase/server'
+import { logger } from '@/lib/logger'
 import type { ActivityEventType } from './types'
 
 export interface ActivityEntry {
@@ -36,9 +37,9 @@ export function logActivity(entry: ActivityEntry): void {
         ip:             entry.ip           ?? null,
         user_agent:     entry.userAgent    ?? null,
       })
-      if (error) console.error('[activity] insert failed:', error.message)
+      if (error) logger.error('[activity] insert failed', { detail: error.message })
     } catch (err) {
-      console.error('[activity] unexpected error:', err)
+      logger.error('[activity] unexpected error', { detail: String(err) })
     }
   })()
 }

@@ -20,6 +20,7 @@ import { answerWithContext } from '@/lib/gemini/answer'
 import { checkMeetingAccess } from '@/lib/access'
 import { logActivity } from '@/lib/activity/logActivity'
 import { applyQuotaMovement } from '@/lib/quota/applyQuotaMovement'
+import { logger } from '@/lib/logger'
 import type { HistoryMessage } from '@/lib/gemini/answer'
 import type { Database } from '@/types/database'
 
@@ -239,7 +240,7 @@ export async function POST(req: NextRequest) {
   try {
     chunks = await retrieveContext({ query: message, userClient, meetingId, userId })
   } catch (err) {
-    console.error('[chat] retrieval error:', err)
+    logger.error('[chat] retrieval error', { detail: String(err) })
     chunks = []
   }
 
@@ -266,9 +267,9 @@ export async function POST(req: NextRequest) {
         allowOverdraw: false,
         meetingId,
         metadata: { reason: 'answer_generation_failed', session_id: resolvedSessionId },
-      }).catch((e: unknown) => console.error('[chat] quota refund failed (non-fatal):', e))
+      }).catch((e: unknown) => logger.error('[chat] quota refund failed (non-fatal)', { detail: String(e) }))
 
-      console.error('[chat] answer generation error:', err)
+      logger.error('[chat] answer generation error', { detail: String(err) })
       answer = 'I encountered an error while generating an answer. Please try again.'
     }
   }

@@ -6,6 +6,7 @@
 
 import { createServerClient } from '@/lib/supabase/server'
 import { decryptSecret } from '@/lib/crypto'
+import { logger } from '@/lib/logger'
 
 const KEY_CACHE_TTL_MS = 30_000
 
@@ -70,12 +71,12 @@ async function loadEntries(provider: string): Promise<KeyWithMeta[]> {
             }),
           })
         } catch {
-          console.error(`[keys] failed to decrypt admin_config row ${row.id} (${configKey})`)
+          logger.error(`[keys] failed to decrypt admin_config row (${configKey})`, { detail: String(row.id) })
         }
       }
     }
   } catch (err) {
-    console.error(`[keys] DB lookup failed for config_key "${toConfigKey(provider)}":`, err)
+    logger.error(`[keys] DB lookup failed for config_key "${toConfigKey(provider)}"`, { detail: String(err) })
   }
 
   return entries.length > 0 ? entries : envKeys(provider)

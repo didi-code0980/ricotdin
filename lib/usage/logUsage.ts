@@ -10,6 +10,7 @@
 // Never aggregate quantity across different units — the values are incommensurable.
 
 import { createServerClient } from '@/lib/supabase/server'
+import { logger } from '@/lib/logger'
 import type { UsageUnit, UsageStatus } from '@/types/database'
 
 export type { UsageUnit, UsageStatus }
@@ -65,9 +66,9 @@ async function _write(entry: UsageEntry): Promise<void> {
       key_id:        entry.key_id        ?? null,
     } as any)
     if (error) {
-      console.warn('[usage] log insert failed:', error.message)
+      logger.warn('[usage] log insert failed', { detail: error.message })
     }
   } catch (e) {
-    console.warn('[usage] log write exception:', e)
+    logger.warn('[usage] log write exception', { detail: String(e) })
   }
 }

@@ -8,7 +8,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Type, type Schema } from '@google/genai'
-import { log } from '@/lib/logger'
+import { log, logger } from '@/lib/logger'
 import { GEMINI_MODEL } from './client'
 import { geminiPool } from './pool'
 import { PipelineError } from './errors'
@@ -248,7 +248,7 @@ export async function analyzeTranscript(
       // Prompt-level retry with a stricter instruction on the same key.
       // PipelineError from parseResult is 'bad-request' in the pool, so a
       // second parse failure surfaces immediately without key rotation.
-      console.warn('[analyze] first parse failed; retrying with strict prompt:', parseErr)
+      logger.warn('[analyze] first parse failed; retrying with strict prompt', { detail: String(parseErr) })
       const response2 = await ai.models.generateContent({
         model: GEMINI_MODEL,
         contents: buildUserContent(transcript.segments, true, meetingDate),

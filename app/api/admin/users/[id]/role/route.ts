@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth/server'
 import { guardRoleDemotion } from '@/lib/admin/guards'
+import { logger } from '@/lib/logger'
 import type { UserRole } from '@/types/database'
 
 const VALID_ROLES: UserRole[] = ['user', 'admin']
@@ -85,7 +86,7 @@ export async function PATCH(
     app_metadata: { role: newRole },
   })
   if (metaErr) {
-    console.error('[admin/role] updateUserById (app_metadata) failed:', metaErr.message)
+    logger.error('[admin/role] updateUserById (app_metadata) failed', { detail: metaErr.message })
     return NextResponse.json({ error: 'Failed to update role.' }, { status: 500 })
   }
 
@@ -96,7 +97,7 @@ export async function PATCH(
     .eq('id', targetId)
 
   if (profileErr) {
-    console.warn('[admin/role] profiles.role sync failed (app_metadata already updated):', profileErr.message)
+    logger.warn('[admin/role] profiles.role sync failed (app_metadata already updated)', { detail: profileErr.message })
   }
 
   return NextResponse.json({ ok: true, role: newRole })

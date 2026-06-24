@@ -15,6 +15,7 @@ import { requireAdmin } from '@/lib/auth/server'
 import { encryptSecret } from '@/lib/crypto'
 import { invalidateKeyCache } from '@/lib/keys/provider'
 import { writeAuditLog, requestContext } from '@/lib/admin/audit'
+import { logger } from '@/lib/logger'
 
 const ALLOWED_CONFIG_KEYS = ['gemini_api_key', 'speechmatics_api_key'] as const
 type AllowedConfigKey = typeof ALLOWED_CONFIG_KEYS[number]
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest) {
     .order('created_at', { ascending: true })
 
   if (error) {
-    console.error('[admin/keys] list failed:', error.message)
+    logger.error('[admin/keys] list failed', { detail: error.message })
     return NextResponse.json({ error: 'Failed to list keys.' }, { status: 500 })
   }
 
@@ -87,7 +88,7 @@ export async function POST(req: NextRequest) {
   try {
     encrypted = encryptSecret(key)
   } catch (err) {
-    console.error('[admin/keys] encryption failed:', err instanceof Error ? err.message : err)
+    logger.error('[admin/keys] encryption failed', { detail: err instanceof Error ? err.message : String(err) })
     return NextResponse.json(
       { error: 'Failed to encrypt key. Verify KEY_ENCRYPTION_SECRET is configured.' },
       { status: 500 },
@@ -111,7 +112,7 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (insertErr || !row) {
-    console.error('[admin/keys] insert failed:', insertErr?.message)
+    logger.error('[admin/keys] insert failed', { detail: insertErr?.message })
     return NextResponse.json({ error: 'Failed to store key.' }, { status: 500 })
   }
 

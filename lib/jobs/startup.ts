@@ -1,7 +1,7 @@
 // Starts the in-process job worker exactly once per server process.
 // Called from instrumentation.ts on the Node.js runtime after TLS setup.
 
-import { log } from '@/lib/logger'
+import { log, logger } from '@/lib/logger'
 
 let started = false
 
@@ -14,15 +14,14 @@ export function startWorker(): void {
   import('./worker')
     .then(({ runWorkerLoop }) => {
       runWorkerLoop().catch((err: unknown) => {
-        console.error(
-          '[worker] fatal loop error — worker has stopped. ' +
-          'Restart the server to resume processing.',
-          err,
+        logger.error(
+          '[worker] fatal loop error — worker has stopped. Restart the server to resume processing.',
+          { detail: err instanceof Error ? err.message : String(err) },
         )
       })
     })
     .catch((err: unknown) => {
-      console.error('[worker] failed to load worker module:', err)
+      logger.error('[worker] failed to load worker module', { detail: String(err) })
     })
 
   log(`[worker] startup scheduled (id will be logged on first loop tick)`)

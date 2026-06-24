@@ -12,6 +12,7 @@ import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@/lib/supabase/server'
 import { checkMeetingAccess } from '@/lib/access'
 import { buildSuggestionIcs } from '@/lib/ics'
+import { logger } from '@/lib/logger'
 import type { Database } from '@/types/database'
 
 async function requireUser(req: NextRequest): Promise<string> {
@@ -86,7 +87,7 @@ export async function GET(
     icsContent = buildSuggestionIcs(suggestion)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    console.error('[ics] buildSuggestionIcs failed:', message)
+    logger.error('[ics] buildSuggestionIcs failed', { detail: message })
     return NextResponse.json({ error: 'Failed to generate calendar file.' }, { status: 500 })
   }
 

@@ -23,6 +23,7 @@ import { requireAdmin } from '@/lib/auth/server'
 import { guardDelete } from '@/lib/admin/guards'
 import { deriveUserStatus } from '@/lib/admin/userStatus'
 import { deleteObjects } from '@/lib/storage'
+import { logger } from '@/lib/logger'
 
 export async function GET(
   req: NextRequest,
@@ -120,7 +121,7 @@ export async function DELETE(
     const failed = await deleteObjects(audioItems)
     if (failed.length > 0) {
       const msg = `Audio storage cleanup failed for ${failed.length} file(s): ${failed.join(', ')}`
-      console.warn('[admin/delete] ' + msg)
+      logger.warn('[admin/delete] ' + msg)
       storageWarnings.push(msg)
     }
   }
@@ -128,7 +129,7 @@ export async function DELETE(
   // Delete the user — CASCADE handles profiles, meetings, and all child rows
   const { error: deleteErr } = await db.auth.admin.deleteUser(targetId)
   if (deleteErr) {
-    console.error('[admin/delete] deleteUser failed:', deleteErr.message)
+    logger.error('[admin/delete] deleteUser failed', { detail: deleteErr.message })
     return NextResponse.json({ error: 'Failed to delete user.' }, { status: 500 })
   }
 

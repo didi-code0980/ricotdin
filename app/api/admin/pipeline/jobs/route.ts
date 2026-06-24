@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth/server'
+import { logger } from '@/lib/logger'
 
 const STUCK_THRESHOLD_MINUTES = 15
 
@@ -48,7 +49,7 @@ export async function GET(req: NextRequest) {
   const { data: meetings, error } = await query
 
   if (error) {
-    console.error('[admin/pipeline/jobs] fetch failed:', error.message)
+    logger.error('[admin/pipeline/jobs] fetch failed', { detail: error.message })
     return NextResponse.json({ error: 'Failed to fetch pipeline jobs.' }, { status: 500 })
   }
 

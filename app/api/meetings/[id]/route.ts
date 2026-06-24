@@ -20,6 +20,7 @@ import { deleteObject } from '@/lib/storage'
 import { checkMeetingAccess, canAssignToFolder } from '@/lib/access'
 import { logActivity } from '@/lib/activity/logActivity'
 import { requestContext } from '@/lib/admin/audit'
+import { logger } from '@/lib/logger'
 
 const MAX_TITLE_LEN = 200
 
@@ -102,7 +103,7 @@ export async function PATCH(
     .eq('id', meetingId)
 
   if (updateErr) {
-    console.error('[meetings] update failed:', updateErr.message)
+    logger.error('[meetings] update failed', { detail: updateErr.message })
     return NextResponse.json({ error: 'Failed to update meeting.' }, { status: 500 })
   }
 
@@ -142,10 +143,7 @@ export async function DELETE(
     try {
       await deleteObject({ key: meeting.audio_path, provider: meeting.storage_provider })
     } catch (storageErr) {
-      console.warn(
-        '[meetings] storage delete failed (proceeding with row delete):',
-        storageErr,
-      )
+      logger.warn('[meetings] storage delete failed (proceeding with row delete)', { detail: String(storageErr) })
       storageWarning = 'Audio file could not be removed from storage.'
     }
   }
@@ -154,7 +152,7 @@ export async function DELETE(
   // calendar_suggestions, and chat_sessions (+ chat_messages via sessions).
   const { error: deleteErr } = await db.from('meetings').delete().eq('id', meetingId)
   if (deleteErr) {
-    console.error('[meetings] row delete failed:', deleteErr.message)
+    logger.error('[meetings] row delete failed', { detail: deleteErr.message })
     return NextResponse.json({ error: 'Failed to delete meeting.' }, { status: 500 })
   }
 

@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@/lib/supabase/server'
 import { checkMeetingAccess } from '@/lib/access'
+import { logger } from '@/lib/logger'
 import type { Database } from '@/types/database'
 
 async function requireUser(req: NextRequest): Promise<string> {
@@ -81,7 +82,7 @@ export async function PATCH(
     .eq('id', suggestionId)
 
   if (updateErr) {
-    console.error('[calendar-suggestions] update failed:', updateErr.message)
+    logger.error('[calendar-suggestions] update failed', { detail: updateErr.message })
     return NextResponse.json({ error: 'Failed to dismiss suggestion.' }, { status: 500 })
   }
 

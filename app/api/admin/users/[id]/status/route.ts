@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth/server'
 import { guardDisable } from '@/lib/admin/guards'
+import { logger } from '@/lib/logger'
 
 export async function PATCH(
   req: NextRequest,
@@ -77,7 +78,7 @@ export async function PATCH(
   })
 
   if (banErr) {
-    console.error('[admin/status] updateUserById (ban_duration) failed:', banErr.message)
+    logger.error('[admin/status] updateUserById (ban_duration) failed', { detail: banErr.message })
     return NextResponse.json({ error: 'Failed to update account status.' }, { status: 500 })
   }
 

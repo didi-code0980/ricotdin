@@ -24,6 +24,7 @@ import {
   validateEmail,
   validatePassword,
 } from '@/lib/auth/validate'
+import { logger } from '@/lib/logger'
 import type { Database } from '@/types/database'
 
 export async function POST(req: NextRequest) {
@@ -81,7 +82,7 @@ export async function POST(req: NextRequest) {
         { status: 409 },
       )
     }
-    console.error('[register] createUser failed:', msg)
+    logger.error('[register] createUser failed', { detail: msg })
     return NextResponse.json({ error: 'Failed to create account.' }, { status: 500 })
   }
 
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest) {
   if (profileErr) {
     // Cleanup: delete the auth user so we don't leave an orphan
     await db.auth.admin.deleteUser(userId)
-    console.error('[register] profile insert failed:', profileErr.message)
+    logger.error('[register] profile insert failed', { detail: profileErr.message })
     return NextResponse.json(
       { error: 'Failed to create user profile. Please try again.' },
       { status: 500 },
@@ -119,7 +120,7 @@ export async function POST(req: NextRequest) {
   if (mailErr) {
     // Non-fatal: the account exists but the verification mail could not be sent
     // (commonly: SMTP not configured). Surface so the user isn't left guessing.
-    console.error('[register] verification email failed:', mailErr.message)
+    logger.error('[register] verification email failed', { detail: mailErr.message })
     return NextResponse.json(
       { verifyEmail: true, emailSent: false },
       { status: 201 },

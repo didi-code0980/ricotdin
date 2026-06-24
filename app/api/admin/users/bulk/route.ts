@@ -14,6 +14,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth/server'
 import { validateBulkActionBody, excludeSelf } from '@/lib/admin/guards'
 import { writeAuditLog, requestContext } from '@/lib/admin/audit'
+import { logger } from '@/lib/logger'
 
 export async function POST(req: NextRequest) {
   let caller
@@ -72,7 +73,7 @@ export async function POST(req: NextRequest) {
           .update({ role })
           .eq('id', userId)
         if (profileErr) {
-          console.warn('[admin/users/bulk] profiles sync failed for', userId, profileErr.message)
+          logger.warn('[admin/users/bulk] profiles sync failed', { detail: `userId=${userId}: ${profileErr.message}` })
         }
       }
       processed.push(userId)

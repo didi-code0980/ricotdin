@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth/server'
+import { logger } from '@/lib/logger'
 
 export async function GET(req: NextRequest) {
   try {
@@ -22,7 +23,7 @@ export async function GET(req: NextRequest) {
     .order('key')
 
   if (error) {
-    console.error('[admin/config] fetch failed:', error.message)
+    logger.error('[admin/config] fetch failed', { detail: error.message })
     return NextResponse.json({ error: 'Failed to fetch config.' }, { status: 500 })
   }
 

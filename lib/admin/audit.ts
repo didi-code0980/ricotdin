@@ -5,6 +5,7 @@
 // so a logging failure can never break the operation being audited.
 
 import { createServerClient } from '@/lib/supabase/server'
+import { logger } from '@/lib/logger'
 
 export interface AuditEntry {
   actorId: string
@@ -38,10 +39,10 @@ export async function writeAuditLog(entry: AuditEntry): Promise<void> {
       user_agent: entry.userAgent ?? null,
     })
     if (error) {
-      console.error('[audit] insert failed:', error.message)
+      logger.error('[audit] insert failed', { detail: error.message })
     }
   } catch (err) {
-    console.error('[audit] unexpected error:', err)
+    logger.error('[audit] unexpected error', { detail: String(err) })
   }
 }
 

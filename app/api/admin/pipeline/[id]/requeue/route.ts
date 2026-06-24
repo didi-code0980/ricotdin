@@ -21,6 +21,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth/server'
 import { enqueueJob } from '@/lib/jobs/enqueue'
 import { writeAuditLog, requestContext } from '@/lib/admin/audit'
+import { logger } from '@/lib/logger'
 
 export async function POST(
   req: NextRequest,
@@ -49,7 +50,7 @@ export async function POST(
     .maybeSingle()
 
   if (fetchErr) {
-    console.error('[admin/pipeline/requeue] fetch failed:', fetchErr.message)
+    logger.error('[admin/pipeline/requeue] fetch failed', { detail: fetchErr.message })
     return NextResponse.json({ error: 'Failed to fetch meeting.' }, { status: 500 })
   }
 
@@ -70,7 +71,7 @@ export async function POST(
 
   for (const result of childDeletes) {
     if (result.status === 'rejected') {
-      console.error('[admin/pipeline/requeue] child delete failed:', result.reason)
+      logger.error('[admin/pipeline/requeue] child delete failed', { detail: String(result.reason) })
       return NextResponse.json(
         { error: 'Failed to clear prior pipeline output. Requeue aborted.' },
         { status: 500 },
@@ -78,7 +79,7 @@ export async function POST(
     }
     const { error } = result.value
     if (error) {
-      console.error('[admin/pipeline/requeue] child delete error:', error.message)
+      logger.error('[admin/pipeline/requeue] child delete error', { detail: error.message })
       return NextResponse.json(
         { error: 'Failed to clear prior pipeline output. Requeue aborted.' },
         { status: 500 },
@@ -99,7 +100,7 @@ export async function POST(
     .eq('id', meetingId)
 
   if (resetErr) {
-    console.error('[admin/pipeline/requeue] status reset failed:', resetErr.message)
+    logger.error('[admin/pipeline/requeue] status reset failed', { detail: resetErr.message })
     return NextResponse.json({ error: 'Failed to reset meeting status.' }, { status: 500 })
   }
 

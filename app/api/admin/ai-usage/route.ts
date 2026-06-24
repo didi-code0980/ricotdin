@@ -22,6 +22,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth/server'
+import { logger } from '@/lib/logger'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -116,7 +117,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (error) {
-    console.error('[admin/ai-usage] query failed:', error.message)
+    logger.error('[admin/ai-usage] query failed', { detail: error.message })
     return NextResponse.json({ error: 'Failed to fetch usage data.' }, { status: 500 })
   }
 
@@ -193,7 +194,7 @@ export async function GET(req: NextRequest) {
   const { data: dailyRows, error: dailyErr } = await dailyQuery
 
   if (dailyErr) {
-    console.warn('[admin/ai-usage] daily totals query failed:', dailyErr.message)
+    logger.warn('[admin/ai-usage] daily totals query failed', { detail: dailyErr.message })
   }
 
   type DailyKey = string

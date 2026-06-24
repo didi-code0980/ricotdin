@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireUser } from '@/lib/auth/server'
 import { validatePassword } from '@/lib/auth/validate'
+import { logger } from '@/lib/logger'
 import type { Database } from '@/types/database'
 
 export async function POST(req: NextRequest) {
@@ -78,7 +79,7 @@ export async function POST(req: NextRequest) {
   // reads from its internal session state, not from HTTP headers.
   const { error: updateErr } = await authClient.auth.updateUser({ password: newPassword })
   if (updateErr) {
-    console.error('[POST /api/profile/change-password] updateUser failed:', updateErr.message)
+    logger.error('[POST /api/profile/change-password] updateUser failed', { detail: updateErr.message })
     return NextResponse.json({ error: 'Failed to update password.' }, { status: 500 })
   }
 

@@ -17,7 +17,8 @@
 
 import { randomUUID } from 'node:crypto'
 import { createServerClient } from '@/lib/supabase/server'
-import { log } from '@/lib/logger'
+import { log, logger } from '@/lib/logger'
+import { captureException } from '@/lib/monitoring'
 import { logActivity } from '@/lib/activity/logActivity'
 import { applyQuotaMovement } from '@/lib/quota/applyQuotaMovement'
 import { AllGeminiKeysExhaustedError } from '@/lib/gemini/pool'
@@ -86,9 +87,9 @@ async function handleJobError(job: JobRow, err: unknown): Promise<void> {
 
   if (!terminal && newAttempts < job.max_attempts) {
     const delay = jitteredBackoff(newAttempts)
-    log(
-      `[worker] job ${job.id} step=${job.step} transient error ` +
-      `(${newAttempts}/${job.max_attempts}), retry in ${Math.round(delay / 1000)}s: ${message}`,
+    logger.warn(
+      `[worker] job ${job.id} step=${job.step} transient error, retry in ${Math.round(delay / 1000)}s`,
+      { jobId: job.id, step: job.step, meetingId: job.meeting_id, detail: message },
     )
     await db.from('jobs').update({
       status: 'queued',
@@ -102,7 +103,11 @@ async function handleJobError(job: JobRow, err: unknown): Promise<void> {
   }
 
   // Terminal or attempts exhausted.
-  log(`[worker] job ${job.id} step=${job.step} FAILED (${newAttempts}/${job.max_attempts}): ${message}`)
+  logger.error(
+    `[worker] job ${job.id} step=${job.step} FAILED (${newAttempts}/${job.max_attempts})`,
+    { jobId: job.id, step: job.step, meetingId: job.meeting_id, detail: message },
+  )
+  captureException(err, { jobId: job.id, step: job.step, meetingId: job.meeting_id, attempt: newAttempts })
 
   await db.from('jobs').update({
     status: 'failed',
@@ -125,7 +130,7 @@ async function handleJobError(job: JobRow, err: unknown): Promise<void> {
       meetingId: job.meeting_id,
       metadata: { reason: 'pipeline_failure', error: message.slice(0, 200) },
     }).catch((e: unknown) => {
-      console.error('[worker] quota refund failed (non-fatal):', e)
+      logger.error('[worker] quota refund failed (non-fatal)', { detail: String(e) })
     })
   }
 
@@ -224,7 +229,7 @@ export async function runWorkerLoop(): Promise<never> {
     // Periodic stuck-job sweep (non-blocking — errors are swallowed).
     if (Date.now() >= nextSweepAt) {
       sweepStuckJobs().catch((e: unknown) =>
-        console.error('[worker] sweeper error:', e),
+        logger.error('[worker] sweeper error', { detail: String(e) }),
       )
       nextSweepAt = Date.now() + STUCK_SWEEP_MS
     }
@@ -241,7 +246,8 @@ export async function runWorkerLoop(): Promise<never> {
       await executeJob(job)
     } catch (err) {
       // Unexpected loop-level error (e.g. DB unreachable during claim).
-      console.error('[worker] loop error:', err)
+      logger.error('[worker] loop error', { detail: err instanceof Error ? err.message : String(err) })
+      captureException(err)
       await new Promise<void>((r) => setTimeout(r, WORKER_POLL_MS))
     }
   }

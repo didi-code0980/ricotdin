@@ -10,6 +10,7 @@ import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@/lib/supabase/server'
 import { createSignedDownloadUrl } from '@/lib/storage'
 import { checkMeetingAccess } from '@/lib/access'
+import { logger } from '@/lib/logger'
 import type { Database } from '@/types/database'
 
 const SIGNED_URL_EXPIRY_SECS = 3_600 // 1 hour
@@ -68,7 +69,7 @@ export async function GET(
       expiresIn: SIGNED_URL_EXPIRY_SECS,
     })
   } catch (err) {
-    console.error('[audio-url] createSignedDownloadUrl failed:', err)
+    logger.error('[audio-url] createSignedDownloadUrl failed', { detail: String(err) })
     return NextResponse.json({ error: 'Failed to create signed URL.' }, { status: 500 })
   }
 

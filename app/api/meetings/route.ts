@@ -22,6 +22,7 @@ import { createSignedUploadUrl } from '@/lib/storage'
 import { canAssignToFolder } from '@/lib/access'
 import { logActivity } from '@/lib/activity/logActivity'
 import { requestContext } from '@/lib/admin/audit'
+import { logger } from '@/lib/logger'
 import type { Database } from '@/types/database'
 import type { MeetingSource } from '@/types/database'
 
@@ -181,7 +182,7 @@ export async function POST(req: NextRequest) {
   })
 
   if (insertError) {
-    console.error('[meetings] insert failed:', insertError.message)
+    logger.error('[meetings] insert failed', { detail: insertError.message })
     return NextResponse.json({ error: 'Failed to create meeting record.' }, { status: 500 })
   }
 
@@ -200,10 +201,10 @@ export async function POST(req: NextRequest) {
   try {
     uploadUrl = await createSignedUploadUrl({ key: audioPath, contentType })
   } catch (err) {
-    console.error('[meetings] R2 createSignedUploadUrl failed:', err)
+    logger.error('[meetings] R2 createSignedUploadUrl failed', { detail: String(err) })
     // Roll back the meeting row so we don't have orphaned pending rows
     const { error: deleteErr } = await serverClient.from('meetings').delete().eq('id', meetingId)
-    if (deleteErr) console.warn('[meetings] rollback delete failed:', deleteErr.message)
+    if (deleteErr) logger.warn('[meetings] rollback delete failed', { detail: deleteErr.message })
     return NextResponse.json({ error: 'Failed to create upload URL. Check R2 configuration.' }, { status: 500 })
   }
 

@@ -11,7 +11,7 @@
 // with the next available key (including re-uploading the file).
 
 import { stat } from 'node:fs/promises'
-import { log } from '@/lib/logger'
+import { log, logger } from '@/lib/logger'
 import { Type, type Schema, type Part } from '@google/genai'
 import { GEMINI_MODEL } from './client'
 import { geminiPool } from './pool'
@@ -100,7 +100,7 @@ function parseResult(raw: string): TranscriptResult {
   const { language, segments } = result.data
   log(`[transcribe] parsed: language=${language}, segments=${segments.length}`)
   if (segments.length === 0) {
-    console.warn('[transcribe] Gemini returned 0 segments — audio may be silent, too short, or in an unsupported codec')
+    logger.warn('[transcribe] Gemini returned 0 segments — audio may be silent, too short, or in an unsupported codec')
   }
   return {
     language,
@@ -181,7 +181,7 @@ export async function transcribeAudio(
         // PipelineError from parseResult is classified as 'bad-request' by the
         // pool, so if this second attempt also fails to parse, it surfaces
         // immediately without further key rotation.
-        console.warn('[transcribe] first parse failed; retrying with strict prompt:', parseErr)
+        logger.warn('[transcribe] first parse failed; retrying with strict prompt', { detail: String(parseErr) })
         const response2 = await ai.models.generateContent({
           model: GEMINI_MODEL,
           contents: [filePart, { text: TRANSCRIBE_PROMPT_STRICT }],
@@ -202,7 +202,7 @@ export async function transcribeAudio(
       // 4. Delete the uploaded file. It auto-expires in ~48h, but be proactive.
       if (geminiFile.name) {
         ai.files.delete({ name: geminiFile.name }).catch((err: unknown) => {
-          console.warn('[transcribe] failed to delete Gemini file:', err)
+          logger.warn('[transcribe] failed to delete Gemini file', { detail: String(err) })
         })
       }
     }

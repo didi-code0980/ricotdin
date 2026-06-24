@@ -13,7 +13,7 @@ import { readFile, rm } from 'node:fs/promises'
 import { extname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
-import { log } from '@/lib/logger'
+import { log, logger } from '@/lib/logger'
 import { speechmaticsRequest } from './client'
 import { isFfmpegAvailable, transcodeForGemini } from '@/lib/audio/transcode'
 import { logUsage } from '@/lib/usage/logUsage'
@@ -446,16 +446,14 @@ export async function transcribeWithSpeechmatics(
     )
 
     if (result.segments.length === 0) {
-      console.warn(
-        '[speechmatics] 0 segments returned — audio may be silent or in an unsupported codec',
-      )
+      logger.warn('[speechmatics] 0 segments returned — audio may be silent or in an unsupported codec')
     }
 
     return { transcript: result, audioSeconds }
   } finally {
     if (tmpTranscodeDir) {
       rm(tmpTranscodeDir, { recursive: true }).catch((e: unknown) => {
-        console.warn('[speechmatics] failed to delete transcode temp dir:', e)
+        logger.warn('[speechmatics] failed to delete transcode temp dir', { detail: String(e) })
       })
     }
   }

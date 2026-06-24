@@ -7,7 +7,7 @@
 // skipped with a warning (same graceful-degradation pattern as the ffmpeg transcode).
 
 import { spawn } from 'node:child_process'
-import { log } from '@/lib/logger'
+import { log, logger } from '@/lib/logger'
 import { PipelineError } from '@/lib/gemini/errors'
 import { ffprobeBinary } from '@/lib/audio/binaries'
 
@@ -132,7 +132,7 @@ async function runValidation(filePathOrUrl: string, mode: ProbeMode): Promise<vo
       msg.includes('not found') ||
       msg.includes('spawn ffprobe')
     ) {
-      console.warn(
+      logger.warn(
         '[ffprobe] ffprobe not found in PATH — skipping stream validation. ' +
           'Install ffprobe for server-side file type checking.',
       )
@@ -242,9 +242,9 @@ export async function getAudioDurationSeconds(filePath: string): Promise<number>
       msg.includes('not found') ||
       msg.includes('spawn ffprobe')
     ) {
-      console.warn('[ffprobe] ffprobe not found — audio duration estimate unavailable')
+      logger.warn('[ffprobe] ffprobe not found — audio duration estimate unavailable')
     } else {
-      console.warn('[ffprobe] duration probe failed (non-fatal):', msg)
+      logger.warn('[ffprobe] duration probe failed (non-fatal)', { detail: msg })
     }
     return 0
   }

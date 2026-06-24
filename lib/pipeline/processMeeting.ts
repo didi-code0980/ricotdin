@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os'
 import { join, extname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
-import { log } from '@/lib/logger'
+import { log, logger } from '@/lib/logger'
 import { logActivity } from '@/lib/activity/logActivity'
 import { createServerClient } from '@/lib/supabase/server'
 import { getObjectBytes } from '@/lib/storage'
@@ -287,11 +287,11 @@ export async function processMeeting(meetingId: string, speakerCount?: number): 
         meetingId,
         metadata: { reason: 'pipeline_failure', error: message.slice(0, 200) },
       }).catch((refundErr: unknown) => {
-        console.error('[pipeline] quota refund failed (non-fatal):', refundErr)
+        logger.error('[pipeline] quota refund failed (non-fatal)', { detail: String(refundErr) })
       })
     }
 
-    console.error(`[pipeline] ${meetingId}: FAILED —`, message)
+    logger.error(`[pipeline] FAILED`, { meetingId, detail: message })
     await db
       .from('meetings')
       .update({ status: 'failed', error_message: message.slice(0, 500) })
@@ -304,7 +304,7 @@ export async function processMeeting(meetingId: string, speakerCount?: number): 
     // Clean up the downloaded source file regardless of success/failure.
     if (tmpAudioPath) {
       unlink(tmpAudioPath).catch((e: unknown) => {
-        console.warn('[pipeline] failed to delete temp audio file:', e)
+        logger.warn('[pipeline] failed to delete temp audio file', { detail: String(e) })
       })
     }
   }

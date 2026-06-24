@@ -17,6 +17,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth/server'
+import { logger } from '@/lib/logger'
 
 export async function POST(
   req: NextRequest,
@@ -50,7 +51,7 @@ export async function POST(
   })
 
   if (linkErr) {
-    console.error('[admin/reset-password] generateLink failed:', linkErr.message)
+    logger.error('[admin/reset-password] generateLink failed', { detail: linkErr.message })
     return NextResponse.json({ error: 'Failed to send password reset email.' }, { status: 500 })
   }
 

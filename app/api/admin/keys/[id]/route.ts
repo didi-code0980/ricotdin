@@ -13,6 +13,7 @@ import { requireAdmin } from '@/lib/auth/server'
 import { isLastActiveKey } from '@/lib/keys/guards'
 import { invalidateKeyCache } from '@/lib/keys/provider'
 import { writeAuditLog, requestContext } from '@/lib/admin/audit'
+import { logger } from '@/lib/logger'
 
 const SAFE_SELECT =
   'id, created_at, updated_at, config_key, label, last4, status, disabled_reason, last_used_at'
@@ -85,7 +86,7 @@ export async function PATCH(
     .single()
 
   if (updateErr || !updated) {
-    console.error('[admin/keys] update failed:', updateErr?.message)
+    logger.error('[admin/keys] update failed', { detail: updateErr?.message })
     return NextResponse.json({ error: 'Failed to update entry.' }, { status: 500 })
   }
 
@@ -152,7 +153,7 @@ export async function DELETE(
     .eq('id', entryId)
 
   if (deleteErr) {
-    console.error('[admin/keys] delete failed:', deleteErr.message)
+    logger.error('[admin/keys] delete failed', { detail: deleteErr.message })
     return NextResponse.json({ error: 'Failed to delete entry.' }, { status: 500 })
   }
 

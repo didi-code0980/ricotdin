@@ -12,6 +12,7 @@ import { createServerClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth/server'
 import { batchPaths } from '@/lib/admin/storage'
 import { writeAuditLog, requestContext } from '@/lib/admin/audit'
+import { logger } from '@/lib/logger'
 
 export async function POST(req: NextRequest) {
   let caller
@@ -46,7 +47,7 @@ export async function POST(req: NextRequest) {
   for (const batch of batches) {
     const { error } = await db.storage.from('recordings').remove(batch)
     if (error) {
-      console.error('[admin/storage/cleanup] remove batch failed:', error.message)
+      logger.error('[admin/storage/cleanup] remove batch failed', { detail: error.message })
       errors.push(error.message)
     } else {
       deleted += batch.length

@@ -38,6 +38,7 @@
 
 import { GoogleGenAI } from '@google/genai'
 import { PipelineError } from './errors'
+import { logger } from '@/lib/logger'
 
 // ---------------------------------------------------------------------------
 // Exported error type
@@ -185,7 +186,7 @@ class GeminiKeyPool {
       disabled: false,
     }))
     this.cfg = cfg
-    console.log(`[gemini pool] initialised with ${keys.length} key(s)`)
+    logger.info(`[gemini pool] initialised with ${keys.length} key(s)`, { count: keys.length })
   }
 
   /** Least-recently-used key that is neither cooling down nor disabled. */
@@ -238,15 +239,14 @@ class GeminiKeyPool {
           // Cooldown wait exceeds the per-request threshold — fast-fail rather than
           // blocking the HTTP request. The key will become available again once the
           // cooldown expires; the next incoming request can use it.
-          console.warn(
-            `[gemini pool] all keys on cooldown for ${Math.round(waitMs / 1_000)}s; ` +
-              `exceeds maxCooldownWaitMs (${Math.round(this.cfg.maxCooldownWaitMs / 1_000)}s) — failing fast`,
+          logger.warn(
+            `[gemini pool] all keys on cooldown for ${Math.round(waitMs / 1_000)}s; exceeds maxCooldownWaitMs — failing fast`,
           )
           throw new AllGeminiKeysExhaustedError(this.keys.length, attempt)
         }
-        console.warn(
-          `[gemini pool] all keys on cooldown; waiting ${Math.round(waitMs / 1_000)}s ` +
-            `for next available key (attempt ${attempt + 1}/${maxAttempts})`,
+        logger.warn(
+          `[gemini pool] all keys on cooldown; waiting ${Math.round(waitMs / 1_000)}s for next available key`,
+          { count: attempt + 1 },
         )
         await new Promise(r => setTimeout(r, waitMs))
         // Don't consume an attempt slot for a pure cooldown wait.
@@ -275,17 +275,13 @@ class GeminiKeyPool {
           const cooldownMs = parseRetryAfterMs(err) ?? this.cfg.defaultCooldownMs
           keyState.cooldownUntil = Date.now() + cooldownMs
           keyState.consecutiveFailures++
-          console.warn(
-            `[gemini pool] key #${keyState.index} rate-limited; ` +
-              `cooldown ${Math.round(cooldownMs / 1_000)}s; ` +
-              `attempt ${attempt + 1}/${maxAttempts} — rotating to next key`,
+          logger.warn(
+            `[gemini pool] key #${keyState.index} rate-limited; cooldown ${Math.round(cooldownMs / 1_000)}s — rotating`,
+            { count: attempt + 1 },
           )
         } else if (errClass === 'invalid-key') {
           keyState.disabled = true
-          console.warn(
-            `[gemini pool] key #${keyState.index} (${maskKey(keyState.key)}) ` +
-              `rejected with 401 — permanently disabled; rotating`,
-          )
+          logger.warn(`[gemini pool] key #${keyState.index} rejected with 401 — permanently disabled; rotating`)
         } else if (errClass === 'forbidden') {
           // 403 / PERMISSION_DENIED: apply a long cooldown instead of permanent disable.
           // This lets the key recover if the condition was transient (model restriction,
@@ -294,17 +290,16 @@ class GeminiKeyPool {
           const cooldownMs = 15 * 60 * 1_000
           keyState.cooldownUntil = Date.now() + cooldownMs
           keyState.consecutiveFailures++
-          console.warn(
-            `[gemini pool] key #${keyState.index} got 403/PERMISSION_DENIED on ` +
-              `attempt ${attempt + 1}/${maxAttempts}; applying 15-min cooldown. ` +
-              `If this persists, verify the key is active in Google AI Studio.`,
+          logger.warn(
+            `[gemini pool] key #${keyState.index} got 403/PERMISSION_DENIED; applying 15-min cooldown`,
+            { count: attempt + 1 },
           )
         } else {
           // transient or unknown — try the next key without a cooldown
           keyState.consecutiveFailures++
-          console.warn(
-            `[gemini pool] key #${keyState.index} transient error on ` +
-              `attempt ${attempt + 1}/${maxAttempts}: ${snippet}`,
+          logger.warn(
+            `[gemini pool] key #${keyState.index} transient error`,
+            { count: attempt + 1, detail: snippet },
           )
         }
 

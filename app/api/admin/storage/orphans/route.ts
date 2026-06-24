@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth/server'
 import { findOrphans } from '@/lib/admin/storage'
+import { logger } from '@/lib/logger'
 
 export async function GET(req: NextRequest) {
   try {
@@ -26,7 +27,7 @@ export async function GET(req: NextRequest) {
     .list('', { limit: 10000, offset: 0 })
 
   if (storageErr) {
-    console.error('[admin/storage/orphans] storage list failed:', storageErr.message)
+    logger.error('[admin/storage/orphans] storage list failed', { detail: storageErr.message })
     return NextResponse.json({ error: 'Failed to list storage files.' }, { status: 500 })
   }
 
@@ -36,7 +37,7 @@ export async function GET(req: NextRequest) {
     .select('audio_path')
 
   if (meetingsErr) {
-    console.error('[admin/storage/orphans] meetings query failed:', meetingsErr.message)
+    logger.error('[admin/storage/orphans] meetings query failed', { detail: meetingsErr.message })
     return NextResponse.json({ error: 'Failed to fetch meeting paths.' }, { status: 500 })
   }
 

@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth/server'
 import { parseActivityQueryParams } from '@/lib/activity/parse'
+import { logger } from '@/lib/logger'
 
 export async function GET(req: NextRequest) {
   try {
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest) {
   const { data, error, count } = await query
 
   if (error) {
-    console.error('[admin/activity] query failed:', error.message)
+    logger.error('[admin/activity] query failed', { detail: error.message })
     return NextResponse.json({ error: 'Failed to fetch activity log.' }, { status: 500 })
   }
 
