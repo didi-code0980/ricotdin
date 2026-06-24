@@ -27,6 +27,7 @@ import { runStart } from './steps/start'
 import { runTranscribePoll } from './steps/transcribePoll'
 import { runAnalyse } from './steps/analyse'
 import { runEmbed } from './steps/embed'
+import { reconcileWallets } from '../quota/reconcileWallets'
 import type { JobRow, JobPayload } from './types'
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -35,6 +36,7 @@ const WORKER_ID = `worker-${randomUUID().slice(0, 8)}`
 const WORKER_POLL_MS = 1_000          // sleep between polls when no job available
 const STUCK_THRESHOLD_MS = 15 * 60_000  // 15 min: same threshold as ADM-04 dashboard
 const STUCK_SWEEP_MS = 60_000         // sweep every 60 s
+const RECONCILE_INTERVAL_MS = 5 * 60_000  // wallet reconciliation every 5 min
 
 // Retry backoff: 2s, 4s, 8s … capped at 5 min; ±25% jitter.
 const BASE_BACKOFF_MS = 2_000
@@ -223,6 +225,7 @@ async function sweepStuckJobs(): Promise<void> {
 export async function runWorkerLoop(): Promise<never> {
   log(`[worker] ${WORKER_ID} started`)
   let nextSweepAt = Date.now() + STUCK_SWEEP_MS
+  let nextReconcileAt = Date.now() + RECONCILE_INTERVAL_MS
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -232,6 +235,14 @@ export async function runWorkerLoop(): Promise<never> {
         logger.error('[worker] sweeper error', { detail: String(e) }),
       )
       nextSweepAt = Date.now() + STUCK_SWEEP_MS
+    }
+
+    // QUO-04: ledger↔wallet reconciliation (non-blocking, independent timer).
+    if (Date.now() >= nextReconcileAt) {
+      reconcileWallets().catch((e: unknown) =>
+        logger.error('[wallet-reconcile] loop error', { detail: String(e) }),
+      )
+      nextReconcileAt = Date.now() + RECONCILE_INTERVAL_MS
     }
 
     try {

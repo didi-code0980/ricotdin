@@ -25,7 +25,11 @@ import {
   validatePassword,
 } from '@/lib/auth/validate'
 import { logger } from '@/lib/logger'
+import { applyQuotaMovement } from '@/lib/quota/applyQuotaMovement'
 import type { Database } from '@/types/database'
+
+const SIGNUP_AUDIO_SECONDS = 60 * 60   // 60 minutes
+const SIGNUP_AGENT_QUERIES = 50
 
 export async function POST(req: NextRequest) {
   let body: { email?: string; username?: string; password?: string }
@@ -101,6 +105,22 @@ export async function POST(req: NextRequest) {
       { error: 'Failed to create user profile. Please try again.' },
       { status: 500 },
     )
+  }
+
+  // ── Grant initial quota ────────────────────────────────────────────────────
+  // Non-fatal: a quota failure must not block account creation.
+  try {
+    await applyQuotaMovement({
+      userId,
+      deltaAudioSeconds: SIGNUP_AUDIO_SECONDS,
+      deltaAgentQueries: SIGNUP_AGENT_QUERIES,
+      reason: 'admin_grant',
+      dedupKey: `signup:${userId}`,
+      allowOverdraw: true,
+      metadata: { source: 'signup_initial_grant' },
+    })
+  } catch (err) {
+    logger.error('[register] initial quota grant failed', { userId, detail: String(err) })
   }
 
   // ── Send the email-verification link ───────────────────────────────────────
