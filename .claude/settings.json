@@ -7,7 +7,16 @@
       "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\(p.scripts.test\\)\")",
       "Bash(node --import tsx --test tests/usage-by-user.test.ts)",
       "PowerShell(npx eslint \"app/\\(routes\\)/admin/users/page.tsx\" 2>&1 | Select-Object -First 20; \"exit: $LASTEXITCODE\")",
-      "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 15; \"tsc: $LASTEXITCODE\"; npx eslint \"app/\\(routes\\)/admin/users/page.tsx\" 2>&1 | Select-Object -First 15; \"eslint: $LASTEXITCODE\")"
+      "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 15; \"tsc: $LASTEXITCODE\"; npx eslint \"app/\\(routes\\)/admin/users/page.tsx\" 2>&1 | Select-Object -First 15; \"eslint: $LASTEXITCODE\")",
+      "Bash(node -e ' *)",
+      "Bash(NODE_EXTRA_CA_CERTS=./certs/tma-corporate-ca.pem node -e ' *)",
+      "Bash(node -e \"console.log\\('undici:', require.resolve\\('undici'\\)\\)\")",
+      "Bash(node -e \"const u=require\\('undici'\\); console.log\\('Agent:', typeof u.Agent, '| setGlobalDispatcher:', typeof u.setGlobalDispatcher\\)\")",
+      "Bash(NODE_EXTRA_CA_CERTS=\"./certs/tma-corporate-ca.pem\" npm install undici --save)",
+      "Bash(ls \"/c/Users/ttnminh/AppData/Local/Microsoft/WinGet/Packages/\"Gyan.FFmpeg*/ffmpeg*/bin/*.exe)",
+      "Bash(ls \"/c/Users/ttnminh/AppData/Local/Microsoft/WindowsApps/\"ff*.exe)",
+      "Bash(echo \"tsc: $?\")",
+      "Bash(npm test *)"
     ]
   }
 }

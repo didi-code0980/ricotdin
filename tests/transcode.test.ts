@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { mkdir, stat, rm } from 'node:fs/promises'
 import { isFfmpegAvailable, transcodeForGemini } from '../lib/audio/transcode.js'
+import { ffmpegBinary } from '../lib/audio/binaries.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -31,7 +32,7 @@ function spawnAsync(cmd: string, args: string[]): Promise<void> {
 
 /** Generate a 1-second silent webm file using ffmpeg (requires ffmpeg to be present). */
 async function generateSilentWebm(outputPath: string): Promise<void> {
-  await spawnAsync('ffmpeg', [
+  await spawnAsync(ffmpegBinary(), [
     '-y',
     '-f', 'lavfi',
     '-i', 'anullsrc=r=16000:cl=mono',

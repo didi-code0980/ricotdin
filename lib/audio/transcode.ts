@@ -15,6 +15,7 @@ import { spawn } from 'node:child_process'
 import { mkdir, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { PipelineError } from '@/lib/gemini/errors'
+import { ffmpegBinary } from '@/lib/audio/binaries'
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -46,7 +47,7 @@ async function runCommand(cmd: string, args: string[]): Promise<void> {
 
 export async function isFfmpegAvailable(): Promise<boolean> {
   try {
-    await runCommand('ffmpeg', ['-version'])
+    await runCommand(ffmpegBinary(), ['-version'])
     return true
   } catch {
     return false
@@ -81,7 +82,7 @@ export async function transcodeForGemini(inputPath: string, outputDir: string): 
   await requireFfmpeg()
   await mkdir(outputDir, { recursive: true })
   const outputPath = join(outputDir, 'audio.mp3')
-  await runCommand('ffmpeg', [
+  await runCommand(ffmpegBinary(), [
     '-y', '-i', inputPath,
     '-ac', '1',
     '-ar', '16000',
@@ -109,7 +110,7 @@ export async function transcodeAndChunk(
 ): Promise<string[]> {
   await mkdir(outputDir, { recursive: true })
   const pattern = join(outputDir, 'chunk_%03d.mp3')
-  await runCommand('ffmpeg', [
+  await runCommand(ffmpegBinary(), [
     '-y', '-i', inputPath,
     '-ac', '1',
     '-ar', '16000',
@@ -149,7 +150,7 @@ export async function extractAudioFromVideo(
   outputMp3Path: string,
 ): Promise<void> {
   await requireFfmpeg()
-  await runCommand('ffmpeg', [
+  await runCommand(ffmpegBinary(), [
     '-y',
     '-i', inputPathOrUrl,
     '-vn',            // strip all video streams

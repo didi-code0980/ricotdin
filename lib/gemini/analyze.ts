@@ -5,6 +5,8 @@
 // Segments are referenced by their 0-based array index so citations map back
 // to the transcript_segments rows inserted in Step A.
 
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { Type, type Schema } from '@google/genai'
 import { log } from '@/lib/logger'
 import { GEMINI_MODEL } from './client'
@@ -26,11 +28,16 @@ const ANALYSIS_RESPONSE_SCHEMA: Schema = {
   properties: {
     summary: {
       type: Type.STRING,
-      description: 'A few sentences summarising the meeting',
+      description:
+        'A few factual sentences covering the meeting purpose, participants, and ' +
+        'topics discussed — based only on the transcript, no fabrication',
     },
     notes_markdown: {
       type: Type.STRING,
-      description: 'Structured meeting notes in Markdown',
+      description:
+        'Structured meeting notes in Markdown with section headings (Key points, ' +
+        'Feedback, Notes/Remarks) and bullets — sections present only if the ' +
+        'transcript had content for them; no fabrication',
     },
     todos: {
       type: Type.ARRAY,
@@ -82,10 +89,42 @@ const ANALYSIS_RESPONSE_SCHEMA: Schema = {
 }
 
 // ---------------------------------------------------------------------------
-// Prompt builder
+// System prompt — loaded from ai-instruction/ai-gen/generate-meeting.md
+// ---------------------------------------------------------------------------
+//
+// The system prompt is authored as markdown OUTSIDE the codebase so it can be
+// iterated on without code changes. It is read from disk (this app runs as a
+// long-lived `next start` server with the repo present, not serverless) and
+// cached for the process lifetime after first successful load.
+
+const SYSTEM_PROMPT_PATH = join(process.cwd(), 'ai-instruction', 'ai-gen', 'generate-meeting.md')
+
+let cachedSystemPrompt: string | null = null
+
+async function loadSystemPrompt(): Promise<string> {
+  if (cachedSystemPrompt) return cachedSystemPrompt
+  let raw: string
+  try {
+    raw = await readFile(SYSTEM_PROMPT_PATH, 'utf8')
+  } catch (err) {
+    throw new PipelineError(
+      `Failed to read analyze system prompt at ${SYSTEM_PROMPT_PATH}: ` +
+        (err instanceof Error ? err.message : String(err)),
+    )
+  }
+  const trimmed = raw.replace(/\r\n/g, '\n').trim()
+  if (!trimmed) {
+    throw new PipelineError(`Analyze system prompt at ${SYSTEM_PROMPT_PATH} is empty`)
+  }
+  cachedSystemPrompt = trimmed
+  return trimmed
+}
+
+// ---------------------------------------------------------------------------
+// User content builder — the dynamic MEETING_DATE + TRANSCRIPT for one call
 // ---------------------------------------------------------------------------
 
-function buildPrompt(
+function buildUserContent(
   segments: TranscriptResult['segments'],
   strict = false,
   meetingDate?: string,
@@ -98,37 +137,17 @@ function buildPrompt(
     )
     .join('\n')
 
-  // Anchor date so Gemini resolves relative phrases ("next Tuesday") correctly.
-  // Without this, Gemini guesses based on training data cutoff — always wrong.
-  const dateContext = meetingDate
-    ? `\nMeeting date: ${meetingDate}. Resolve all relative time references ` +
-      `("next Tuesday", "this Friday", "end of month", etc.) against this date ` +
-      `when producing ISO 8601 values for due_date and proposed_at.\n`
-    : ''
+  const dateLine = meetingDate
+    ? `MEETING_DATE: ${meetingDate}`
+    : 'MEETING_DATE: (unknown — do not guess or fabricate any dates)'
 
-  const base = `You are a meeting assistant. Analyse the following meeting transcript.
-${dateContext}
-LANGUAGE RULE: Detect the primary language of the transcript. Write ALL output fields
-(summary, notes_markdown, todo content, calendar event titles) in that SAME language.
-Do NOT translate or switch to English unless the transcript itself is in English.
+  const base = `${dateLine}
 
 TRANSCRIPT (each line prefixed with its 0-based segment index [N]):
-${transcriptText}
-
-Instructions:
-1. Write a concise summary (2–5 sentences) in the transcript's language.
-2. Write structured meeting notes in Markdown (headings, bullet points) in the transcript's language.
-3. Extract every action item / to-do. For each, note the assignee and due date
-   if mentioned, and the segment index [N] where it was stated. Write content in the transcript's language.
-4. Extract every proposed meeting / calendar event. Record the proposed datetime
-   (ISO 8601) if determinable, the raw phrasing from the transcript, and the
-   segment index [N] where it was mentioned. Write title in the transcript's language.
-
-Use null for assignee/due_date/proposed_at/source_segment_index when not available.
-For due_date use YYYY-MM-DD format.`
+${transcriptText}`
 
   return strict
-    ? base + '\n\nReturn ONLY valid JSON. No markdown fences, no explanation.'
+    ? base + '\n\nReturn ONLY valid JSON matching the required schema. No markdown fences, no explanation.'
     : base
 }
 
@@ -200,11 +219,14 @@ export async function analyzeTranscript(
   log(`[analyze] analysing transcript with ${transcript.segments.length} segments` +
     (meetingDate ? ` (meeting date: ${meetingDate})` : ''))
 
+  const systemPrompt = await loadSystemPrompt()
+
   return geminiPool.call(async (ai, keyId) => {
     const response = await ai.models.generateContent({
       model: GEMINI_MODEL,
-      contents: buildPrompt(transcript.segments, false, meetingDate),
+      contents: buildUserContent(transcript.segments, false, meetingDate),
       config: {
+        systemInstruction: systemPrompt,
         responseMimeType: 'application/json',
         responseSchema: ANALYSIS_RESPONSE_SCHEMA,
       },
@@ -229,8 +251,9 @@ export async function analyzeTranscript(
       console.warn('[analyze] first parse failed; retrying with strict prompt:', parseErr)
       const response2 = await ai.models.generateContent({
         model: GEMINI_MODEL,
-        contents: buildPrompt(transcript.segments, true, meetingDate),
+        contents: buildUserContent(transcript.segments, true, meetingDate),
         config: {
+          systemInstruction: systemPrompt,
           responseMimeType: 'application/json',
           responseSchema: ANALYSIS_RESPONSE_SCHEMA,
         },

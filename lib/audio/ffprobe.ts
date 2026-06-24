@@ -9,6 +9,7 @@
 import { spawn } from 'node:child_process'
 import { log } from '@/lib/logger'
 import { PipelineError } from '@/lib/gemini/errors'
+import { ffprobeBinary } from '@/lib/audio/binaries'
 
 // ---------------------------------------------------------------------------
 // Pure helper — exported for unit testing
@@ -76,7 +77,7 @@ export function parseProbeResult(json: unknown, mode: ProbeMode = 'audio-only'):
 
 async function runFfprobe(target: string): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    const proc = spawn('ffprobe', [
+    const proc = spawn(ffprobeBinary(), [
       '-v', 'quiet',
       '-print_format', 'json',
       '-show_streams',
