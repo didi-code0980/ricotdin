@@ -23,6 +23,8 @@ import { embedChunks } from '@/lib/gemini/embed'
 import { chunkSegments } from './chunk'
 import { transcribeWithSpeechmatics } from '@/lib/speechmatics/transcribe'
 import { assertAnalysisHasContent } from './guards'
+import { applyQuotaMovement } from '@/lib/quota/applyQuotaMovement'
+import { getAudioDurationSeconds } from '@/lib/audio/ffprobe'
 
 /**
  * Process a meeting end-to-end:
@@ -53,6 +55,8 @@ export async function processMeeting(meetingId: string, speakerCount?: number): 
 
   log(`[pipeline] ${meetingId}: starting processing`)
   let tmpAudioPath: string | null = null
+  let estimateSeconds = 0
+  let transcriptionSettled = false
 
   try {
     // ── Download audio from Supabase Storage ──────────────────────────────
@@ -74,15 +78,68 @@ export async function processMeeting(meetingId: string, speakerCount?: number): 
     await writeFile(tmpAudioPath, audioBuffer)
     log(`[pipeline] ${meetingId}: audio written to ${tmpAudioPath} (${audioBuffer.length} bytes)`)
 
+    // ── QUO-02: Pre-flight quota gate ─────────────────────────────────────
+    // Estimate audio duration via ffprobe; fall back to meetings.duration_seconds.
+    // Reserve that many seconds from the user's quota wallet. On 'insufficient',
+    // mark failed and return immediately (bypass the catch refund path).
+    if (claimed.user_id) {
+      const probed = await getAudioDurationSeconds(tmpAudioPath).catch(() => 0)
+      estimateSeconds = Math.ceil(probed > 0 ? probed : (claimed.duration_seconds ?? 0))
+      if (estimateSeconds > 0) {
+        const reserve = await applyQuotaMovement({
+          userId: claimed.user_id,
+          deltaAudioSeconds: -estimateSeconds,
+          deltaAgentQueries: 0,
+          reason: 'generate',
+          dedupKey: `gen:${meetingId}:reserve`,
+          allowOverdraw: false,
+          meetingId,
+          metadata: { estimate_seconds: estimateSeconds },
+        })
+        if (reserve.status === 'insufficient') {
+          const msg = `QUOTA_BLOCKED: Insufficient audio balance. Required: ${estimateSeconds}s, remaining: ${reserve.audioRemaining}s.`
+          await db.from('meetings').update({ status: 'failed', error_message: msg }).eq('id', meetingId)
+          log(`[pipeline] ${meetingId}: ${msg}`)
+          logActivity({
+            userId: claimed.user_id,
+            eventType: 'processing_failed',
+            meetingId,
+            metadata: { reason: 'quota_blocked', required_seconds: estimateSeconds, remaining_seconds: reserve.audioRemaining },
+          })
+          return
+        }
+      }
+    }
+
     // ── Step A: Transcription ─────────────────────────────────────────────
     // Speechmatics Batch API handles audio of any length natively — no ffmpeg
     // splitting required. The audio file is uploaded directly from disk.
     const usageCtx = { meetingId: meetingId, userId: claimed.user_id ?? undefined, speakerCount }
-    const transcript = await transcribeWithSpeechmatics(tmpAudioPath, usageCtx)
+    const { transcript, audioSeconds: realSeconds } = await transcribeWithSpeechmatics(tmpAudioPath, usageCtx)
     log(
       `[pipeline] ${meetingId}: transcript done — ` +
         `${transcript.segments.length} segments, language=${transcript.language}`,
     )
+
+    // ── QUO-02: Settle quota reservation ─────────────────────────────────
+    // Transcription succeeded — reconcile the estimate vs real duration.
+    // If realSeconds < estimateSeconds: delta is positive → refund the diff.
+    // If realSeconds > estimateSeconds: delta is negative → deduct the overage
+    //   (allowOverdraw=true: accept even if balance briefly goes negative here).
+    // Done BEFORE the empty-segment check so silent audio gets a full refund.
+    if (claimed.user_id && estimateSeconds > 0) {
+      await applyQuotaMovement({
+        userId: claimed.user_id,
+        deltaAudioSeconds: estimateSeconds - realSeconds,
+        deltaAgentQueries: 0,
+        reason: 'generate',
+        dedupKey: `gen:${meetingId}:settle`,
+        allowOverdraw: true,
+        meetingId,
+        metadata: { estimate_seconds: estimateSeconds, real_seconds: realSeconds },
+      })
+    }
+    transcriptionSettled = true
 
     // Empty transcript: audio was silent, too short, or the codec was
     // unrecognised. Mark the meeting done with a clear note so the user sees
@@ -215,6 +272,25 @@ export async function processMeeting(meetingId: string, speakerCount?: number): 
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
+
+    // ── QUO-02: Refund reserved quota on terminal failure ─────────────────
+    // Only runs when the reserve was issued but settle was never reached,
+    // meaning transcription (or a step before it) threw before we could settle.
+    if (!transcriptionSettled && estimateSeconds > 0 && claimed.user_id) {
+      await applyQuotaMovement({
+        userId: claimed.user_id,
+        deltaAudioSeconds: estimateSeconds,
+        deltaAgentQueries: 0,
+        reason: 'refund',
+        dedupKey: `gen:${meetingId}:refund`,
+        allowOverdraw: false,
+        meetingId,
+        metadata: { reason: 'pipeline_failure', error: message.slice(0, 200) },
+      }).catch((refundErr: unknown) => {
+        console.error('[pipeline] quota refund failed (non-fatal):', refundErr)
+      })
+    }
+
     console.error(`[pipeline] ${meetingId}: FAILED —`, message)
     await db
       .from('meetings')

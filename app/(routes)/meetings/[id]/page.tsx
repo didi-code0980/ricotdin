@@ -618,21 +618,40 @@ function ProcessingView({ meeting }: { meeting: Meeting }) {
 }
 
 function FailedView({ meeting, rerunning, onRerun }: { meeting: Meeting; rerunning: boolean; onRerun: () => void }) {
+  const isQuotaBlocked = meeting.error_message?.startsWith('QUOTA_BLOCKED:') ?? false
   return (
     <div>
       <MeetingHeaderBase meeting={meeting} />
-      <div className="mt-4 bg-red-50 border border-red-200 rounded-3xl px-5 py-4 text-sm text-red-700">
-        <p className="font-semibold mb-1">Processing failed</p>
-        {meeting.error_message && <p className="mb-3 opacity-80">{meeting.error_message}</p>}
-        <button
-          onClick={onRerun}
-          disabled={rerunning}
-          className="btn-primary"
-          style={{ opacity: rerunning ? 0.65 : 1 }}
-        >
-          {rerunning ? 'Starting…' : '↻ Re-run processing'}
-        </button>
-      </div>
+      {isQuotaBlocked ? (
+        <div className="mt-4 bg-amber-50 border border-amber-200 rounded-3xl px-5 py-4 text-sm text-amber-800">
+          <p className="font-semibold mb-1">Insufficient audio balance</p>
+          <p className="mb-3 opacity-80">
+            This recording could not be processed because your audio-minute balance was too low.
+            Contact your admin to top up your balance, then re-run processing.
+          </p>
+          <button
+            onClick={onRerun}
+            disabled={rerunning}
+            className="btn-primary"
+            style={{ opacity: rerunning ? 0.65 : 1 }}
+          >
+            {rerunning ? 'Starting…' : '↻ Re-run processing'}
+          </button>
+        </div>
+      ) : (
+        <div className="mt-4 bg-red-50 border border-red-200 rounded-3xl px-5 py-4 text-sm text-red-700">
+          <p className="font-semibold mb-1">Processing failed</p>
+          {meeting.error_message && <p className="mb-3 opacity-80">{meeting.error_message}</p>}
+          <button
+            onClick={onRerun}
+            disabled={rerunning}
+            className="btn-primary"
+            style={{ opacity: rerunning ? 0.65 : 1 }}
+          >
+            {rerunning ? 'Starting…' : '↻ Re-run processing'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

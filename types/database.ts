@@ -36,6 +36,27 @@ export type TodoStatus = 'open' | 'done' | 'dismissed'
 export type ChatRole = 'user' | 'assistant'
 export type UsageUnit = 'tokens' | 'audio_seconds'
 export type UsageStatus = 'ok' | 'rate_limited' | 'error'
+export type QuotaLedgerReason = 'topup' | 'admin_grant' | 'generate' | 'agent_query' | 'refund' | 'adjustment'
+
+export type QuotaWallet = {
+  user_id: string
+  audio_seconds_remaining: number
+  agent_queries_remaining: number
+  updated_at: string
+}
+
+export type QuotaLedger = {
+  id: string
+  user_id: string
+  delta_audio_seconds: number
+  delta_agent_queries: number
+  reason: QuotaLedgerReason
+  dedup_key: string | null
+  meeting_id: string | null
+  created_by: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+}
 
 // Citation object stored in chat_messages.citations (jsonb)
 export type Citation = {
@@ -411,6 +432,34 @@ export interface Database {
         Update: Partial<UsageLog>
         Relationships: NoRelationships
       }
+      quota_wallets: {
+        Row: QuotaWallet
+        Insert: {
+          user_id: string
+          audio_seconds_remaining?: number
+          agent_queries_remaining?: number
+          updated_at?: string
+        }
+        Update: Partial<QuotaWallet>
+        Relationships: NoRelationships
+      }
+      quota_ledger: {
+        Row: QuotaLedger
+        Insert: {
+          id?: string
+          user_id: string
+          delta_audio_seconds?: number
+          delta_agent_queries?: number
+          reason: QuotaLedgerReason
+          dedup_key?: string | null
+          meeting_id?: string | null
+          created_by?: string | null
+          metadata?: Record<string, unknown>
+          created_at?: string
+        }
+        Update: Partial<QuotaLedger>
+        Relationships: NoRelationships
+      }
       admin_config: {
         Row: AdminConfigRow
         Insert: {
@@ -440,6 +489,20 @@ export interface Database {
     // so the table types are preserved unchanged.
     Views: { [_ in never]: never }
     Functions: {
+      quota_apply_movement: {
+        Args: {
+          p_user_id: string
+          p_delta_audio_seconds: number
+          p_delta_agent_queries: number
+          p_reason: string
+          p_dedup_key: string | null
+          p_allow_overdraw: boolean
+          p_meeting_id: string | null
+          p_created_by: string | null
+          p_metadata: Record<string, unknown>
+        }
+        Returns: Array<{ status: string; audio_remaining: number; agent_remaining: number }>
+      }
       match_transcript_chunks: {
         Args: {
           query_embedding: number[]

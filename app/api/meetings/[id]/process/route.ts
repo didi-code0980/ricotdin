@@ -13,7 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@/lib/supabase/server'
-import { processMeeting } from '@/lib/pipeline/processMeeting'
+import { enqueueJob } from '@/lib/jobs/enqueue'
 import type { Database } from '@/types/database'
 
 async function requireUser(req: NextRequest): Promise<string> {
@@ -57,13 +57,9 @@ export async function POST(
   if (!meeting) return NextResponse.json({ error: 'Meeting not found.' }, { status: 404 })
   if (meeting.user_id !== userId) return NextResponse.json({ error: 'Forbidden.' }, { status: 403 })
 
-  // Fire and forget — processMeeting handles its own error/status updates.
-  // This works on a persistent self-hosted Next.js server (npm start).
-  // If the server restarts mid-job, the meeting stays in 'processing'; re-POST
-  // this endpoint to recover (processMeeting allows restart from 'failed').
-  void processMeeting(meetingId).catch((err: unknown) => {
-    console.error('[process route] unhandled pipeline error:', err)
-  })
+  // Enqueue a durable job; the worker picks it up and runs it in the background.
+  // Returns 202 immediately — callers poll meetings.status for progress.
+  await enqueueJob(meetingId)
 
   return NextResponse.json({ ok: true, meetingId, status: 'processing' }, { status: 202 })
 }

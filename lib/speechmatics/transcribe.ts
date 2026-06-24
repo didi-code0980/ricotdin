@@ -231,7 +231,12 @@ function mimeTypeFromPath(path: string): string {
   return map[ext] ?? 'application/octet-stream'
 }
 
-async function submitJob(audioPath: string, speakerCount?: number, language?: string): Promise<string> {
+/**
+ * Upload the audio file at `audioPath` to the Speechmatics Batch API and return
+ * the job id. Exported so the worker 'start' step can call it independently of
+ * the blocking poll loop.
+ */
+export async function submitJob(audioPath: string, speakerCount?: number, language?: string): Promise<string> {
   const audioBuffer = await readFile(audioPath)
   const mimeType = mimeTypeFromPath(audioPath)
   const ext = extname(audioPath) || '.webm'
@@ -275,6 +280,53 @@ async function pollUntilDone(jobId: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Worker-facing single-shot helpers (used by lib/jobs/steps/*)
+// ---------------------------------------------------------------------------
+
+export interface JobCheckResult {
+  status: 'running' | 'done' | 'rejected' | 'deleted'
+  errors?: unknown[]
+}
+
+/**
+ * Check a Speechmatics job's status ONCE and return immediately.
+ * Does NOT loop — the worker reschedules the job and calls again later.
+ */
+export async function checkSpeechmaticsJob(jobId: string): Promise<JobCheckResult> {
+  const { job } = await speechmaticsRequest<JobStatusResponse>('GET', `/v2/jobs/${jobId}`)
+  return { status: job.status, errors: job.errors }
+}
+
+/**
+ * Fetch the finished transcript for a completed job, log usage, and parse.
+ * Only call after checkSpeechmaticsJob returns 'done'.
+ */
+export async function fetchSpeechmaticsTranscript(
+  jobId: string,
+  ctx?: SpeechmaticsContext,
+): Promise<SpeechmaticsTranscribeResult> {
+  const raw = await speechmaticsRequest<SpeechmaticsTranscript>(
+    'GET',
+    `/v2/jobs/${jobId}/transcript?format=json-v2`,
+  )
+
+  const audioSeconds = (raw.results ?? []).reduce(
+    (max, r) => (r.end_time != null && r.end_time > max ? r.end_time : max),
+    0,
+  )
+  logUsage({
+    provider: 'speechmatics', model: 'standard', operation: 'transcribe',
+    unit: 'audio_seconds', quantity: audioSeconds,
+    audio_seconds: audioSeconds,
+    meeting_id: ctx?.meetingId, user_id: ctx?.userId,
+  })
+
+  const transcript = parseTranscriptResponse(raw)
+  log(`[speechmatics] fetched transcript: language=${transcript.language}, segments=${transcript.segments.length}`)
+  return { transcript, audioSeconds }
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -283,6 +335,17 @@ export interface SpeechmaticsContext {
   userId?: string | null
   /** Hint the diarizer with the known speaker count. Optional. */
   speakerCount?: number
+}
+
+/**
+ * Return type of transcribeWithSpeechmatics.
+ * Exposes `audioSeconds` (real billed duration) so QUO-02 can settle the
+ * quota reservation without re-computing it from the transcript segments.
+ */
+export interface SpeechmaticsTranscribeResult {
+  transcript: TranscriptResult
+  /** max(result.end_time) across all results — seconds Speechmatics actually processed. */
+  audioSeconds: number
 }
 
 /**
@@ -301,7 +364,7 @@ export interface SpeechmaticsContext {
 export async function transcribeWithSpeechmatics(
   audioPath: string,
   ctx?: SpeechmaticsContext,
-): Promise<TranscriptResult> {
+): Promise<SpeechmaticsTranscribeResult> {
   log(`[speechmatics] submitting job for ${audioPath}`)
 
   // Transcode to MP3 when ffmpeg is available so Speechmatics receives a
@@ -388,7 +451,7 @@ export async function transcribeWithSpeechmatics(
       )
     }
 
-    return result
+    return { transcript: result, audioSeconds }
   } finally {
     if (tmpTranscodeDir) {
       rm(tmpTranscodeDir, { recursive: true }).catch((e: unknown) => {

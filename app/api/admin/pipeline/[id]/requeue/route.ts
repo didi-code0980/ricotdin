@@ -19,7 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth/server'
-import { processMeeting } from '@/lib/pipeline/processMeeting'
+import { enqueueJob } from '@/lib/jobs/enqueue'
 import { writeAuditLog, requestContext } from '@/lib/admin/audit'
 
 export async function POST(
@@ -119,12 +119,9 @@ export async function POST(
     userAgent,
   })
 
-  // ── Trigger pipeline in the background ────────────────────────────────────
-  // processMeeting() uses an atomic claim guard (.in('status', ['pending', 'failed']))
-  // so it is safe to call without waiting — no double-processing risk.
-  void processMeeting(meetingId).catch((err: unknown) => {
-    console.error('[admin/pipeline/requeue] background processMeeting failed:', err)
-  })
+  // ── Enqueue a durable job (REL-01/02/03) ─────────────────────────────────
+  // The worker picks it up, claiming the meeting atomically from 'pending'.
+  await enqueueJob(meetingId)
 
   return NextResponse.json({ ok: true, meetingId })
 }

@@ -9,6 +9,11 @@
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
+    // 1. Corporate TLS proxy setup must run first so that all outbound HTTPS
+    //    calls (Speechmatics, Gemini, Supabase) trust the corporate CA.
     await import('./instrumentation-node')
+    // 2. Start the durable job worker after TLS is ready.
+    const { startWorker } = await import('./lib/jobs/startup')
+    startWorker()
   }
 }

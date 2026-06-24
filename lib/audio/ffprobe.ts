@@ -171,3 +171,81 @@ export async function validateAudioStream(filePathOrUrl: string): Promise<void> 
 export async function validateVideoAudioStream(filePathOrUrl: string): Promise<void> {
   return runValidation(filePathOrUrl, 'video')
 }
+
+// ---------------------------------------------------------------------------
+// Duration extraction (QUO-02: pre-flight quota estimate)
+// ---------------------------------------------------------------------------
+
+async function runFfprobeDuration(filePath: string): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(ffprobeBinary(), [
+      '-v', 'quiet',
+      '-print_format', 'json',
+      '-show_entries', 'format=duration',
+      filePath,
+    ], { stdio: 'pipe' })
+
+    let stdout = ''
+    let stderr = ''
+    proc.stdout?.on('data', (d: Buffer) => { stdout += d.toString() })
+    proc.stderr?.on('data', (d: Buffer) => { stderr += d.toString() })
+
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`ffprobe exited ${code}: ${stderr.slice(-200)}`))
+        return
+      }
+      try {
+        resolve(JSON.parse(stdout))
+      } catch {
+        reject(new Error(`ffprobe returned non-JSON stdout: ${stdout.slice(0, 100)}`))
+      }
+    })
+    proc.on('error', (err) => { reject(err) })
+  })
+}
+
+/**
+ * Parse the `format.duration` field from `ffprobe -show_entries format=duration` output.
+ * Exported for unit testing.
+ *
+ * @returns Duration in seconds (float), or 0 if unavailable/invalid.
+ */
+export function parseDurationFromProbe(json: unknown): number {
+  if (!json || typeof json !== 'object' || Array.isArray(json)) return 0
+  const obj = json as Record<string, unknown>
+  const format = obj.format as Record<string, unknown> | undefined
+  if (!format || typeof format.duration !== 'string') return 0
+  const seconds = parseFloat(format.duration)
+  return isFinite(seconds) && seconds > 0 ? seconds : 0
+}
+
+/**
+ * Return the audio duration of a local file in seconds via ffprobe.
+ *
+ * Used by QUO-02 to estimate audio cost before calling Speechmatics.
+ * Falls back to 0 when ffprobe is absent or the format has no duration header
+ * (e.g. bare WebM without container duration) — callers use `meeting.duration_seconds`
+ * as a secondary fallback.
+ *
+ * @param filePath  Absolute path to the audio file on disk.
+ * @returns         Duration in seconds, or 0 on any failure.
+ */
+export async function getAudioDurationSeconds(filePath: string): Promise<number> {
+  try {
+    const json = await runFfprobeDuration(filePath)
+    return parseDurationFromProbe(json)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (
+      msg.includes('ENOENT') ||
+      msg.includes('not found') ||
+      msg.includes('spawn ffprobe')
+    ) {
+      console.warn('[ffprobe] ffprobe not found — audio duration estimate unavailable')
+    } else {
+      console.warn('[ffprobe] duration probe failed (non-fatal):', msg)
+    }
+    return 0
+  }
+}

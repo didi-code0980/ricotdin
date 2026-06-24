@@ -24,6 +24,8 @@ interface ProfileData {
   created_at: string
   meeting_count: number
   folder_count: number
+  audio_seconds_remaining: number
+  agent_queries_remaining: number
 }
 
 // ---------------------------------------------------------------------------
@@ -665,6 +667,8 @@ export default function ProfilePage() {
               { label: 'Member since', value: formatMemberSince(profile.created_at) },
               { label: 'Recordings', value: profile.meeting_count },
               { label: 'Folders', value: profile.folder_count },
+              { label: 'Audio balance', value: `${Math.max(0, Math.floor(profile.audio_seconds_remaining / 60))} min` },
+              { label: 'Agent queries', value: Math.max(0, profile.agent_queries_remaining).toString() },
             ].map(({ label, value }) => (
               <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '11px 14px', borderRadius: 'var(--t-radius-input)', background: 'rgb(var(--t-fg-rgb) / 0.02)', border: `1px solid ${BORDER}` }}>
                 <span style={{ fontSize: 12.5, fontWeight: 600, color: MUTED, fontFamily: FONT }}>{label}</span>
@@ -676,6 +680,24 @@ export default function ProfilePage() {
             ))}
           </div>
         </Card>
+
+        {/* ── LOW BALANCE WARNING ───────────────────────────────────────────── */}
+        {(profile.audio_seconds_remaining <= 0 || profile.agent_queries_remaining <= 0) && (
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 16px', borderRadius: 'var(--t-radius-card)', background: '#fffbeb', border: '1px solid #fde68a', fontFamily: FONT }}>
+            <span style={{ fontSize: 18, lineHeight: 1.2, flexShrink: 0 }}>⚠</span>
+            <div>
+              <div style={{ fontSize: 13.5, fontWeight: 700, color: '#92400e', marginBottom: 2 }}>Balance low</div>
+              <div style={{ fontSize: 12.5, fontWeight: 500, color: '#b45309', lineHeight: 1.5 }}>
+                {profile.audio_seconds_remaining <= 0 && profile.agent_queries_remaining <= 0
+                  ? 'You have no audio minutes or agent queries remaining.'
+                  : profile.audio_seconds_remaining <= 0
+                    ? 'You have no audio minutes remaining — new recordings cannot be processed.'
+                    : 'You have no agent queries remaining — the chat assistant is unavailable.'}
+                {' '}Contact your admin to top up your balance.
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── PASSWORD ─────────────────────────────────────────────────────── */}
         <Card>

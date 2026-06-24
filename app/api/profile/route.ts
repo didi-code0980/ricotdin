@@ -67,6 +67,12 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  const { data: wallet } = await db
+    .from('quota_wallets')
+    .select('audio_seconds_remaining, agent_queries_remaining')
+    .eq('user_id', user.id)
+    .maybeSingle()
+
   return NextResponse.json({
     id: user.id,
     email: user.email ?? null,
@@ -79,6 +85,8 @@ export async function GET(req: NextRequest) {
     created_at: profile.created_at,
     meeting_count: meetingCount ?? 0,
     folder_count: folderCount ?? 0,
+    audio_seconds_remaining: Number(wallet?.audio_seconds_remaining ?? 0),
+    agent_queries_remaining: wallet?.agent_queries_remaining ?? 0,
   })
 }
 

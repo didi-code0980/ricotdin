@@ -23,6 +23,7 @@ export default function ChatPanel({
   const [loading, setLoading]         = useState(false)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [error, setError]             = useState<string | null>(null)
+  const [blockedAgent, setBlockedAgent] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   // Load the most recent session + messages for this meeting from the server
@@ -85,6 +86,15 @@ export default function ChatPanel({
         sessionId?: string
         message?: ChatMessage
         error?: string
+        blocked?: boolean
+        reason?: string
+        remaining_queries?: number
+      }
+
+      if (res.status === 402 && body.blocked && body.reason === 'insufficient_agent_balance') {
+        setBlockedAgent(true)
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticId))
+        return
       }
 
       if (!res.ok) throw new Error(body.error ?? 'Chat request failed.')
@@ -142,6 +152,13 @@ export default function ChatPanel({
         <div ref={bottomRef} />
       </div>
 
+      {/* Blocked notice */}
+      {blockedAgent && (
+        <div className="px-4 py-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 text-sm font-sans mt-2">
+          You have used all your agent queries. Contact your admin for more.
+        </div>
+      )}
+
       {/* Input row */}
       <div className="flex gap-2 items-end pt-3 border-t border-b-border">
         <textarea
@@ -150,14 +167,14 @@ export default function ChatPanel({
           onKeyDown={handleKey}
           placeholder="Ask a question… (Enter to send, Shift+Enter for newline)"
           rows={2}
-          disabled={loading}
+          disabled={loading || blockedAgent}
           className="flex-1 px-4 py-2.5 rounded-2xl bg-b-clay border border-b-border text-b-fg text-sm font-sans
                      placeholder:text-b-secondary outline-none resize-none transition-all duration-300
                      focus:border-b-primary disabled:opacity-50 leading-relaxed"
         />
         <button
           onClick={() => void send()}
-          disabled={loading || !input.trim()}
+          disabled={loading || !input.trim() || blockedAgent}
           className="flex-shrink-0 px-5 py-2.5 rounded-full bg-b-fg text-white text-sm font-semibold uppercase tracking-widest
                      border-0 cursor-pointer transition-all duration-300 hover:opacity-90
                      disabled:opacity-40 disabled:cursor-default"

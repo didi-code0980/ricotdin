@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { createClient } from '@supabase/supabase-js'
-import { processMeeting } from '@/lib/pipeline/processMeeting'
+import { enqueueJob } from '@/lib/jobs/enqueue'
 import { validateAudioStream, validateVideoAudioStream } from '@/lib/audio/ffprobe'
 import { extractAudioFromVideo } from '@/lib/audio/transcode'
 import { MAX_UPLOAD_BYTES } from '@/lib/upload/constants'
@@ -185,10 +185,8 @@ export async function POST(
     // Temp file no longer needed
     await unlink(tmpAudioPath).catch(() => {})
 
-    // Pipeline reads audio_path from DB — it now sees the mp3 path
-    void processMeeting(meetingId).catch((err: unknown) => {
-      console.error('[uploaded] processMeeting fire-and-forget error:', err)
-    })
+    // Enqueue a durable job — survives server restarts (REL-01).
+    await enqueueJob(meetingId)
 
     return NextResponse.json({ ok: true, meetingId })
   }
@@ -218,10 +216,8 @@ export async function POST(
     }
   }
 
-  // Auto-trigger the processing pipeline (fire and forget).
-  void processMeeting(meetingId).catch((err: unknown) => {
-    console.error('[uploaded] processMeeting fire-and-forget error:', err)
-  })
+  // Enqueue a durable job — survives server restarts (REL-01).
+  await enqueueJob(meetingId)
 
   return NextResponse.json({ ok: true, meetingId })
 }

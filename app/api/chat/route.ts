@@ -10,6 +10,7 @@
 // Retrieval uses the user-scoped client (anon key + JWT) so RLS on
 // transcript_chunks enforces shared-folder access automatically.
 
+import { randomUUID } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@/lib/supabase/server'
@@ -18,6 +19,7 @@ import { retrieveContext } from '@/lib/rag/retrieve'
 import { answerWithContext } from '@/lib/gemini/answer'
 import { checkMeetingAccess } from '@/lib/access'
 import { logActivity } from '@/lib/activity/logActivity'
+import { applyQuotaMovement } from '@/lib/quota/applyQuotaMovement'
 import type { HistoryMessage } from '@/lib/gemini/answer'
 import type { Database } from '@/types/database'
 
@@ -122,6 +124,10 @@ export async function POST(req: NextRequest) {
     return res as NextResponse
   }
 
+  // Stable ID for this user message — used as the quota dedup key so that
+  // charge and refund are idempotent even if the request is retried.
+  const userMsgId = randomUUID()
+
   // Parse and validate body
   let body: { message?: unknown; meetingId?: unknown; sessionId?: unknown }
   try {
@@ -174,8 +180,9 @@ export async function POST(req: NextRequest) {
     resolvedSessionId = session.id
   }
 
-  // Persist user message
+  // Persist user message — explicit id so the quota dedup key is pre-known
   const { error: userMsgErr } = await db.from('chat_messages').insert({
+    id: userMsgId,
     session_id: resolvedSessionId,
     role: 'user',
     content: message,
@@ -198,6 +205,30 @@ export async function POST(req: NextRequest) {
     .slice(1) // drop the user message we just inserted (it's first in DESC order)
     .reverse() // restore chronological order
     .map((r) => ({ role: r.role, content: r.content }))
+
+  // ── QUO-03: Agent-query quota gate ───────────────────────────────────────
+  // Runs after the access check and after the user message is persisted.
+  // Deduped by userMsgId so a retried request never double-charges.
+  const quotaCharge = await applyQuotaMovement({
+    userId,
+    deltaAudioSeconds: 0,
+    deltaAgentQueries: -1,
+    reason: 'agent_query',
+    dedupKey: `agent:${userMsgId}:charge`,
+    allowOverdraw: false,
+    meetingId,
+    metadata: { session_id: resolvedSessionId },
+  })
+  if (quotaCharge.status === 'insufficient') {
+    return NextResponse.json(
+      {
+        blocked: true,
+        reason: 'insufficient_agent_balance',
+        remaining_queries: quotaCharge.agentRemaining,
+      },
+      { status: 402 },
+    )
+  }
 
   // Retrieve context using the user-scoped client so RLS applies.
   // After migration 012, transcript_chunks SELECT policy includes shared-folder
@@ -224,6 +255,19 @@ export async function POST(req: NextRequest) {
       answer = result.answer
       citations = result.citations
     } catch (err) {
+      // Technical failure — refund the 1 agent query so the user isn't charged.
+      // Uses a distinct dedup key so repeated failures never double-refund.
+      await applyQuotaMovement({
+        userId,
+        deltaAudioSeconds: 0,
+        deltaAgentQueries: +1,
+        reason: 'refund',
+        dedupKey: `agent:${userMsgId}:refund`,
+        allowOverdraw: false,
+        meetingId,
+        metadata: { reason: 'answer_generation_failed', session_id: resolvedSessionId },
+      }).catch((e: unknown) => console.error('[chat] quota refund failed (non-fatal):', e))
+
       console.error('[chat] answer generation error:', err)
       answer = 'I encountered an error while generating an answer. Please try again.'
     }
