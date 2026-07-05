@@ -31,6 +31,24 @@ export default function RecorderUI({ initialFolderId = null }: { initialFolderId
   const [moveBusy, setMoveBusy] = useState(false)
   const [moveError, setMoveError] = useState<string | null>(null)
 
+  // ── AIP-06: optional model pick ─────────────────────────────────────────────
+  const [modelPick, setModelPick] = useState<string>('') // "provider:model" or "" = auto
+  const [allowedModels, setAllowedModels] = useState<Array<{ provider: string; model: string; label: string }>>([])
+  useEffect(() => {
+    const token = getAccessToken()
+    void token.then((t) => {
+      if (!t) return
+      fetch('/api/profile/preferences', { headers: { Authorization: `Bearer ${t}` } })
+        .then((r) => r.ok ? r.json() : null)
+        .then((data: { provider: string | null; model: string | null; allowedModels: Array<{ provider: string; model: string; label: string }> } | null) => {
+          if (!data) return
+          setAllowedModels(data.allowedModels ?? [])
+          if (data.provider && data.model) setModelPick(`${data.provider}:${data.model}`)
+        })
+        .catch(() => {})
+    })
+  }, [])
+
   // Post-upload: move the created meeting to a folder.
   async function handleMoveToFolder(target: string | null) {
     if (!meetingId) return
@@ -200,15 +218,35 @@ export default function RecorderUI({ initialFolderId = null }: { initialFolderId
               disabled={false}
             />
           )}
+          {/* Optional model picker — shown when admin allow-list has > 1 option */}
+          {uploadState === 'idle' && allowedModels.length > 1 && (
+            <div className="flex items-center gap-3">
+              <label className="text-xs font-semibold text-b-fg/60 font-sans shrink-0">AI model</label>
+              <select
+                value={modelPick}
+                onChange={(e) => setModelPick(e.target.value)}
+                className="text-sm border border-b-border rounded-lg px-3 py-1.5 bg-transparent text-b-fg font-sans"
+              >
+                <option value="">Auto (system default)</option>
+                {allowedModels.map((m) => (
+                  <option key={`${m.provider}:${m.model}`} value={`${m.provider}:${m.model}`}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
           {uploadState === 'idle' && (
             <button
               className="btn-primary self-start"
               onClick={() => {
+                const [pp, ...mr] = modelPick ? modelPick.split(':') : []
+                const pm = modelPick ? mr.join(':') : undefined
                 void upload(blob, {
                   durationSeconds: elapsedSeconds,
                   startedAt: startedAtRef.current ?? new Date().toISOString(),
                   mimeType: mimeType ?? undefined,
                   folderId,
+                  preferredProvider: pp || undefined,
+                  preferredModel: pm || undefined,
                 })
               }}
             >

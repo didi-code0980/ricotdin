@@ -20,6 +20,7 @@ import { randomUUID } from 'node:crypto'
 import { log } from '@/lib/logger'
 import { logActivity } from '@/lib/activity/logActivity'
 import { createServerClient } from '@/lib/supabase/server'
+import { resolveGenerationModel } from '@/lib/ai/resolve'
 import { getObjectBytes } from '@/lib/storage'
 import { isFfmpegAvailable, transcodeForGemini } from '@/lib/audio/transcode'
 import { getAudioDurationSeconds } from '@/lib/audio/ffprobe'
@@ -41,7 +42,7 @@ export async function runStart(job: JobRow): Promise<void> {
     .update({ status: 'processing', error_message: null })
     .in('status', ['pending', 'failed'])
     .eq('id', meetingId)
-    .select('id, audio_path, storage_provider, duration_seconds, started_at, user_id')
+    .select('id, audio_path, storage_provider, duration_seconds, started_at, user_id, generation_provider, generation_model')
     .maybeSingle()
 
   let meeting = claimed
@@ -51,7 +52,7 @@ export async function runStart(job: JobRow): Promise<void> {
     // 'processing' from the previous attempt. Detect and continue from it.
     const { data: processing } = await db
       .from('meetings')
-      .select('id, audio_path, storage_provider, duration_seconds, started_at, user_id')
+      .select('id, audio_path, storage_provider, duration_seconds, started_at, user_id, generation_provider, generation_model')
       .eq('id', meetingId)
       .eq('status', 'processing')
       .maybeSingle()
@@ -71,6 +72,20 @@ export async function runStart(job: JobRow): Promise<void> {
   const userId = meeting.user_id
   const audioPath = meeting.audio_path
   if (!audioPath) throw new Error('Meeting has no audio_path — cannot process')
+
+  // ── AIP-06: write model lock (idempotent on restart) ──────────────────────
+  if (!meeting.generation_provider) {
+    const pick =
+      job.payload.preferred_provider && job.payload.preferred_model
+        ? { provider: job.payload.preferred_provider, model: job.payload.preferred_model }
+        : undefined
+    const resolved = await resolveGenerationModel(userId, pick)
+    await db
+      .from('meetings')
+      .update({ generation_provider: resolved.provider, generation_model: resolved.model })
+      .eq('id', meetingId)
+    log(`[jobs/start] ${meetingId}: model locked to ${resolved.provider}:${resolved.model}`)
+  }
 
   let tmpAudioPath: string | null = null
   let tmpTranscodeDir: string | null = null

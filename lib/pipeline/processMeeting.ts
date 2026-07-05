@@ -18,6 +18,7 @@ import { log, logger } from '@/lib/logger'
 import { logActivity } from '@/lib/activity/logActivity'
 import { createServerClient } from '@/lib/supabase/server'
 import { getObjectBytes } from '@/lib/storage'
+import { resolveGenerationModel } from '@/lib/ai/resolve'
 import { analyzeTranscript } from '@/lib/gemini/analyze'
 import { embedChunks } from '@/lib/gemini/embed'
 import { chunkSegments } from './chunk'
@@ -34,7 +35,7 @@ import { getAudioDurationSeconds } from '@/lib/audio/ffprobe'
  * already processing or done, this function returns without doing anything —
  * safe to call multiple times or from concurrent requests.
  */
-export async function processMeeting(meetingId: string, speakerCount?: number): Promise<void> {
+export async function processMeeting(meetingId: string, speakerCount?: number, pick?: { provider: string; model: string }): Promise<void> {
   const db = createServerClient()
 
   // ── Atomic claim ─────────────────────────────────────────────────────────
@@ -45,7 +46,7 @@ export async function processMeeting(meetingId: string, speakerCount?: number): 
     .update({ status: 'processing', error_message: null })
     .in('status', ['pending', 'failed'])
     .eq('id', meetingId)
-    .select('id, audio_path, storage_provider, duration_seconds, started_at, user_id')
+    .select('id, audio_path, storage_provider, duration_seconds, started_at, user_id, generation_provider, generation_model')
     .maybeSingle()
 
   if (!claimed) {
@@ -109,6 +110,22 @@ export async function processMeeting(meetingId: string, speakerCount?: number): 
           return
         }
       }
+    }
+
+    // ── AIP-03: Per-meeting model lock ────────────────────────────────────
+    // Resolve (and write, if new) the generation provider+model pair.
+    // On re-queue the lock is already set — reuse it without re-resolving.
+    // AIP-06 will replace getDefaultGenerationModel() with resolveGenerationModel(userId)
+    // (PRF-08 → ADM-10 fallback chain).
+    const modelCtx =
+      claimed.generation_provider && claimed.generation_model
+        ? { provider: claimed.generation_provider, model: claimed.generation_model }
+        : await resolveGenerationModel(claimed.user_id, pick)
+    if (!claimed.generation_provider) {
+      await db
+        .from('meetings')
+        .update({ generation_provider: modelCtx.provider, generation_model: modelCtx.model })
+        .eq('id', meetingId)
     }
 
     // ── Step A: Transcription ─────────────────────────────────────────────
@@ -193,7 +210,11 @@ export async function processMeeting(meetingId: string, speakerCount?: number): 
     // ── Step B: Analysis ──────────────────────────────────────────────────
     // Pass started_at so the prompt can anchor relative date phrases
     // ("next Tuesday") to when the meeting actually happened.
-    const analysis = await analyzeTranscript(transcript, claimed.started_at ?? undefined, usageCtx)
+    const analysis = await analyzeTranscript(
+      transcript,
+      claimed.started_at ?? undefined,
+      { meetingId, userId: claimed.user_id ?? undefined, modelCtx },
+    )
     log(
       `[pipeline] ${meetingId}: analysis done — ` +
         `${analysis.todos.length} todos, ${analysis.calendar_suggestions.length} calendar suggestions`,

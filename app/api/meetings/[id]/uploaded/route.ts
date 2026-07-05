@@ -86,6 +86,11 @@ export async function POST(
 
   const { id: meetingId } = await params
 
+  // AIP-06: optional model pick forwarded from the upload UI.
+  const body = await req.json().catch(() => ({})) as Record<string, unknown>
+  const preferredProvider = typeof body.preferred_provider === 'string' ? body.preferred_provider : undefined
+  const preferredModel    = typeof body.preferred_model    === 'string' ? body.preferred_model    : undefined
+
   const serverClient = createServerClient()
 
   // Verify the meeting belongs to this user
@@ -187,7 +192,9 @@ export async function POST(
     await unlink(tmpAudioPath).catch(() => {})
 
     // Enqueue a durable job — survives server restarts (REL-01).
-    await enqueueJob(meetingId)
+    await enqueueJob(meetingId, {
+      ...(preferredProvider && preferredModel ? { preferred_provider: preferredProvider, preferred_model: preferredModel } : {}),
+    })
 
     return NextResponse.json({ ok: true, meetingId })
   }
@@ -218,7 +225,9 @@ export async function POST(
   }
 
   // Enqueue a durable job — survives server restarts (REL-01).
-  await enqueueJob(meetingId)
+  await enqueueJob(meetingId, {
+    ...(preferredProvider && preferredModel ? { preferred_provider: preferredProvider, preferred_model: preferredModel } : {}),
+  })
 
   return NextResponse.json({ ok: true, meetingId })
 }

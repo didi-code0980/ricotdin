@@ -42,4 +42,7 @@ export interface JobPayload {
   speaker_count?: number
   /** Index into the in-memory SpeechmaticsKeyPool for the key holding this job. */
   speechmatics_key_index?: number
+  /** AIP-06: optional model pick from the record/upload UI. Consumed by the start step. */
+  preferred_provider?: string
+  preferred_model?: string
 }

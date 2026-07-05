@@ -80,8 +80,17 @@ export function resolveModel(provider: string, model: string): RegistryEntry {
  * Returns the default generation model for new requests.
  *
  * AIP-01: always returns the Gemini entry.
- * AIP-06: will read system default from admin config (ADM-10), falling back here.
+ * Used as the registry fallback; runtime default is now managed by resolveGenerationModel (AIP-06).
  */
 export function getDefaultGenerationModel(): RegistryEntry {
   return resolveModel('gemini', GEMINI_MODEL)
+}
+
+/**
+ * Return all registered provider+model entries.
+ * Used by the admin config UI to display the allow-list and by the
+ * AIP-06 resolver to validate stored preferences at call time.
+ */
+export function listRegistered(): RegistryEntry[] {
+  return [..._registry.values()]
 }

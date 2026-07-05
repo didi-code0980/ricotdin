@@ -22,6 +22,9 @@ export interface RecordingMeta {
   fileExtension?: string
   /** UUID of the folder to assign this meeting to. null / undefined = Uncategorized. */
   folderId?: string | null
+  /** AIP-06: optional model pick from the record/upload UI.  null / undefined = use fallback chain. */
+  preferredProvider?: string | null
+  preferredModel?: string | null
 }
 
 export interface UploadResult {
@@ -90,7 +93,11 @@ export async function uploadRecording(
   // Step 3: confirm upload to server — triggers ffprobe/ffmpeg validation + pipeline
   const confirmRes = await fetch(`/api/meetings/${meetingId}/uploaded`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      preferred_provider: meta.preferredProvider ?? null,
+      preferred_model: meta.preferredModel ?? null,
+    }),
   })
 
   if (!confirmRes.ok) {

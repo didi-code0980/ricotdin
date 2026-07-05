@@ -4,7 +4,7 @@
 
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { resolveModel, getDefaultGenerationModel } from '../lib/ai/registry.js'
+import { resolveModel, getDefaultGenerationModel, listRegistered } from '../lib/ai/registry.js'
 
 describe('resolveModel', () => {
   it('resolves gemini + gemini-2.5-flash to a valid entry', () => {
@@ -62,6 +62,23 @@ describe('resolveModel', () => {
       assert.ok(err instanceof Error)
       assert.ok(err.message.includes('gemini:gemini-2.5-flash'), 'error lists gemini model')
       assert.ok(err.message.includes('openai:gpt-4o'), 'error lists openai models (AIP-02)')
+    }
+  })
+})
+
+describe('listRegistered', () => {
+  it('returns all registered entries', () => {
+    const list = listRegistered()
+    assert.ok(Array.isArray(list))
+    assert.ok(list.length >= 3)
+  })
+
+  it('all entries have the required fields', () => {
+    for (const entry of listRegistered()) {
+      assert.ok(entry.provider)
+      assert.ok(entry.model)
+      assert.ok(entry.adapter)
+      assert.ok(entry.capabilities)
     }
   })
 })
