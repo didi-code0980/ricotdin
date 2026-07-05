@@ -78,6 +78,8 @@ export type Profile = {
   display_name?: string | null
   avatar_key?: string | null
   theme_preference?: 'luxury' | 'default' | 'playful' | null
+  default_provider?: string | null // AIP-06 (PRF-08)
+  default_model?: string | null     // AIP-06 (PRF-08)
 }
 
 // Use `type` aliases (not `interface`) for Row shapes so that when supabase-js v2
@@ -100,6 +102,8 @@ export type Meeting = {
   started_at: string | null
   pinned_at: string | null
   folder_id: string | null
+  generation_provider: string | null
+  generation_model: string | null
   created_at: string
   updated_at: string
 }
@@ -156,6 +160,7 @@ export type ChatSession = {
   id: string
   user_id: string
   meeting_id: string | null
+  folder_id: string | null   // set for folder-scoped sessions (RAG-04)
   title: string | null
   created_at: string
   updated_at: string
@@ -289,6 +294,8 @@ export interface Database {
           started_at?: string | null
           pinned_at?: string | null
           folder_id?: string | null
+          generation_provider?: string | null
+          generation_model?: string | null
           created_at?: string
           updated_at?: string
         }

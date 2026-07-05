@@ -21,6 +21,7 @@ type ConfigEntry = {
 // Known config keys and their display names
 const CONFIG_KEYS = [
   { value: 'gemini_api_key',       display: 'Gemini' },
+  { value: 'openai_api_key',       display: 'OpenAI' },
   { value: 'speechmatics_api_key', display: 'Speechmatics' },
 ] as const
 type ConfigKeyValue = typeof CONFIG_KEYS[number]['value']
@@ -363,7 +364,7 @@ export default function KeysPage() {
           <div style={{ background: '#fff', borderRadius: 10, padding: 28, maxWidth: 420, width: '90%' }}>
             <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>Disable key?</h3>
             <p style={{ fontSize: 13, color: '#555', marginBottom: 20 }}>
-              "{confirmDisable.label}" (••••{confirmDisable.last4}) will be disabled immediately.
+              &ldquo;{confirmDisable.label}&rdquo; (••••{confirmDisable.last4}) will be disabled immediately.
               You can re-enable it later.
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -382,7 +383,7 @@ export default function KeysPage() {
           <div style={{ background: '#fff', borderRadius: 10, padding: 28, maxWidth: 420, width: '90%' }}>
             <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>Delete key?</h3>
             <p style={{ fontSize: 13, color: '#555', marginBottom: 20 }}>
-              "{confirmDelete.label}" (••••{confirmDelete.last4}) will be permanently deleted.
+              &ldquo;{confirmDelete.label}&rdquo; (••••{confirmDelete.last4}) will be permanently deleted.
               This cannot be undone.
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
