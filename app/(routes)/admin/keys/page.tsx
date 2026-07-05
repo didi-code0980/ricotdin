@@ -22,6 +22,7 @@ type ConfigEntry = {
 const CONFIG_KEYS = [
   { value: 'gemini_api_key',       display: 'Gemini' },
   { value: 'openai_api_key',       display: 'OpenAI' },
+  { value: 'grok_api_key',         display: 'Grok (xAI)' },
   { value: 'speechmatics_api_key', display: 'Speechmatics' },
 ] as const
 type ConfigKeyValue = typeof CONFIG_KEYS[number]['value']

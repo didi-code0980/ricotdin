@@ -108,5 +108,10 @@ function modelDisplayLabel(provider: string, model: string): string {
     if (model === 'gpt-4o') return 'OpenAI — GPT-4o'
     if (model === 'gpt-4o-mini') return 'OpenAI — GPT-4o mini'
   }
+  if (provider === 'grok') {
+    if (model === 'grok-4') return 'Grok — grok-4'
+    if (model === 'grok-3-mini') return 'Grok — grok-3-mini'
+    return `Grok — ${model}`
+  }
   return `${provider} — ${model}`
 }

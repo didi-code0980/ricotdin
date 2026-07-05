@@ -17,7 +17,7 @@ import { invalidateKeyCache } from '@/lib/keys/provider'
 import { writeAuditLog, requestContext } from '@/lib/admin/audit'
 import { logger } from '@/lib/logger'
 
-const ALLOWED_CONFIG_KEYS = ['gemini_api_key', 'speechmatics_api_key', 'openai_api_key'] as const
+const ALLOWED_CONFIG_KEYS = ['gemini_api_key', 'speechmatics_api_key', 'openai_api_key', 'grok_api_key'] as const
 type AllowedConfigKey = typeof ALLOWED_CONFIG_KEYS[number]
 
 // Provider shorthand derived from configKey, used as the cache invalidation key.
@@ -25,6 +25,7 @@ const CONFIG_KEY_TO_PROVIDER: Record<string, string> = {
   gemini_api_key:       'gemini',
   speechmatics_api_key: 'speechmatics',
   openai_api_key:       'openai',
+  grok_api_key:         'grok',
 }
 
 // Columns safe to return — never include value_ciphertext, value_iv, value_auth_tag.

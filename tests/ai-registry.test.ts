@@ -33,6 +33,23 @@ describe('resolveModel', () => {
     assert.equal(entry.capabilities.acceptsAudio,   false)
   })
 
+  it('resolves grok + grok-4 to a valid entry (Grok/xAI)', () => {
+    const entry = resolveModel('grok', 'grok-4')
+    assert.equal(entry.provider, 'grok')
+    assert.equal(entry.model, 'grok-4')
+    assert.ok(entry.adapter, 'adapter must be present')
+    assert.equal(typeof entry.adapter.generateStructured, 'function')
+    assert.equal(entry.capabilities.hardJsonSchema, true)
+    assert.equal(entry.capabilities.acceptsAudio, false)
+  })
+
+  it('resolves grok + grok-3-mini to a valid entry (Grok/xAI)', () => {
+    const entry = resolveModel('grok', 'grok-3-mini')
+    assert.equal(entry.provider, 'grok')
+    assert.equal(entry.model, 'grok-3-mini')
+    assert.ok(entry.adapter, 'adapter must be present')
+  })
+
   it('throws a clear error for an unknown provider', () => {
     assert.throws(
       () => resolveModel('anthropic', 'claude-opus'),

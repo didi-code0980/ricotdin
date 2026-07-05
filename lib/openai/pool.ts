@@ -118,3 +118,40 @@ export async function createOpenAIPool(baseURL: string): Promise<{
   const p = new OpenAIKeyPool(keys, readConfig(), baseURL)
   return p
 }
+
+// ---------------------------------------------------------------------------
+// Generic TTL-cached pool for any OpenAI-compatible provider (Grok, Kimi, …).
+// Reads that provider's own key type via getActiveKeysWithMeta(provider) and
+// binds the given base URL. Each returned pool keeps its own 30-second TTL
+// singleton and a reset() to force an immediate refresh after key mutations.
+// ---------------------------------------------------------------------------
+
+export interface TtlPool {
+  call<T>(fn: (client: OpenAI, keyId: string | null) => Promise<T>): Promise<T>
+  reset(): void
+}
+
+export function createTtlPool(provider: string, baseURL?: string): TtlPool {
+  let pool: OpenAIKeyPool | null = null
+  let loadedAt = 0
+
+  async function get(): Promise<OpenAIKeyPool> {
+    const now = Date.now()
+    if (!pool || now - loadedAt > POOL_TTL_MS) {
+      const keys = await getActiveKeysWithMeta(provider)
+      pool = new OpenAIKeyPool(keys, readConfig(), baseURL)
+      loadedAt = now
+    }
+    return pool
+  }
+
+  return {
+    async call<T>(fn: (client: OpenAI, keyId: string | null) => Promise<T>): Promise<T> {
+      return (await get()).call(fn)
+    },
+    reset(): void {
+      pool = null
+      loadedAt = 0
+    },
+  }
+}

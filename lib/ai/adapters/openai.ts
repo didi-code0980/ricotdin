@@ -174,20 +174,26 @@ function mapUsage(
 
 export class OpenAIAdapter implements ProviderAdapter {
   private readonly pool: OpenAIPool
+  private readonly providerLabel: string
 
   /**
-   * @param pool     Injectable pool — default is the shared openAIPool singleton.
-   *                 Pass a mock here in tests; pass a custom pool for a different
-   *                 baseUrl (e.g. Grok at api.x.ai) in the registry.
-   * @param baseUrl  Informational only when pool is provided. Used by registry
-   *                 entries to document which endpoint this adapter targets.
+   * @param pool          Injectable pool — default is the shared openAIPool singleton.
+   *                      Pass a mock here in tests; pass a custom pool for a different
+   *                      baseUrl (e.g. Grok at api.x.ai) in the registry.
+   * @param baseUrl       Informational only when pool is provided. Used by registry
+   *                      entries to document which endpoint this adapter targets.
+   * @param providerLabel Label used for usage logging — defaults to 'openai'.
+   *                      OpenAI-compatible providers (e.g. 'grok') pass their own so
+   *                      usage_log rows are attributed to the correct provider.
    */
   constructor(
     pool: OpenAIPool = openAIPool as unknown as OpenAIPool,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     baseUrl?: string,
+    providerLabel = 'openai',
   ) {
     this.pool = pool
+    this.providerLabel = providerLabel
   }
 
   async generateStructured<T>(opts: {
@@ -220,7 +226,7 @@ export class OpenAIAdapter implements ProviderAdapter {
       const usage = completion.usage
 
       logUsage({
-        provider: 'openai',
+        provider: this.providerLabel,
         model: opts.model,
         operation: opts.operation,
         unit: 'tokens',
@@ -260,7 +266,7 @@ export class OpenAIAdapter implements ProviderAdapter {
         const usage2 = completion2.usage
 
         logUsage({
-          provider: 'openai',
+          provider: this.providerLabel,
           model: opts.model,
           operation: opts.operation,
           unit: 'tokens',

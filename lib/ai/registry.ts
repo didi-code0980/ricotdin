@@ -7,6 +7,8 @@
 import { GEMINI_MODEL } from '@/lib/gemini/client'
 import { GeminiAdapter } from './adapters/gemini'
 import { OpenAIAdapter } from './adapters/openai'
+import type { OpenAIPool } from './adapters/openai'
+import { grokPool, GROK_BASE_URL } from '@/lib/grok/pool'
 import type { ProviderAdapter, CapabilityFlags } from './types'
 
 // ---------------------------------------------------------------------------
@@ -55,6 +57,22 @@ _register('openai', 'gpt-4o-mini', _openAIAdapter, {
   hardJsonSchema: true,
   acceptsAudio: false,
   maxContextTokens: 128_000,
+})
+
+// ── Grok (xAI) entries ────────────────────────────────────────────────────────
+// Grok's API is OpenAI-compatible, so it reuses OpenAIAdapter with the Grok pool
+// (its own key type + api.x.ai base URL) and a 'grok' usage label. Model IDs track
+// xAI's published names — adjust here if xAI renames a model (single-line change).
+const _grokAdapter = new OpenAIAdapter(grokPool as unknown as OpenAIPool, GROK_BASE_URL, 'grok')
+_register('grok', 'grok-4', _grokAdapter, {
+  hardJsonSchema: true,
+  acceptsAudio: false,
+  maxContextTokens: 256_000,
+})
+_register('grok', 'grok-3-mini', _grokAdapter, {
+  hardJsonSchema: true,
+  acceptsAudio: false,
+  maxContextTokens: 131_072,
 })
 
 // ---------------------------------------------------------------------------
