@@ -9,7 +9,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "check": "tsx scripts/check.ts",
-    "test": "node --import tsx --test tests/chunk.test.ts tests/pipeline-parse.test.ts tests/processMeeting-guard.test.ts tests/transcode.test.ts tests/ics.test.ts tests/auth-validate.test.ts tests/admin-guards.test.ts tests/admin-pipeline.test.ts tests/admin-adm.test.ts tests/admin-ext.test.ts tests/speechmatics.test.ts tests/ffprobe.test.ts tests/provider-keys.test.ts tests/activity-log.test.ts tests/features.test.ts tests/user-status.test.ts tests/usage-by-user.test.ts tests/quota.test.ts tests/rate-limit.test.ts tests/rag-folder.test.ts tests/ai-registry.test.ts tests/ai-gemini-adapter.test.ts tests/aip-model-lock.test.ts tests/key-pool-base.test.ts tests/key-pool-speechmatics.test.ts",
+    "test": "node --import tsx --test tests/chunk.test.ts tests/pipeline-parse.test.ts tests/processMeeting-guard.test.ts tests/transcode.test.ts tests/ics.test.ts tests/auth-validate.test.ts tests/admin-guards.test.ts tests/admin-pipeline.test.ts tests/admin-adm.test.ts tests/admin-ext.test.ts tests/speechmatics.test.ts tests/ffprobe.test.ts tests/provider-keys.test.ts tests/activity-log.test.ts tests/features.test.ts tests/user-status.test.ts tests/usage-by-user.test.ts tests/quota.test.ts tests/rate-limit.test.ts tests/rag-folder.test.ts tests/ai-registry.test.ts tests/ai-gemini-adapter.test.ts tests/aip-model-lock.test.ts tests/key-pool-base.test.ts tests/key-pool-speechmatics.test.ts tests/ai-openai-adapter.test.ts",
     "test:integration": "node --import tsx --test tests/quota-integration.test.ts"
   },
   "dependencies": {
@@ -20,6 +20,7 @@
     "@supabase/supabase-js": "^2.108.0",
     "lucide-react": "^1.17.0",
     "next": "16.2.7",
+    "openai": "^6.45.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-markdown": "^10.1.0",
