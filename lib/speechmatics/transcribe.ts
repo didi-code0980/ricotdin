@@ -236,7 +236,7 @@ function mimeTypeFromPath(path: string): string {
  * the job id. Exported so the worker 'start' step can call it independently of
  * the blocking poll loop.
  */
-export async function submitJob(audioPath: string, speakerCount?: number, language?: string): Promise<string> {
+export async function submitJob(audioPath: string, speakerCount?: number, language?: string, apiKey?: string): Promise<string> {
   const audioBuffer = await readFile(audioPath)
   const mimeType = mimeTypeFromPath(audioPath)
   const ext = extname(audioPath) || '.webm'
@@ -249,7 +249,7 @@ export async function submitJob(audioPath: string, speakerCount?: number, langua
   formData.append('data_file', new Blob([audioBuffer], { type: mimeType }), `audio${ext}`)
   formData.append('config', JSON.stringify(jobConfig))
 
-  const response = await speechmaticsRequest<JobResponse>('POST', '/v2/jobs', formData)
+  const response = await speechmaticsRequest<JobResponse>('POST', '/v2/jobs', formData, apiKey)
   log(`[speechmatics] job created: id=${response.id}`)
   return response.id
 }
@@ -292,8 +292,8 @@ export interface JobCheckResult {
  * Check a Speechmatics job's status ONCE and return immediately.
  * Does NOT loop — the worker reschedules the job and calls again later.
  */
-export async function checkSpeechmaticsJob(jobId: string): Promise<JobCheckResult> {
-  const { job } = await speechmaticsRequest<JobStatusResponse>('GET', `/v2/jobs/${jobId}`)
+export async function checkSpeechmaticsJob(jobId: string, apiKey?: string): Promise<JobCheckResult> {
+  const { job } = await speechmaticsRequest<JobStatusResponse>('GET', `/v2/jobs/${jobId}`, undefined, apiKey)
   return { status: job.status, errors: job.errors }
 }
 
@@ -304,10 +304,13 @@ export async function checkSpeechmaticsJob(jobId: string): Promise<JobCheckResul
 export async function fetchSpeechmaticsTranscript(
   jobId: string,
   ctx?: SpeechmaticsContext,
+  apiKey?: string,
 ): Promise<SpeechmaticsTranscribeResult> {
   const raw = await speechmaticsRequest<SpeechmaticsTranscript>(
     'GET',
     `/v2/jobs/${jobId}/transcript?format=json-v2`,
+    undefined,
+    apiKey,
   )
 
   const audioSeconds = (raw.results ?? []).reduce(

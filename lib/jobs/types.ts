@@ -40,4 +40,6 @@ export interface JobPayload {
   lang_retry?: boolean
   /** Optional speaker count hint passed through to Speechmatics. */
   speaker_count?: number
+  /** Index into the in-memory SpeechmaticsKeyPool for the key holding this job. */
+  speechmatics_key_index?: number
 }

@@ -27,6 +27,7 @@ import {
   checkSpeechmaticsJob,
   fetchSpeechmaticsTranscript,
 } from '@/lib/speechmatics/transcribe'
+import { getSpeechmaticsPoolAsync, getSpeechmaticsPoolSync } from '@/lib/speechmatics/pool'
 import { applyQuotaMovement } from '@/lib/quota/applyQuotaMovement'
 import type { JobRow, JobPayload } from '../types'
 
@@ -42,6 +43,13 @@ export async function runTranscribePoll(job: JobRow): Promise<void> {
 
   const speechmaticsJobId = payload.speechmatics_job_id
   if (!speechmaticsJobId) throw new Error('transcribe_poll: missing speechmatics_job_id in payload')
+
+  // Helper to release the in-flight key slot when a job terminates.
+  // Safe to call even if no keyIndex was stored (old jobs or single-key setups).
+  function releaseKey() {
+    const ki = payload.speechmatics_key_index
+    if (ki != null) getSpeechmaticsPoolSync()?.release(ki)
+  }
 
   log(`[jobs/transcribe_poll] ${meetingId}: checking job ${speechmaticsJobId}`)
   const { status, errors } = await checkSpeechmaticsJob(speechmaticsJobId)
@@ -98,6 +106,7 @@ export async function runTranscribePoll(job: JobRow): Promise<void> {
 
     // Empty transcript: audio was silent or unrecognised.
     if (transcript.segments.length === 0) {
+      releaseKey()
       await db.from('meetings').update({
         status: 'done',
         summary: 'No speech detected in this recording.',
@@ -132,6 +141,9 @@ export async function runTranscribePoll(job: JobRow): Promise<void> {
 
     await db.from('meetings').update({ language: transcript.language }).eq('id', meetingId)
 
+    // Release the key slot — the Speechmatics job is finished.
+    releaseKey()
+
     // Advance to 'analyse'.
     await db.from('jobs').update({
       step: 'analyse',
@@ -161,6 +173,12 @@ export async function runTranscribePoll(job: JobRow): Promise<void> {
 
       if (!mtg?.audio_path) throw new Error('transcribe_poll: cannot retry lang — missing audio_path')
 
+      // Release the old key slot; acquire a new one for the re-submitted job.
+      releaseKey()
+      const smPool = await getSpeechmaticsPoolAsync()
+      const { apiKey: newApiKey, keyIndex: newKeyIndex } = smPool.acquire()
+      let newKeyHandedOff = false
+
       let tmpAudioPath: string | null = null
       let tmpTranscodeDir: string | null = null
 
@@ -182,12 +200,14 @@ export async function runTranscribePoll(job: JobRow): Promise<void> {
           }
         }
 
-        const newJobId = await submitJob(jobAudioPath, payload.speaker_count, 'en')
+        const newJobId = await submitJob(jobAudioPath, payload.speaker_count, 'en', newApiKey)
+        newKeyHandedOff = true
         log(`[jobs/transcribe_poll] ${meetingId}: resubmitted with language=en: ${newJobId}`)
 
         const retryPayload: JobPayload = {
           ...payload,
           speechmatics_job_id: newJobId,
+          speechmatics_key_index: newKeyIndex,
           lang_retry: true,
         }
         // Reschedule — no attempt consumed (this is an expected recovery path).
@@ -200,15 +220,18 @@ export async function runTranscribePoll(job: JobRow): Promise<void> {
         }).eq('id', job.id)
         return
       } finally {
+        if (!newKeyHandedOff) smPool.release(newKeyIndex)
         if (tmpTranscodeDir) rm(tmpTranscodeDir, { recursive: true }).catch(() => {})
         if (tmpAudioPath) unlink(tmpAudioPath).catch(() => {})
       }
     }
 
-    // Non-recoverable rejection.
+    // Non-recoverable rejection — release key before throwing.
+    releaseKey()
     throw new Error(`Speechmatics job ${speechmaticsJobId} rejected: ${errMsg}`)
   }
 
   // ── Case D: Deleted ───────────────────────────────────────────────────────
+  releaseKey()
   throw new Error(`Speechmatics job ${speechmaticsJobId} was unexpectedly deleted`)
 }

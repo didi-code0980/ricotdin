@@ -56,14 +56,18 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
  * Retries transient network failures (proxy resets / timeouts) and 429 / 5xx
  * responses with exponential backoff. Pass `body` as FormData for multipart
  * endpoints (job submission) or as a string for JSON bodies; omit for GET.
+ *
+ * Pass `apiKey` to skip the pool lookup (used by the job pool to thread the
+ * acquired key through all requests for the same job).
  */
 export async function speechmaticsRequest<T>(
   method: string,
   path: string,
   body?: FormData | string,
+  apiKey?: string,
 ): Promise<T> {
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${await getApiKey()}`,
+    Authorization: `Bearer ${apiKey ?? (await getApiKey())}`,
   }
 
   // Only set Content-Type for string bodies; FormData sets its own boundary.

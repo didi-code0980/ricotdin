@@ -24,6 +24,7 @@ import { getObjectBytes } from '@/lib/storage'
 import { isFfmpegAvailable, transcodeForGemini } from '@/lib/audio/transcode'
 import { getAudioDurationSeconds } from '@/lib/audio/ffprobe'
 import { submitJob } from '@/lib/speechmatics/transcribe'
+import { getSpeechmaticsPoolAsync, getSpeechmaticsPoolSync } from '@/lib/speechmatics/pool'
 import { applyQuotaMovement } from '@/lib/quota/applyQuotaMovement'
 import type { JobRow, JobPayload } from '../types'
 
@@ -73,6 +74,8 @@ export async function runStart(job: JobRow): Promise<void> {
 
   let tmpAudioPath: string | null = null
   let tmpTranscodeDir: string | null = null
+  let smKeyIndex: number | null = null
+  let smJobSubmitted = false
 
   try {
     // ── Download audio ───────────────────────────────────────────────────────
@@ -146,7 +149,13 @@ export async function runStart(job: JobRow): Promise<void> {
 
     // ── Submit to Speechmatics ───────────────────────────────────────────────
     const speakerCount = job.payload.speaker_count
-    const speechmaticsJobId = await submitJob(jobAudioPath, speakerCount)
+    // Acquire a key slot from the pool for load-balancing tracking.
+    // keyIndex is stored in the payload so transcribe_poll can release it.
+    const smPool = await getSpeechmaticsPoolAsync()
+    const { apiKey: smApiKey, keyIndex } = smPool.acquire()
+    smKeyIndex = keyIndex
+    const speechmaticsJobId = await submitJob(jobAudioPath, speakerCount, undefined, smApiKey)
+    smJobSubmitted = true
     log(`[jobs/start] ${meetingId}: Speechmatics job submitted: ${speechmaticsJobId}`)
 
     // ── Advance to transcribe_poll ───────────────────────────────────────────
@@ -158,6 +167,7 @@ export async function runStart(job: JobRow): Promise<void> {
       reserve_done: reserveDone,
       transcription_settled: false,
       speechmatics_job_id: speechmaticsJobId,
+      speechmatics_key_index: smKeyIndex,
     }
     await db.from('jobs').update({
       step: 'transcribe_poll',
@@ -169,6 +179,10 @@ export async function runStart(job: JobRow): Promise<void> {
     }).eq('id', job.id)
 
   } finally {
+    // If the Speechmatics job was not successfully submitted, release the key slot.
+    if (!smJobSubmitted && smKeyIndex !== null) {
+      getSpeechmaticsPoolSync()?.release(smKeyIndex)
+    }
     if (tmpTranscodeDir) rm(tmpTranscodeDir, { recursive: true }).catch(() => {})
     if (tmpAudioPath) unlink(tmpAudioPath).catch(() => {})
   }
