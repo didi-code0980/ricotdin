@@ -9,6 +9,7 @@ import rehypeSanitize from 'rehype-sanitize'
 import { browserClient } from '@/lib/supabase/browser'
 import { getAccessToken } from '@/lib/supabase/auth'
 import { getMeetingRole, canEdit } from '@/lib/access/roles'
+import { formatModelLabel } from '@/lib/ai/modelLabel'
 import ChatPanel from '@/components/ChatPanel'
 import type {
   Meeting,
@@ -788,6 +789,9 @@ function DoneView({
           {meeting.duration_seconds != null && <><span>·</span><span>{formatDuration(meeting.duration_seconds)}</span></>}
           {meeting.language && <><span>·</span><span>{meeting.language.toUpperCase()}</span></>}
           <span>·</span><StatusBadge status={meeting.status} />
+          {meeting.generation_provider && meeting.generation_model && (
+            <ModelBadge provider={meeting.generation_provider} model={meeting.generation_model} />
+          )}
         </div>
 
         {/* Folder row */}
@@ -1120,6 +1124,9 @@ function MeetingHeaderBase({ meeting }: { meeting: Meeting }) {
         <span>{formatDate(meeting.created_at)}</span>
         {meeting.duration_seconds != null && <><span>·</span><span>{formatDuration(meeting.duration_seconds)}</span></>}
         <span>·</span><StatusBadge status={meeting.status} />
+        {meeting.generation_provider && meeting.generation_model && (
+          <ModelBadge provider={meeting.generation_provider} model={meeting.generation_model} />
+        )}
       </div>
     </div>
   )
@@ -1133,4 +1140,18 @@ function StatusBadge({ status }: { status: MeetingStatus }) {
     failed:     'badge-failed',
   }
   return <span className={cls[status]}>{status}</span>
+}
+
+/** Badge showing which AI model generated the meeting note. Renders nothing if unset. */
+function ModelBadge({ provider, model }: { provider: string | null; model: string | null }) {
+  if (!provider || !model) return null
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full border border-b-border px-2 py-0.5 text-xs font-medium text-b-fg/60"
+      title={`Generated with ${provider}:${model}`}
+    >
+      <span aria-hidden="true">✨</span>
+      {formatModelLabel(provider, model)}
+    </span>
+  )
 }
