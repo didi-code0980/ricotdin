@@ -52,6 +52,10 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 # Public directory (favicon, images, etc.)
 COPY --from=builder /app/public ./public
+# Runtime-read data files NOT bundled by standalone output:
+# the analysis pipeline reads its system prompt from ai-instruction/ai-gen/ at
+# runtime (process.cwd() = /app). Without this the pipeline fails with ENOENT.
+COPY --from=builder /app/ai-instruction/ai-gen ./ai-instruction/ai-gen
 
 # Nginx: reverse-proxy from 3333 → Node 3000
 COPY nginx.conf /etc/nginx/nginx.conf
