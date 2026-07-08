@@ -4,6 +4,7 @@
 // do not duplicate balance logic in application code.
 
 import { createServerClient } from '@/lib/supabase/server'
+import { errorToMessage } from '@/lib/logger'
 
 export type QuotaMovementStatus = 'applied' | 'already_applied' | 'insufficient'
 
@@ -77,7 +78,9 @@ export async function applyQuotaMovement(
     p_metadata: params.metadata ?? {},
   })
 
-  if (error) throw error
+  // Wrap the raw Supabase PostgrestError (a plain object) in a real Error so it
+  // never logs as "[object Object]" upstream and carries the code/details.
+  if (error) throw new Error(`apply_quota_movement RPC failed: ${errorToMessage(error)}`)
 
   // RETURNS TABLE functions come back as an array; we always get exactly one row.
   const rows = data as Array<{

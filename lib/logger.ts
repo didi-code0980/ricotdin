@@ -68,3 +68,32 @@ export const logger = {
   warn:  (msg: string, ctx?: LogCtx) => emit('WARN',  msg, ctx),
   error: (msg: string, ctx?: LogCtx) => emit('ERROR', msg, ctx),
 }
+
+/**
+ * Serialize any thrown value to a readable string for logging.
+ *
+ * `err instanceof Error ? err.message : String(err)` is the usual pattern, but a
+ * plain object (e.g. a Supabase PostgrestError `{ message, details, hint, code }`)
+ * stringifies to the useless "[object Object]". This helper unwraps Errors,
+ * plucks a `.message` when present, and falls back to JSON so the real cause is
+ * never lost. Pure — safe to unit-test.
+ */
+export function errorToMessage(err: unknown): string {
+  if (err instanceof Error) return err.message
+  if (typeof err === 'string') return err
+  if (err && typeof err === 'object') {
+    const o = err as Record<string, unknown>
+    // Supabase/PostgREST error shape — include code so it is actionable.
+    if (typeof o.message === 'string') {
+      const code = typeof o.code === 'string' ? ` (${o.code})` : ''
+      const details = typeof o.details === 'string' && o.details ? ` — ${o.details}` : ''
+      return `${o.message}${code}${details}`
+    }
+    try {
+      return JSON.stringify(err)
+    } catch {
+      return String(err)
+    }
+  }
+  return String(err)
+}

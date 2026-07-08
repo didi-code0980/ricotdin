@@ -17,7 +17,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { createServerClient } from '@/lib/supabase/server'
-import { log, logger } from '@/lib/logger'
+import { log, logger, errorToMessage } from '@/lib/logger'
 import { captureException } from '@/lib/monitoring'
 import { logActivity } from '@/lib/activity/logActivity'
 import { applyQuotaMovement } from '@/lib/quota/applyQuotaMovement'
@@ -81,7 +81,7 @@ async function claimNextJob(): Promise<JobRow | null> {
 // ── Error handler ─────────────────────────────────────────────────────────────
 
 async function handleJobError(job: JobRow, err: unknown): Promise<void> {
-  const message = err instanceof Error ? err.message : String(err)
+  const message = errorToMessage(err)
   const terminal = isTerminalError(err)
   const newAttempts = job.attempts + 1
   const db = createServerClient()
@@ -257,7 +257,7 @@ export async function runWorkerLoop(): Promise<never> {
       await executeJob(job)
     } catch (err) {
       // Unexpected loop-level error (e.g. DB unreachable during claim).
-      logger.error('[worker] loop error', { detail: err instanceof Error ? err.message : String(err) })
+      logger.error('[worker] loop error', { detail: errorToMessage(err) })
       captureException(err)
       await new Promise<void>((r) => setTimeout(r, WORKER_POLL_MS))
     }
