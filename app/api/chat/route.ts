@@ -26,6 +26,7 @@ import { checkMeetingAccess, checkFolderAccess } from '@/lib/access'
 import { logActivity } from '@/lib/activity/logActivity'
 import { applyQuotaMovement } from '@/lib/quota/applyQuotaMovement'
 import { deriveMeetingIds, validateChatScope } from '@/lib/rag/scope'
+import { getGenerationConfig } from '@/lib/ai/config'
 import { logger } from '@/lib/logger'
 import type { HistoryMessage } from '@/lib/gemini/answer'
 import type { Database } from '@/types/database'
@@ -188,6 +189,7 @@ export async function POST(req: NextRequest) {
   // ── Access checks + folder meeting resolution ──────────────────────────────
 
   // Single-meeting scope: verify viewer+ access; capture model lock for RAG answer.
+  // AIP-04: cross-meeting scope (folder/global) uses the ADM-10 system default instead.
   let meetingModelCtx: { provider: string; model: string } | undefined
   if (meetingId) {
     const { data: meeting } = await db
@@ -202,6 +204,12 @@ export async function POST(req: NextRequest) {
     if (meeting.generation_provider && meeting.generation_model) {
       meetingModelCtx = { provider: meeting.generation_provider, model: meeting.generation_model }
     }
+  } else {
+    // Cross-meeting path (folder or global scope): resolve answer-synthesis model
+    // from the ADM-10 system default. getGenerationConfig() never throws — its
+    // built-in FALLBACK is gemini:gemini-2.5-flash, so pre-migration state is safe.
+    const cfg = await getGenerationConfig()
+    meetingModelCtx = cfg.systemDefault
   }
 
   // Folder scope: verify viewer+ access, then resolve accessible meeting IDs.
