@@ -79,18 +79,23 @@ export async function runTranscribePoll(job: JobRow): Promise<void> {
 
     // QUO-02: settle reservation (estimate - real = refund or overage).
     // Dedup key ensures this runs at most once even on retries.
+    // Speechmatics returns a FRACTIONAL end_time (e.g. 79.52s); the quota columns
+    // are bigint, so the real duration MUST be rounded to a whole second before
+    // computing the delta — otherwise Postgres rejects the float (22P02). Ceil to
+    // stay consistent with the reserve, which also ceils the estimate.
     const userId = payload.user_id
     const estimateSeconds = payload.estimate_seconds ?? 0
+    const realSeconds = Math.ceil(audioSeconds)
     if (userId && estimateSeconds > 0) {
       await applyQuotaMovement({
         userId,
-        deltaAudioSeconds: estimateSeconds - audioSeconds,
+        deltaAudioSeconds: estimateSeconds - realSeconds,
         deltaAgentQueries: 0,
         reason: 'generate',
         dedupKey: `gen:${meetingId}:settle`,
         allowOverdraw: true,
         meetingId,
-        metadata: { estimate_seconds: estimateSeconds, real_seconds: audioSeconds },
+        metadata: { estimate_seconds: estimateSeconds, real_seconds: realSeconds },
       })
     }
 
