@@ -17,7 +17,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { createServerClient } from '@/lib/supabase/server'
-import { log, logger, errorToMessage } from '@/lib/logger'
+import { log, logger, errorToMessage, describeError } from '@/lib/logger'
 import { captureException } from '@/lib/monitoring'
 import { logActivity } from '@/lib/activity/logActivity'
 import { applyQuotaMovement } from '@/lib/quota/applyQuotaMovement'
@@ -81,7 +81,11 @@ async function claimNextJob(): Promise<JobRow | null> {
 // ── Error handler ─────────────────────────────────────────────────────────────
 
 async function handleJobError(job: JobRow, err: unknown): Promise<void> {
-  const message = errorToMessage(err)
+  // describeError includes the error name, structured fields (Postgres
+  // code/hint/details, HTTP status, .cause) AND the originating stack frame, so
+  // even an unhelpful message like "[object Object]" still names where it failed.
+  const message = describeError(err)
+  const stackTop = err instanceof Error ? err.stack?.split('\n').slice(0, 4).join('\n') : undefined
   const terminal = isTerminalError(err)
   const newAttempts = job.attempts + 1
   const db = createServerClient()
@@ -91,7 +95,7 @@ async function handleJobError(job: JobRow, err: unknown): Promise<void> {
     const delay = jitteredBackoff(newAttempts)
     logger.warn(
       `[worker] job ${job.id} step=${job.step} transient error, retry in ${Math.round(delay / 1000)}s`,
-      { jobId: job.id, step: job.step, meetingId: job.meeting_id, detail: message },
+      { jobId: job.id, step: job.step, meetingId: job.meeting_id, detail: message, stack: stackTop },
     )
     await db.from('jobs').update({
       status: 'queued',
@@ -107,7 +111,7 @@ async function handleJobError(job: JobRow, err: unknown): Promise<void> {
   // Terminal or attempts exhausted.
   logger.error(
     `[worker] job ${job.id} step=${job.step} FAILED (${newAttempts}/${job.max_attempts})`,
-    { jobId: job.id, step: job.step, meetingId: job.meeting_id, detail: message },
+    { jobId: job.id, step: job.step, meetingId: job.meeting_id, detail: message, stack: stackTop },
   )
   captureException(err, { jobId: job.id, step: job.step, meetingId: job.meeting_id, attempt: newAttempts })
 
@@ -132,7 +136,7 @@ async function handleJobError(job: JobRow, err: unknown): Promise<void> {
       meetingId: job.meeting_id,
       metadata: { reason: 'pipeline_failure', error: message.slice(0, 200) },
     }).catch((e: unknown) => {
-      logger.error('[worker] quota refund failed (non-fatal)', { detail: String(e) })
+      logger.error('[worker] quota refund failed (non-fatal)', { detail: describeError(e) })
     })
   }
 

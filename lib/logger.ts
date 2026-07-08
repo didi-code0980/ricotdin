@@ -92,8 +92,63 @@ export function errorToMessage(err: unknown): string {
     try {
       return JSON.stringify(err)
     } catch {
-      return String(err)
+      // Circular / non-serialisable object — never return bare "[object Object]".
+      // Surface the constructor name + its keys so the shape is at least visible.
+      try {
+        const name = o.constructor?.name ?? 'Object'
+        const keys = Object.keys(o)
+        return keys.length ? `${name} { ${keys.join(', ')} }` : name
+      } catch {
+        return String(err)
+      }
     }
   }
   return String(err)
+}
+
+/** The first stack frame that is not in node_modules / node internals. */
+function firstAppFrame(stack: string | undefined): string | null {
+  if (!stack) return null
+  for (const line of stack.split('\n').slice(1)) {
+    const t = line.trim()
+    if (!t.startsWith('at ')) continue
+    if (t.includes('node_modules') || t.includes('node:')) continue
+    return t.slice(3) // drop "at "
+  }
+  return null
+}
+
+/**
+ * Rich, log-safe description of any thrown value. Unlike errorToMessage (which
+ * yields just a message string), this also captures:
+ *   - the error's constructor name,
+ *   - structured fields commonly carrying the real cause (Postgres code/hint/
+ *     details, HTTP status, .cause),
+ *   - the originating stack frame (file:line) — the single most useful thing
+ *     when the message itself is unhelpful (e.g. "[object Object]" from a
+ *     `new Error(someObject)` somewhere).
+ *
+ * Use this for job/pipeline failure logging and for meetings.error_message so a
+ * failure can be diagnosed from the stored row alone.
+ */
+export function describeError(err: unknown): string {
+  if (!(err instanceof Error)) return errorToMessage(err)
+
+  let out = `${err.name}: ${err.message}`
+
+  const extra: Record<string, unknown> = {}
+  for (const k of ['code', 'hint', 'details', 'status', 'statusCode']) {
+    const v = (err as unknown as Record<string, unknown>)[k]
+    if (v != null && v !== '') extra[k] = v
+  }
+  const cause = (err as { cause?: unknown }).cause
+  if (cause != null) extra.cause = cause instanceof Error ? cause.message : cause
+  if (Object.keys(extra).length > 0) {
+    try { out += ' ' + JSON.stringify(extra) } catch { /* ignore */ }
+  }
+
+  const frame = firstAppFrame(err.stack)
+  if (frame) out += ` @ ${frame}`
+
+  return out
 }

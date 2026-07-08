@@ -3,7 +3,7 @@
 
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { errorToMessage } from '../lib/logger.js'
+import { errorToMessage, describeError } from '../lib/logger.js'
 
 describe('errorToMessage', () => {
   it('returns .message for Error instances', () => {
@@ -34,10 +34,51 @@ describe('errorToMessage', () => {
     assert.equal(errorToMessage(undefined), 'undefined')
   })
 
-  it('handles circular objects without throwing', () => {
-    const circular: Record<string, unknown> = { a: 1 }
+  it('circular object never returns bare "[object Object]" — shows shape', () => {
+    const circular: Record<string, unknown> = { code: 500, foo: 'bar' }
     circular.self = circular
-    // No message field → JSON.stringify throws on cycle → falls back to String()
-    assert.doesNotThrow(() => errorToMessage(circular))
+    const result = errorToMessage(circular)
+    assert.notEqual(result, '[object Object]')
+    assert.match(result, /\{.*code.*\}/) // lists its keys
+  })
+})
+
+describe('describeError', () => {
+  it('includes the error name and message', () => {
+    const out = describeError(new TypeError('bad thing'))
+    assert.match(out, /^TypeError: bad thing/)
+  })
+
+  it('surfaces Postgres/PostgREST fields (code, hint, details)', () => {
+    const pgErr = Object.assign(new Error('permission denied'), {
+      code: '42501', hint: 'GRANT SELECT ...', details: 'on table x',
+    })
+    pgErr.name = 'PostgrestError'
+    const out = describeError(pgErr)
+    assert.match(out, /PostgrestError: permission denied/)
+    assert.match(out, /42501/)
+    assert.match(out, /GRANT SELECT/)
+  })
+
+  it('appends the originating stack frame (@ file/fn)', () => {
+    function throwHere() { throw new Error('boom') }
+    try { throwHere() } catch (e) {
+      const out = describeError(e)
+      assert.match(out, /boom/)
+      assert.match(out, /@ /) // has an origin frame
+    }
+  })
+
+  it('for new Error(object) — message is "[object Object]" but frame still pinpoints it', () => {
+    // Reproduces the exact failure mode: an Error built from an object.
+    const bad = new Error({ a: 1 } as unknown as string)
+    const out = describeError(bad)
+    assert.match(out, /Error: \[object Object\]/)
+    assert.match(out, /@ /) // the stack frame is what saves us
+  })
+
+  it('falls back to errorToMessage for non-Error values', () => {
+    assert.equal(describeError('plain'), 'plain')
+    assert.equal(describeError({ message: 'obj msg' }), 'obj msg')
   })
 })
