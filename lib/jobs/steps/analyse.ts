@@ -51,15 +51,21 @@ export async function runAnalyse(job: JobRow): Promise<void> {
   // ── Fetch meeting metadata needed for the prompt ──────────────────────────
   const { data: mtg } = await db
     .from('meetings')
-    .select('started_at')
+    .select('started_at, generation_provider, generation_model')
     .eq('id', meetingId)
     .maybeSingle()
 
-  const usageCtx = { meetingId, userId }
+  const modelCtx = mtg?.generation_provider && mtg?.generation_model
+    ? { provider: mtg.generation_provider, model: mtg.generation_model }
+    : undefined
 
   // ── Gemini: analyze ───────────────────────────────────────────────────────
   log(`[jobs/analyse] ${meetingId}: calling Gemini with ${segRows.length} segments`)
-  const analysis = await analyzeTranscript(transcript, mtg?.started_at ?? undefined, usageCtx)
+  const analysis = await analyzeTranscript(
+    transcript,
+    mtg?.started_at ?? undefined,
+    { meetingId, userId, modelCtx },
+  )
   log(
     `[jobs/analyse] ${meetingId}: done — ` +
     `${analysis.todos.length} todos, ${analysis.calendar_suggestions.length} suggestions`,

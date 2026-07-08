@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    name: lint · typecheck · test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Test
+        run: npm run test
+        env:
+          # Import-safety dummies — no real credentials, no network calls.
+          # Tests are fully hermetic (pure functions); these vars exist only so
+          # lazy env reads in lib/ don't throw if a code-path is accidentally
+          # exercised at import time.
+          #
+          # DO NOT add real secrets here. Use GitHub Actions Secrets + a separate
+          # deployment workflow if integration tests are ever introduced.
+          #
+          # npm run check (live Supabase + Gemini connectivity probe) is
+          # intentionally omitted — it requires real credentials and is not a
+          # CI gate.
+          KEY_ENCRYPTION_SECRET: "0000000000000000000000000000000000000000000000000000000000000000"
+          NEXT_PUBLIC_SUPABASE_URL: "http://localhost:54321"
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: "dummy-anon-key"
+          SUPABASE_SERVICE_ROLE_KEY: "dummy-service-role-key"
+          GEMINI_API_KEY: "dummy-gemini-key"

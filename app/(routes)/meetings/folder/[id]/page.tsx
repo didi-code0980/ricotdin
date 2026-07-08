@@ -3,11 +3,12 @@
 import type { CSSProperties, KeyboardEvent } from 'react'
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { browserClient } from '@/lib/supabase/browser'
 import { getAccessToken } from '@/lib/supabase/auth'
 import { getMeetingRole, canPin, canEdit, canDelete } from '@/lib/access/roles'
-import type { Meeting, MeetingStatus, FolderWithRole, FolderShareMember } from '@/types/database'
+import type { Meeting, MeetingStatus, FolderWithRole, FolderShareMember, Citation } from '@/types/database'
+import ChatPanel from '@/components/ChatPanel'
 
 type LoadState = 'loading' | 'ready' | 'error'
 
@@ -39,11 +40,13 @@ function formatDuration(seconds: number): string {
 }
 
 export default function FolderMeetingsPage() {
-  const params = useParams()
+  const params   = useParams()
+  const router   = useRouter()
   const folderId = params.id as string
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
-  const [folder, setFolder] = useState<FolderWithRole | null>(null)
+  // undefined = folder fetch not finished yet; null = fetched but not found
+  const [folder, setFolder] = useState<FolderWithRole | null | undefined>(undefined)
   const [allFolders, setAllFolders] = useState<FolderWithRole[]>([])
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [loadState, setLoadState] = useState<LoadState>('loading')
@@ -76,25 +79,32 @@ export default function FolderMeetingsPage() {
     })
   }, [])
 
-  // ── load folder info + meetings ────────────────────────────────────────────
+  // ── load folder info (once per folderId; not polled) ───────────────────────
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadFolders() {
+      const token = await getAccessToken()
+      if (!token || cancelled) return
+      const res = await fetch('/api/folders', { headers: { Authorization: `Bearer ${token}` } })
+      if (cancelled) return
+      if (!res.ok) { setFolder(null); return }
+      const json = (await res.json()) as { folders: FolderWithRole[] }
+      if (cancelled) return
+      setAllFolders(json.folders)
+      setFolder(json.folders.find((f) => f.id === folderId) ?? null)
+    }
+
+    void loadFolders()
+    return () => { cancelled = true }
+  }, [folderId])
+
+  // ── load meetings + poll while any are in-flight ───────────────────────────
   useEffect(() => {
     let cancelled = false
 
     async function load(silent = false) {
       try {
-        const token = await getAccessToken()
-        if (token) {
-          const res = await fetch('/api/folders', { headers: { Authorization: `Bearer ${token}` } })
-          if (res.ok) {
-            const json = (await res.json()) as { folders: FolderWithRole[] }
-            if (!cancelled) {
-              setAllFolders(json.folders)
-              const found = json.folders.find((f) => f.id === folderId) ?? null
-              setFolder(found)
-            }
-          }
-        }
-
         const { data, error } = await browserClient
           .from('meetings')
           .select('*')
@@ -346,12 +356,23 @@ export default function FolderMeetingsPage() {
     }
   }
 
+  // ── citation click: navigate to the meeting at the cited timestamp ────────
+  function handleCitationClick(c: Citation) {
+    const t = Math.floor(c.start_ms / 1000)
+    router.push(`/meetings/${c.meeting_id}?t=${t}`)
+  }
+
   // ── derived ────────────────────────────────────────────────────────────────
-  const confirmTarget = confirmDeleteId ? meetings.find((m) => m.id === confirmDeleteId) : null
+  const confirmTarget   = confirmDeleteId ? meetings.find((m) => m.id === confirmDeleteId) : null
   const editableFolders = allFolders.filter((f) => f.myRole === 'owner' || f.myRole === 'editor')
   const folderAsArray: FolderWithRole[] = folder ? [folder] : []
-  const isOwned = folder?.myRole === 'owner'
+  const isOwned  = folder?.myRole === 'owner'
   const isShared = isOwned ? (folder?.memberCount ?? 0) > 0 : true
+
+  // meetingTitles map for cross-meeting citation labels in ChatPanel
+  const meetingTitles: Record<string, string> = Object.fromEntries(
+    meetings.map((m) => [m.id, m.title]),
+  )
 
 // ── Theme-aware constants ─────────────────────────────────────────────────────
 const T = {
@@ -619,7 +640,7 @@ const T = {
         )}
 
         {/* ── Folder not found ── */}
-        {loadState === 'ready' && !folder && (
+        {loadState === 'ready' && folder === null && (
           <div style={{ textAlign: 'center', padding: '80px 0' }}>
             <p style={{ fontSize: 18, fontWeight: 700, color: T.fg, marginBottom: 8, fontFamily: 'var(--t-font-heading)' }}>Folder not found</p>
             <p style={{ fontSize: 14, color: T.fgMuted, marginBottom: 24 }}>This folder may have been deleted or you don&apos;t have access.</p>
@@ -629,24 +650,51 @@ const T = {
           </div>
         )}
 
-        {/* ── Empty folder ── */}
-        {loadState === 'ready' && folder && meetings.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '80px 0' }}>
-            <div style={{ width: 56, height: 56, borderRadius: 16, background: iconTileBg, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: 26 }}>
-              {isShared ? '👥' : '📁'}
+        {/* ── Meeting list + chat panel ──
+            Gated on the STABLE `folder` (loaded once), never on the polled
+            `meetings` state — so the 3s meetings poll re-renders the list
+            without ever remounting <ChatPanel> (which would re-fetch history
+            on every tick). `key={folderId}` pins the panel instance to the
+            scope: it remounts only when navigating to a different folder. */}
+        {loadState === 'ready' && folder && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(300px, 360px)', gap: 28, alignItems: 'start' }}>
+            {/* Meeting list (or empty state) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {meetings.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '80px 0' }}>
+                  <div style={{ width: 56, height: 56, borderRadius: 16, background: iconTileBg, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: 26 }}>
+                    {isShared ? '👥' : '📁'}
+                  </div>
+                  <p style={{ fontSize: 18, fontWeight: 700, color: T.fg, marginBottom: 8, fontFamily: 'var(--t-font-heading)' }}>No meetings in this folder</p>
+                  <p style={{ fontSize: 14, color: T.fgMuted, marginBottom: 24 }}>Record a meeting and move it here.</p>
+                  <Link href={`/record?folder=${folderId}`} style={{ padding: '10px 22px', borderRadius: 999, border: 'none', background: T.primary, color: '#fff', fontSize: 14, fontWeight: 700, textDecoration: 'none', display: 'inline-block' }}>
+                    + New recording
+                  </Link>
+                </div>
+              ) : (
+                meetings.map((m) => <div key={m.id}>{renderMeeting(m)}</div>)
+              )}
             </div>
-            <p style={{ fontSize: 18, fontWeight: 700, color: T.fg, marginBottom: 8, fontFamily: 'var(--t-font-heading)' }}>No meetings in this folder</p>
-            <p style={{ fontSize: 14, color: T.fgMuted, marginBottom: 24 }}>Record a meeting and move it here.</p>
-            <Link href={`/record?folder=${folderId}`} style={{ padding: '10px 22px', borderRadius: 999, border: 'none', background: T.primary, color: '#fff', fontSize: 14, fontWeight: 700, textDecoration: 'none', display: 'inline-block' }}>
-              + New recording
-            </Link>
-          </div>
-        )}
 
-        {/* ── Meeting list ── */}
-        {loadState === 'ready' && folder && meetings.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {meetings.map((m) => <div key={m.id}>{renderMeeting(m)}</div>)}
+            {/* Folder chat panel */}
+            <div style={{
+              position: 'sticky', top: 24,
+              border: `1px solid ${T.border}`, borderRadius: T.radius,
+              background: 'white', padding: 20,
+              boxShadow: 'var(--t-shadow-sm)',
+            }}>
+              <p style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', color: T.fgMuted, textTransform: 'uppercase', marginBottom: 12 }}>
+                Folder chat
+              </p>
+              <ChatPanel
+                key={folderId}
+                folderId={folderId}
+                folderName={folder.name}
+                meetingTitles={meetingTitles}
+                onCitationClick={handleCitationClick}
+                height={520}
+              />
+            </div>
           </div>
         )}
 

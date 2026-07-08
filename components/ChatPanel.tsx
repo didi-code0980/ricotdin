@@ -5,37 +5,52 @@ import { getAccessToken } from '@/lib/supabase/auth'
 import type { ChatMessage, Citation } from '@/types/database'
 
 interface Props {
-  meetingId: string | null
+  meetingId?:    string | null
+  folderId?:     string | null
+  folderName?:   string | null
+  /** For folder-scoped panels: map of meeting_id → title for citation labels. */
+  meetingTitles?: Record<string, string>
   initialSessionId?: string | null
   onCitationClick?: (citation: Citation) => void
   height?: number
 }
 
 export default function ChatPanel({
-  meetingId,
+  meetingId    = null,
+  folderId     = null,
+  folderName   = null,
+  meetingTitles,
   initialSessionId = null,
   onCitationClick,
   height = 440,
 }: Props) {
-  const [messages, setMessages]       = useState<ChatMessage[]>([])
-  const [sessionId, setSessionId]     = useState<string | null>(initialSessionId)
-  const [input, setInput]             = useState('')
-  const [loading, setLoading]         = useState(false)
+  const [messages, setMessages]             = useState<ChatMessage[]>([])
+  const [sessionId, setSessionId]           = useState<string | null>(initialSessionId)
+  const [input, setInput]                   = useState('')
+  const [loading, setLoading]               = useState(false)
   const [historyLoading, setHistoryLoading] = useState(false)
-  const [error, setError]             = useState<string | null>(null)
-  const [blockedAgent, setBlockedAgent] = useState(false)
+  const [error, setError]                   = useState<string | null>(null)
+  const [blockedAgent, setBlockedAgent]     = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  // Load the most recent session + messages for this meeting from the server
+  // Load the most recent session + messages for this scope
   useEffect(() => {
-    if (!meetingId) return
+    // Load when either meetingId or folderId is provided
+    const scopeParam = meetingId
+      ? `meetingId=${encodeURIComponent(meetingId)}`
+      : folderId
+        ? `folderId=${encodeURIComponent(folderId)}`
+        : null
+
+    if (!scopeParam) return
+
     let cancelled = false
     async function loadHistory() {
       setHistoryLoading(true)
       try {
         const token = await getAccessToken()
         if (!token || cancelled) return
-        const res = await fetch(`/api/chat?meetingId=${encodeURIComponent(meetingId!)}`, {
+        const res = await fetch(`/api/chat?${scopeParam}`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (!res.ok || cancelled) return
@@ -49,7 +64,7 @@ export default function ChatPanel({
     }
     void loadHistory()
     return () => { cancelled = true }
-  }, [meetingId])
+  }, [meetingId, folderId]) // eslint-disable-line react-hooks/set-state-in-effect
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -64,11 +79,11 @@ export default function ChatPanel({
 
     const optimisticId = `opt-${Date.now()}`
     const optimistic: ChatMessage = {
-      id: optimisticId,
+      id:         optimisticId,
       session_id: sessionId ?? '',
-      role: 'user',
-      content: text,
-      citations: [],
+      role:       'user',
+      content:    text,
+      citations:  [],
       created_at: new Date().toISOString(),
     }
     setMessages((prev) => [...prev, optimistic])
@@ -76,30 +91,35 @@ export default function ChatPanel({
     try {
       const token = await getAccessToken()
       if (!token) { setError('Not signed in.'); return }
+
+      const body: Record<string, unknown> = { message: text, sessionId }
+      if (meetingId) body.meetingId = meetingId
+      if (folderId)  body.folderId  = folderId
+
       const res = await fetch('/api/chat', {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ message: text, meetingId, sessionId }),
+        body:    JSON.stringify(body),
       })
 
-      const body = (await res.json()) as {
-        sessionId?: string
-        message?: ChatMessage
-        error?: string
-        blocked?: boolean
-        reason?: string
+      const data = (await res.json()) as {
+        sessionId?:        string
+        message?:          ChatMessage
+        error?:            string
+        blocked?:          boolean
+        reason?:           string
         remaining_queries?: number
       }
 
-      if (res.status === 402 && body.blocked && body.reason === 'insufficient_agent_balance') {
+      if (res.status === 402 && data.blocked && data.reason === 'insufficient_agent_balance') {
         setBlockedAgent(true)
         setMessages((prev) => prev.filter((m) => m.id !== optimisticId))
         return
       }
 
-      if (!res.ok) throw new Error(body.error ?? 'Chat request failed.')
-      if (body.sessionId) setSessionId(body.sessionId)
-      if (body.message) setMessages((prev) => [...prev, body.message!])
+      if (!res.ok) throw new Error(data.error ?? 'Chat request failed.')
+      if (data.sessionId) setSessionId(data.sessionId)
+      if (data.message)   setMessages((prev) => [...prev, data.message!])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong.')
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId))
@@ -112,8 +132,33 @@ export default function ChatPanel({
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() }
   }
 
+  // ── Empty state text ───────────────────────────────────────────────────────
+  function emptyPlaceholder() {
+    if (folderName)  return `Ask anything about meetings in "${folderName}".`
+    if (meetingId)   return 'Ask anything about this meeting transcript.'
+    return 'Ask anything about your meetings.'
+  }
+
+  // ── Scope badge ────────────────────────────────────────────────────────────
+  function scopeBadge() {
+    if (folderName) {
+      return (
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-b-clay border border-b-border text-xs font-sans text-b-fg/60 mb-3 self-start">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="text-b-primary">
+            <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l1.7 1.7H19.5A1.5 1.5 0 0 1 21 9.2v8.3A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5v-10Z" fill="currentColor" opacity="0.6"/>
+          </svg>
+          Asking within <strong className="text-b-fg/80 font-semibold">{folderName}</strong>
+        </div>
+      )
+    }
+    return null
+  }
+
   return (
     <div className="flex flex-col" style={{ height }}>
+      {/* Scope badge (folder only) */}
+      {scopeBadge()}
+
       {/* Thread */}
       <div className="flex-1 overflow-y-auto flex flex-col gap-3 pb-2 pr-1">
         {historyLoading && (
@@ -127,14 +172,17 @@ export default function ChatPanel({
         )}
         {!historyLoading && messages.length === 0 && !loading && (
           <p className="text-sm text-b-fg/40 font-sans italic text-center mt-12">
-            {meetingId
-              ? 'Ask anything about this meeting transcript.'
-              : 'Ask anything about your meetings.'}
+            {emptyPlaceholder()}
           </p>
         )}
 
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} onCitationClick={onCitationClick} />
+          <MessageBubble
+            key={msg.id}
+            message={msg}
+            meetingTitles={meetingTitles}
+            onCitationClick={onCitationClick}
+          />
         ))}
 
         {loading && (
@@ -195,10 +243,17 @@ function formatMs(ms: number): string {
   return `${m}:${s}`
 }
 
+function citationLabel(c: Citation, meetingTitles?: Record<string, string>): string {
+  const ts = formatMs(c.start_ms)
+  const title = meetingTitles?.[c.meeting_id]
+  return title ? `${title} @ ${ts}` : ts
+}
+
 function MessageBubble({
-  message, onCitationClick,
+  message, meetingTitles, onCitationClick,
 }: {
   message: ChatMessage
+  meetingTitles?: Record<string, string>
   onCitationClick?: (c: Citation) => void
 }) {
   const isUser = message.role === 'user'
@@ -226,7 +281,7 @@ function MessageBubble({
               className="text-xs font-mono px-2 py-0.5 rounded-lg border border-b-border bg-white text-b-primary
                          cursor-pointer hover:bg-b-clay hover:border-b-primary transition-colors duration-200"
             >
-              {formatMs(c.start_ms)}
+              {citationLabel(c, meetingTitles)}
             </button>
           ))}
         </div>

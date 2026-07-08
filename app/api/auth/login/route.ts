@@ -17,6 +17,8 @@ import { createServerClient } from '@/lib/supabase/server'
 import { normalizeUsername, looksLikeEmail } from '@/lib/auth/validate'
 import { logActivity } from '@/lib/activity/logActivity'
 import { requestContext } from '@/lib/admin/audit'
+import { loginLimiter } from '@/lib/security/rateLimit'
+import { logger } from '@/lib/logger'
 import type { Database } from '@/types/database'
 
 const GENERIC_ERROR = 'Invalid credentials. Please check your email or username and password.'
@@ -34,6 +36,28 @@ export async function POST(req: NextRequest) {
 
   if (!identifier || !password) {
     return NextResponse.json({ error: GENERIC_ERROR }, { status: 401 })
+  }
+
+  // ── Rate-limit check ───────────────────────────────────────────────────────
+  // Key: client IP. Falls back to '__unknown__' so null-IP traffic shares one
+  // bucket rather than bypassing the limit.
+  // NOTE: relies on x-forwarded-for / x-real-ip set by the reverse proxy. If
+  // the server is directly internet-facing with no proxy, add an env var to
+  // read req.socket.remoteAddress instead (prevents header spoofing).
+  const { ipAddress } = requestContext(req)
+  const rateLimitKey = ipAddress ?? '__unknown__'
+  const limitResult = loginLimiter.check(rateLimitKey)
+
+  if (!limitResult.allowed) {
+    logger.warn('[rate-limit] login blocked', { step: 'rate_limit' })
+    const minutes = Math.ceil(limitResult.retryAfterSeconds / 60)
+    return NextResponse.json(
+      { error: `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.` },
+      {
+        status: 429,
+        headers: { 'Retry-After': String(limitResult.retryAfterSeconds) },
+      },
+    )
   }
 
   // ── Resolve identifier → email ─────────────────────────────────────────────
@@ -54,7 +78,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle()
 
     if (!profile) {
-      // Don't reveal whether the username exists
+      loginLimiter.recordFailure(rateLimitKey)
       return NextResponse.json({ error: GENERIC_ERROR }, { status: 401 })
     }
 
@@ -62,6 +86,7 @@ export async function POST(req: NextRequest) {
     const { data: { user: authUser } } = await db.auth.admin.getUserById(profile.id)
 
     if (!authUser?.email) {
+      loginLimiter.recordFailure(rateLimitKey)
       return NextResponse.json({ error: GENERIC_ERROR }, { status: 401 })
     }
 
@@ -77,6 +102,9 @@ export async function POST(req: NextRequest) {
   }).auth.signInWithPassword({ email, password })
 
   if (error || !data.session) {
+    // Count every failed sign-in (wrong creds, unverified, banned) as a failure.
+    loginLimiter.recordFailure(rateLimitKey)
+
     const msg = error?.message?.toLowerCase() ?? ''
     const code = (error as { code?: string } | null)?.code ?? ''
     if (msg.includes('not confirmed') || code === 'email_not_confirmed') {
@@ -94,12 +122,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: GENERIC_ERROR }, { status: 401 })
   }
 
-  const { ipAddress, userAgent } = requestContext(req)
+  // Successful auth — clear the failure bucket for this IP.
+  loginLimiter.reset(rateLimitKey)
+
+  const { userAgent } = requestContext(req)
   logActivity({
     userId: data.user!.id,
     eventType: 'login',
     metadata: { email: data.user?.email ?? null },
-    ip: ipAddress,
+    ip: rateLimitKey === '__unknown__' ? null : rateLimitKey,
     userAgent,
   })
 

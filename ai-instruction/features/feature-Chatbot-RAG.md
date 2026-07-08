@@ -1,8 +1,8 @@
 # Chatbot (RAG) Module (RAG)
 
 **Module prefix:** RAG  
-**Status:** ✅ Done (Phase 5)  
-**Key files:** `lib/rag/retrieve.ts`, `lib/gemini/answer.ts`, `app/api/chat/route.ts`, `components/ChatPanel.tsx`, `app/(routes)/chat/page.tsx`
+**Status:** ✅ Done (Phase 5 + RAG-04)  
+**Key files:** `lib/rag/retrieve.ts`, `lib/rag/scope.ts`, `lib/gemini/answer.ts`, `app/api/chat/route.ts`, `components/ChatPanel.tsx`, `app/(routes)/chat/page.tsx`, `app/(routes)/meetings/folder/[id]/page.tsx`
 
 ---
 
@@ -30,19 +30,27 @@ As a user, I want to ask questions within one or across multiple meetings to loo
 
 **Cross-meeting scope (from `/chat`):**
 1. User navigates to `/chat`.
-2. No meeting filter is applied; `match_transcript_chunks` RPC searches across ALL of the user's meetings.
+2. No meeting filter is applied; `match_transcript_chunks` RPC searches across ALL of the user's meetings (owned + shared via COM-05).
 3. Answers cite which meeting + timestamp each piece of evidence came from.
 
+**Folder scope (from `/meetings/folder/[id]`) — RAG-04:**
+1. User opens a folder in the meeting list.
+2. A chat panel pre-scoped to that folder is shown alongside the meetings.
+3. RAG retrieval is filtered to the accessible meetings in the folder.
+4. See RAG-04 section for full detail.
+
 **Frontend**
-- `ChatPanel` component accepts an optional `meetingId` prop.
-- When `meetingId` is provided, a meeting-scoped badge is shown.
-- When on `/chat` (no `meetingId`), the panel shows "Searching all meetings."
+- `ChatPanel` component accepts `meetingId?`, `folderId?`, `folderName?`, and `meetingTitles?` props.
+- When `meetingId` is provided, questions are scoped to that meeting.
+- When `folderId` is provided, badge shows "Asking within {folderName}"; citations show `{meetingTitle} @ mm:ss`.
+- When on `/chat` (neither), the panel shows "Ask anything about your meetings."
 - Chat input with send button + Enter-to-send keyboard shortcut.
 
 **Backend**
-- `POST /api/chat` accepts `{ message, meetingId? }`.
+- `POST /api/chat` accepts `{ message, meetingId?, folderId? }` — at most one of meetingId/folderId.
 - If `meetingId` is provided, RAG retrieval is filtered to that meeting.
-- If absent, retrieval is cross-meeting (still RLS-scoped to the authenticated user).
+- If `folderId` is provided, retrieval is filtered to the accessible meetings in the folder.
+- If absent, retrieval is cross-meeting (RLS-scoped to the authenticated user).
 
 ---
 
@@ -101,22 +109,71 @@ As a user, I want every answer to cite the exact timestamp and save history so I
 
 ---
 
+---
+
+### RAG-04 — Folder-scoped chat
+**Status:** ✅ Done
+
+**User Story**  
+As a user, I want to ask questions scoped to a specific folder so I can query only the meetings in that collection.
+
+**Use Cases**
+1. User opens a folder at `/meetings/folder/[id]`.
+2. A "Folder chat" panel is shown alongside the meeting list.
+3. User types a question. The system retrieves context only from meetings in the folder that the user can access.
+4. Answers cite `{meetingTitle} @ mm:ss`; clicking navigates to that meeting at the cited timestamp.
+5. Quota: one agent query is deducted from the asker's balance (actor-pays, same as global chat). Blocked at zero balance.
+6. Chat history for each folder session is persisted and loaded on mount.
+7. If the folder has no accessible meetings, a friendly message is returned (no quota deducted).
+
+**Frontend**
+- `ChatPanel` receives `folderId`, `folderName`, `meetingTitles` (meeting_id→title map), and `onCitationClick` (navigate to meeting at timestamp).
+- Badge: "Asking within {folderName}".
+- Citation chips: `{meetingTitle} @ mm:ss`; clicking calls `router.push(/meetings/{meeting_id}?t={seconds})`.
+- Blocked state (402): "You have used all your agent queries."
+- Panel is mounted only when the folder has ≥ 1 accessible meeting (empty state handled by the folder page).
+
+**Backend**
+- `POST /api/chat { message, folderId }`:
+  1. `validateChatScope` — rejects if both meetingId + folderId set.
+  2. `checkFolderAccess(db, folderId, userId, 'viewer')` — 403 if not accessible.
+  3. User-scoped client queries `meetings WHERE folder_id = folderId` → RLS auto-filters to accessible meetings.
+  4. `deriveMeetingIds(null, folderMeetingIds)` → array for retrieval filter.
+  5. Empty folder → persist friendly reply, skip quota + Gemini.
+  6. QUO-03 gate (same block as meeting/global scope — actor-pays).
+  7. `retrieveContext({ meetingIds: [...] })` → `match_transcript_chunks` with `filter_meeting_ids uuid[]`.
+  8. `answerWithContext` → grounded answer + citation validation (unchanged).
+- `GET /api/chat?folderId=` — returns most recent session + messages for the folder (folder access checked).
+- `chat_sessions.folder_id` nullable FK (migration 018) — scope derivation: meeting_id set → meeting; folder_id set → folder; both null → global.
+- `match_transcript_chunks` RPC updated: `filter_meeting_id uuid` → `filter_meeting_ids uuid[]`; `WHERE ... = ANY(filter_meeting_ids)`.
+- Pure helper `lib/rag/scope.ts`: `deriveMeetingIds()` + `validateChatScope()` — 12 unit tests.
+
+---
+
 ## Data Flow
 
 ```
 User sends question
-  → POST /api/chat { message, meetingId? }
-      → embedText(message)                    → 768-dim vector
-      → match_transcript_chunks RPC           → top-K chunks (RLS-scoped)
-      → lib/gemini/answer.ts                  → Gemini JSON answer
+  → POST /api/chat { message, meetingId? | folderId? }
+      → validateChatScope()                  → reject if both set
+      → access check (meeting or folder)     → 403 if denied
+      [folder scope only]
+      → user-scoped query: meetings WHERE folder_id=X  → accessible meeting IDs
+      → deriveMeetingIds()                   → meetingIds filter (null=global)
+      → embedText(message)                   → 768-dim vector
+      → match_transcript_chunks RPC          → top-K chunks (RLS + meetingIds filter)
+      → QUO-03 quota gate                    → 402 if balance=0 (actor-pays)
+      → lib/gemini/answer.ts                 → Gemini JSON answer
           → citation validation (drop invented chunk_ids)
       → persist chat_messages (user + assistant)
       → return { answer, citations }
   → ChatPanel renders answer + citation chips
-  → Citation click → audio seek (single-meeting) or link (cross-meeting)
+  → Citation click:
+      single-meeting → audio seek
+      folder/global  → navigate to /meetings/{id}?t={seconds}
 ```
 
 ## Dependencies
 
-- **Depends on:** PRP-06 (embeddings), PRP-03 (transcript segments with timestamps), AUT-04 (RLS)
+- **Depends on:** PRP-06 (embeddings), PRP-03 (transcript segments with timestamps), AUT-04 (RLS), PRO-06 (folders), COM-05 (can_access_meeting / shared folders), QUO-03 (agent-query quota)
 - **Blocks:** nothing downstream; this is a leaf feature

@@ -18,6 +18,8 @@ export interface LogCtx {
   durationMs?: number
   detail?: string
   error?: string
+  /** Any additional structured fields for this log site. */
+  [key: string]: unknown
 }
 
 type Level = 'INFO' | 'WARN' | 'ERROR'

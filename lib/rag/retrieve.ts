@@ -26,25 +26,28 @@ export interface RetrievedChunk {
 /**
  * Embed the query, call match_transcript_chunks RPC, and apply a similarity floor.
  *
- * @param query - The user's natural-language question
+ * @param query     - The user's natural-language question
  * @param userClient - A Supabase client created with the user's JWT (RLS applies)
- * @param meetingId - Scope to one meeting, or null for cross-meeting search
- * @param userId - Optional; forwarded to embedChunks for usage attribution
+ * @param meetingIds - null = global; [id] = single meeting; [...ids] = folder scope
+ * @param userId    - Optional; forwarded to embedChunks for usage attribution
  */
 export async function retrieveContext({
   query,
   userClient,
-  meetingId = null,
+  meetingIds = null,
   userId,
 }: {
   query: string
   userClient: SupabaseClient<Database>
-  meetingId?: string | null
+  meetingIds?: string[] | null
   userId?: string | null
 }): Promise<RetrievedChunk[]> {
+  // For usage attribution, pass meetingId only when scoped to exactly one meeting.
+  const singleMeetingId = meetingIds?.length === 1 ? meetingIds[0] : undefined
+
   const embeddings = await embedChunks([query], {
     operation: 'embed-query',
-    meetingId,
+    meetingId: singleMeetingId,
     userId,
   })
   const queryEmbedding = embeddings[0]
@@ -58,7 +61,7 @@ export async function retrieveContext({
   const { data, error } = await userClient.rpc('match_transcript_chunks', {
     query_embedding: queryEmbedding,
     match_count: MATCH_COUNT,
-    filter_meeting_id: meetingId ?? null,
+    filter_meeting_ids: meetingIds ?? null,
   })
 
   if (error) throw new Error(`Retrieval RPC failed: ${error.message}`)
