@@ -182,6 +182,12 @@ Supabase dashboard:
      + updated per-verb RLS on all meeting-related tables and `folders`. Must run AFTER 011.
    - `migrations/013_folders_position.sql` — `position` column on `folders` for drag-and-drop ordering.
 
+7. **Apply AIP-06 + storage-config migrations:**
+   - `migrations/027_model_control.sql` — `app_settings` table (model allow-list + system default) + `profiles.default_provider/model`.
+   - `migrations/028_storage_config.sql` — `storage_config` table (admin-managed R2 credentials; secret AES-256-GCM encrypted).
+     After applying, configure R2 at `/admin/storage`; `R2_*` env vars remain a fallback when no active DB config exists.
+     Requires `KEY_ENCRYPTION_SECRET` (same secret used for API keys) to encrypt/decrypt the secret access key.
+
 ## 9b. Auth/roles — Phase 7 design
 
 **Role storage (NEVER in user_metadata):**

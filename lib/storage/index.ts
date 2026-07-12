@@ -18,43 +18,83 @@ import {
   PutObjectCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
+  HeadBucketCommand,
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { createServerClient } from '@/lib/supabase/server'
+import { errorToMessage } from '@/lib/logger'
+import { getR2Config } from './config'
 
 // Supabase bucket name — kept only for legacy reads/deletes.
 const SUPABASE_BUCKET = 'recordings'
 
 // ---------------------------------------------------------------------------
-// R2 client (lazy singleton — validated on first use)
+// R2 client — resolved from storage_config (DB) with env fallback.
+//
+// Credentials now come from getR2Config() (admin-managed, 30s TTL cache). The
+// S3Client is memoised per account+key so we don't rebuild it on every call, and
+// automatically rebuilt when the resolved credentials change (config edit).
 // ---------------------------------------------------------------------------
 
 let _r2: S3Client | null = null
+let _r2Fingerprint = ''
 
-function r2(): S3Client {
-  if (!_r2) {
-    const accountId = process.env.R2_ACCOUNT_ID
-    const accessKeyId = process.env.R2_ACCESS_KEY_ID
-    const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY
-    if (!accountId || !accessKeyId || !secretAccessKey) {
-      throw new Error(
-        'R2 credentials not configured. Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, ' +
-          'and R2_SECRET_ACCESS_KEY in your environment (server-only).',
-      )
-    }
+/** Build (or reuse) the S3Client for the currently-resolved R2 credentials. */
+async function r2(): Promise<S3Client> {
+  const cfg = await getR2Config()
+  if (!cfg) {
+    throw new Error(
+      'R2 storage is not configured. Add a storage config at /admin/storage, ' +
+        'or set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and R2_BUCKET (server-only).',
+    )
+  }
+  // Rebuild the client only when the resolved credentials actually change.
+  const fingerprint = `${cfg.accountId}:${cfg.accessKeyId}`
+  if (!_r2 || fingerprint !== _r2Fingerprint) {
     _r2 = new S3Client({
       region: 'auto',
-      endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
-      credentials: { accessKeyId, secretAccessKey },
+      endpoint: `https://${cfg.accountId}.r2.cloudflarestorage.com`,
+      credentials: { accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey },
     })
+    _r2Fingerprint = fingerprint
   }
   return _r2
 }
 
-function r2Bucket(): string {
-  const bucket = process.env.R2_BUCKET
-  if (!bucket) throw new Error('R2_BUCKET env var is not set.')
-  return bucket
+/** Resolve the active R2 bucket name. */
+async function r2Bucket(): Promise<string> {
+  const cfg = await getR2Config()
+  if (!cfg) {
+    throw new Error(
+      'R2 storage is not configured. Add a storage config at /admin/storage, ' +
+        'or set the R2_* env vars (server-only).',
+    )
+  }
+  return cfg.bucket
+}
+
+/**
+ * Verify a set of R2 credentials by issuing a HeadBucket call. Used by the admin
+ * "Test connection" action before saving so bad credentials can't silently break
+ * uploads. Never throws — returns { ok, error? }.
+ */
+export async function testR2Connection(creds: {
+  accountId: string
+  accessKeyId: string
+  secretAccessKey: string
+  bucket: string
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const client = new S3Client({
+      region: 'auto',
+      endpoint: `https://${creds.accountId}.r2.cloudflarestorage.com`,
+      credentials: { accessKeyId: creds.accessKeyId, secretAccessKey: creds.secretAccessKey },
+    })
+    await client.send(new HeadBucketCommand({ Bucket: creds.bucket }))
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: errorToMessage(e) }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -80,9 +120,10 @@ export async function createSignedUploadUrl({
   contentType: string
   expiresIn?: number
 }): Promise<string> {
+  const [client, bucket] = await Promise.all([r2(), r2Bucket()])
   return getSignedUrl(
-    r2(),
-    new PutObjectCommand({ Bucket: r2Bucket(), Key: key, ContentType: contentType }),
+    client,
+    new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: contentType }),
     { expiresIn },
   )
 }
@@ -100,9 +141,10 @@ export async function uploadBytes({
   buffer: Buffer
   contentType: string
 }): Promise<void> {
-  await r2().send(
+  const [client, bucket] = await Promise.all([r2(), r2Bucket()])
+  await client.send(
     new PutObjectCommand({
-      Bucket: r2Bucket(),
+      Bucket: bucket,
       Key: key,
       Body: buffer,
       ContentType: contentType,
@@ -128,9 +170,10 @@ export async function createSignedDownloadUrl({
   expiresIn?: number
 }): Promise<string> {
   if (provider === 'r2') {
+    const [client, bucket] = await Promise.all([r2(), r2Bucket()])
     return getSignedUrl(
-      r2(),
-      new GetObjectCommand({ Bucket: r2Bucket(), Key: key }),
+      client,
+      new GetObjectCommand({ Bucket: bucket, Key: key }),
       { expiresIn },
     )
   }
@@ -157,7 +200,8 @@ export async function getObjectBytes({
   provider: string
 }): Promise<Buffer> {
   if (provider === 'r2') {
-    const res = await r2().send(new GetObjectCommand({ Bucket: r2Bucket(), Key: key }))
+    const [client, bucket] = await Promise.all([r2(), r2Bucket()])
+    const res = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }))
     if (!res.Body) throw new Error(`R2 GetObject returned no body for key: ${key}`)
     const chunks: Uint8Array[] = []
     for await (const chunk of res.Body as AsyncIterable<Uint8Array>) {
@@ -186,7 +230,8 @@ export async function getObjectSize({
 }): Promise<number | null> {
   if (provider === 'r2') {
     try {
-      const res = await r2().send(new HeadObjectCommand({ Bucket: r2Bucket(), Key: key }))
+      const [client, bucket] = await Promise.all([r2(), r2Bucket()])
+      const res = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }))
       return res.ContentLength ?? null
     } catch {
       return null
@@ -220,7 +265,8 @@ export async function deleteObject({
   provider: string
 }): Promise<void> {
   if (provider === 'r2') {
-    await r2().send(new DeleteObjectCommand({ Bucket: r2Bucket(), Key: key }))
+    const [client, bucket] = await Promise.all([r2(), r2Bucket()])
+    await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }))
     return
   }
 
