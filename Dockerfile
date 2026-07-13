@@ -1,68 +1,79 @@
-# syntax=docker/dockerfile:1
-# ─────────────────────────────────────────────────────────────────────────────
-# Multi-stage build: deps → builder → runner
-# NEXT_PUBLIC_* vars are inlined into the client bundle at build time.
-# Server-only secrets are supplied at runtime (never baked).
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-
-# ── Stage 1: install dependencies ────────────────────────────────────────────
-FROM node:20-alpine AS deps
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
-
-
-
-# ── Stage 2: build the Next.js app ───────────────────────────────────────────
+# ===== Build Stage =====
 FROM node:20-alpine AS builder
+
+
+
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+
+
+
+COPY package*.json ./
+
+
+
+RUN npm install
+
+
+
 COPY . .
+
+
+
+# NEXT_PUBLIC_* vars must be baked in at build time (they get bundled into the
+# client JS). recording-app only ships the two public Supabase values to the
+# browser; every other secret is server-only and injected at runtime by k8s.
 ARG NEXT_PUBLIC_SUPABASE_URL
 ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
 ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
 ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
-ENV NEXT_TELEMETRY_DISABLED=1
+
+
+
 RUN npm run build
 
 
 
-# ── Stage 3: production runtime — nginx (port 80) → node (port 3000) ──────────
-FROM node:20-alpine AS runner
+
+
+# ===== Runtime Stage =====
+FROM node:20-alpine
+
+
+
 WORKDIR /app
-RUN apk add --no-cache nginx ffmpeg
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
-# Next.js standalone server reads PORT at startup (internal, behind nginx)
-ENV PORT=3000
 
 
 
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
+# ffmpeg + ffprobe are REQUIRED at runtime: the processing pipeline transcodes
+# uploaded audio (lib/audio/binaries.ts invokes bare `ffmpeg`/`ffprobe` from
+# PATH on Linux). Without this, transcoding silently fails and Speechmatics
+# rejects the raw audio. The alpine `ffmpeg` package provides both binaries.
+RUN apk add --no-cache ffmpeg
+
+
+
+# Copy standalone server + static assets from build stage
+COPY --from=builder /app/dist/standalone ./
+COPY --from=builder /app/dist/static ./dist/static
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/ai-instruction/ai-gen ./ai-instruction/ai-gen
 
 
 
-# Nginx: reverse-proxy from 80 → Node 3000
-COPY nginx.conf /etc/nginx/nginx.conf
-COPY start.sh /start.sh
-RUN chmod +x /start.sh
+# Rolling application logs are written here at runtime (see lib/logging).
+# Mirrors the elearning-service logback convention (./home/logs). The directory
+# is container-local and ephemeral; downloaded/viewed on demand via /admin/logs.
+#RUN mkdir -p /app/home/logs
+#ENV LOG_DIR=/app/home/logs
 
 
 
+# Server-only env vars (SUPABASE_SERVICE_ROLE_KEY, GEMINI_API_KEY,
+# SPEECHMATICS_API_KEY, KEY_ENCRYPTION_SECRET, R2_*) are injected at runtime by
+# Kubernetes — they are never baked into the image.
+ENV PORT=80
 EXPOSE 80
 
 
 
-# start-period covers the Node startup wait in start.sh (~3s typical)
-HEALTHCHECK --interval=30s --timeout=5s --start-period=35s --retries=3 \
-    CMD wget -qO- http://localhost:80/ > /dev/null || exit 1
-
-
-
-CMD ["/start.sh"]
+CMD ["node", "server.js"]
  
