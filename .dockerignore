@@ -3,6 +3,7 @@ node_modules
 
 # Build output — produced inside the image
 .next
+dist
 out
 
 # Secrets — must NEVER be baked into the image

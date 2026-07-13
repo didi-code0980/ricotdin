@@ -1,7 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Produces .next/standalone — a self-contained server.js + trimmed node_modules
+  // Build output directory. The Dockerfile copies from dist/standalone and
+  // dist/static, so Next must build into dist/ (not the default .next/).
+  distDir: "dist",
+
+  // Produces dist/standalone — a self-contained server.js + trimmed node_modules
   // required by the Dockerfile. Has no effect on `next dev` or local `next start`.
   output: "standalone",
 
