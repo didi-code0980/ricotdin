@@ -192,6 +192,10 @@ Supabase dashboard:
    - `migrations/029_admin_config_health.sql` — adds `health_status` / `health_checked_at` / `health_detail`
      to `admin_config`. Powers the key health check on `/admin/keys` (see §9i). No env/config prerequisites.
 
+9. **Apply audio-render flag migration:**
+   - `migrations/031_audio_render_hack_flag.sql` — seeds the `user_hack_audio_render` row in `app_config`
+     (default `false`). Toggle it at `/admin/config`. See §9j.
+
 ## 9i. API key health check design
 
 **Goal:** Detect dead/revoked provider keys (the `key #N rejected with 401 — permanently disabled` case)
@@ -219,6 +223,38 @@ before they break a user request. Surfaced on `/admin/keys`.
 - **UI:** `/admin/keys` shows a Health badge + hover detail per key, a "Run health check now" button,
   and the latest run time (`= max(health_checked_at)`). Env-var fallback keys are not rows, so they
   are not health-checked.
+
+## 9j. Audio seek / `user_hack_audio_render` flag
+
+**Problem:** browser recordings come from `MediaRecorder` as **live-mode WebM/Opus**
+(`lib/audio/support.ts`) and are uploaded byte-for-byte to R2 (`lib/upload/upload.ts`).
+A live-mode WebM has an *unknown* Duration in its Segment Info header and **no Cues**
+(seek index). So in `<audio>`: `duration === Infinity`, no total length is displayed,
+there is no time→byte map for a Range seek, and the scrub bar only covers already-buffered
+bytes. The `43m 46s` shown in the meeting header comes from `meetings.duration_seconds`
+(client-measured at record time), **not** from the audio file. Uploaded mp3/m4a files are
+unaffected — they seek normally.
+
+**Mitigation (this flag, NOT a cure):** `app_config.user_hack_audio_render` (migration 031,
+default `false`). When on, the player seeks once to `HACK_SEEK_TARGET` (`1e101`) after
+`loadedmetadata`; the media engine scans to end-of-stream, fires `durationchange` with a real
+duration, and exposes a full seekable range. The playhead is then restored.
+**Cost: the entire file is downloaded up front.** Leave it off unless users complain about
+seeking; the durable fix is remuxing on upload into a container with Duration + Cues
+(ffmpeg is already a dependency — see `lib/audio/transcode.ts`). Remux is not built.
+
+- Pure logic: `lib/audio/durationFix.ts` — `needsDurationFix`, `isRecoveredDuration`,
+  `shouldRunDurationFix`, `resolveDuration`, `HACK_SEEK_TARGET`. Tested in
+  `tests/audio-duration-fix.test.ts`.
+- Client hook: `lib/audio/useAudioDurationFix.ts` — arms once per source; no-op when the file
+  is already seekable, so turning the flag on is safe for mp3/m4a meetings.
+- Flag delivery: `app_config` is admin-SELECT under RLS, so the browser can never read it.
+  `GET /api/audio-url/:id` resolves it server-side (service role) and returns
+  `{ url, hackAudioRender }` — no extra round-trip.
+- Server reader: `lib/config/appConfig.ts` — `getAppConfigBool(key, fallback)`, 30s TTL cache,
+  `invalidateAppConfigCache()` called from `PATCH /api/admin/config/:key` for immediate effect.
+  A failed lookup returns the caller's fallback; a malformed value never flips a flag on
+  (`coerceConfigBool` in `lib/admin/config.ts`).
 
 ## 9b. Auth/roles — Phase 7 design
 

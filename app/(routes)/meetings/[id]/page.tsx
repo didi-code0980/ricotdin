@@ -9,6 +9,7 @@ import rehypeSanitize from 'rehype-sanitize'
 import { browserClient } from '@/lib/supabase/browser'
 import { getAccessToken } from '@/lib/supabase/auth'
 import { getMeetingRole, canEdit } from '@/lib/access/roles'
+import { useAudioDurationFix } from '@/lib/audio/useAudioDurationFix'
 import { formatModelLabel } from '@/lib/ai/modelLabel'
 import {
   buildTranscript,
@@ -94,6 +95,7 @@ export default function MeetingDetailPage() {
   const [dismissedIds, setDismissedIds]         = useState<Set<string>>(new Set())
   const [dismissedTodoIds, setDismissedTodoIds] = useState<Set<string>>(new Set())
   const [audioUrl, setAudioUrl]                 = useState<string | null>(null)
+  const [hackAudioRender, setHackAudioRender]   = useState(false)
   const [highlightedSegIndex, setHighlightedSegIndex] = useState<number | null>(null)
   const [rerunning, setRerunning]               = useState(false)
   const [regenLoading, setRegenLoading]         = useState(false)
@@ -109,6 +111,11 @@ export default function MeetingDetailPage() {
 
   const audioRef = useRef<HTMLAudioElement>(null)
   const audioPath = data.tag === 'done' ? data.meeting.audio_path : null
+
+  // Browser recordings are unseekable live-mode WebM. When the admin flag
+  // `user_hack_audio_render` is on, force a full-stream scan so the scrub bar
+  // covers the whole recording. No-op for already-seekable files (mp3/m4a).
+  const { scanning: audioScanning } = useAudioDurationFix(audioRef, hackAudioRender, audioUrl)
 
   // ── Data loading with polling ───────────────────────────────────────────────
 
@@ -194,8 +201,10 @@ export default function MeetingDetailPage() {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (!res.ok || cancelled) return
-        const body = (await res.json()) as { url?: string }
-        if (!cancelled && body.url) setAudioUrl(body.url)
+        const body = (await res.json()) as { url?: string; hackAudioRender?: boolean }
+        if (cancelled) return
+        setHackAudioRender(body.hackAudioRender === true)
+        if (body.url) setAudioUrl(body.url)
       } catch { /* non-fatal */ }
     }
     void fetchUrl()
@@ -440,6 +449,7 @@ export default function MeetingDetailPage() {
             dismissedTodoIds={dismissedTodoIds}
             audioUrl={audioUrl}
             audioRef={audioRef}
+            audioScanning={audioScanning}
             highlightedSegIndex={highlightedSegIndex}
             onToggleTodo={toggleTodo}
             onDismissTodo={dismissTodo}
@@ -675,6 +685,8 @@ interface DoneViewProps {
   dismissedTodoIds: Set<string>
   audioUrl: string | null
   audioRef: RefObject<HTMLAudioElement | null>
+  /** True while the render hack is scanning the stream to make it seekable. */
+  audioScanning: boolean
   highlightedSegIndex: number | null
   onToggleTodo: (id: string, current: TodoStatus) => void
   onDismissTodo: (id: string) => void
@@ -694,7 +706,7 @@ interface DoneViewProps {
 function DoneView({
   meeting, segments, todos, calSugs,
   todoStatuses, dismissedIds, dismissedTodoIds,
-  audioUrl, audioRef, highlightedSegIndex,
+  audioUrl, audioRef, audioScanning, highlightedSegIndex,
   onToggleTodo, onDismissTodo, onDismissCalSug, onDownloadIcs, onSeekTo, onScrollToSegment, onCitationClick,
   regenLoading, regenError, onRegenerate,
   folders, onMoveFolder, currentUserId,
@@ -854,8 +866,14 @@ function DoneView({
       {meeting.audio_path && (
         <SectionCard label="Recording">
           {audioUrl ? (
-            /* eslint-disable-next-line jsx-a11y/media-has-caption */
-            <audio ref={audioRef} controls src={audioUrl} className="w-full rounded-xl" />
+            <>
+              <audio ref={audioRef} controls preload="metadata" src={audioUrl} className="w-full rounded-xl" />
+              {audioScanning && (
+                <p className="mt-2 text-xs text-b-fg/40 font-sans animate-pulse">
+                  Preparing the timeline so you can jump to any moment…
+                </p>
+              )}
+            </>
           ) : (
             <div className="h-11 rounded-xl bg-b-clay flex items-center justify-center text-sm text-b-fg/40 font-sans animate-pulse">
               Loading audio player…
