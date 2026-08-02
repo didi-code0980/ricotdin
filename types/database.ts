@@ -211,7 +211,13 @@ export type AdminConfigRow = {
   disabled_reason: string | null
   last_used_at: string | null
   created_by: string | null
+  health_status: HealthCheckStatus | null    // 029: last health-check verdict
+  health_checked_at: string | null           // 029: when the verdict was recorded
+  health_detail: string | null               // 029: human-readable verdict detail
 }
+
+// Per-key health-check verdict (migration 029). See lib/keys/healthcheck.ts.
+export type HealthCheckStatus = 'healthy' | 'unhealthy' | 'unknown'
 
 // Safe display shape — never contains ciphertext or plaintext value.
 export type MaskedAdminConfig = {
@@ -223,6 +229,9 @@ export type MaskedAdminConfig = {
   status: ConfigEntryStatus
   disabled_reason: string | null
   last_used_at: string | null
+  health_status: HealthCheckStatus | null
+  health_checked_at: string | null
+  health_detail: string | null
 }
 
 // ---------------------------------------------------------------------------

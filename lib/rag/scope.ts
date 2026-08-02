@@ -30,3 +30,26 @@ export function validateChatScope(
   }
   return null
 }
+
+/** The three ways a chat request resolves after retrieval. */
+export type ChatOutcome = 'answer' | 'no_context' | 'retrieval_error'
+
+/**
+ * Decide how to respond after the retrieval step.
+ *
+ * IMPORTANT: a technical retrieval failure (embedding/RPC threw) must NOT be
+ * reported as "no relevant information" — that masks a real outage as an empty
+ * result. `retrievalFailed` therefore takes precedence over the chunk count.
+ *
+ * - retrievalFailed        → 'retrieval_error' (surface a clear message, refund)
+ * - no failure, 0 chunks   → 'no_context'      (genuinely nothing relevant)
+ * - no failure, >0 chunks  → 'answer'          (synthesize from context)
+ */
+export function classifyChatOutcome(
+  retrievalFailed: boolean,
+  chunkCount: number,
+): ChatOutcome {
+  if (retrievalFailed) return 'retrieval_error'
+  if (chunkCount === 0) return 'no_context'
+  return 'answer'
+}

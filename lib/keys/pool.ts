@@ -23,10 +23,16 @@ export class AllKeysExhaustedError extends Error {
   readonly keyCount: number
   readonly attempts: number
 
-  constructor(poolName: string, keyCount: number, attempts: number) {
+  constructor(poolName: string, keyCount: number, attempts: number, cause?: unknown) {
+    const causeMsg =
+      cause instanceof Error ? cause.message : cause != null ? String(cause) : ''
     super(
       `All ${keyCount} ${poolName} key(s) exhausted after ${attempts} attempt(s). ` +
-        `Check key validity and quota.`,
+        `Check key validity and quota.` +
+        (causeMsg ? ` Last provider error: ${causeMsg}` : ''),
+      // Preserve the underlying provider error so describeError() upstream can
+      // surface exactly what Gemini/OpenAI returned (429 quota, invalid key, …).
+      cause != null ? { cause } : undefined,
     )
     this.name = 'AllKeysExhaustedError'
     this.keyCount = keyCount
@@ -191,14 +197,14 @@ export class KeyPool<C> {
       if (!keyState) {
         const nextMs = this.soonestCooldownMs()
         if (nextMs === null) {
-          throw new AllKeysExhaustedError(this.poolName, this.keys.length, attempt)
+          throw new AllKeysExhaustedError(this.poolName, this.keys.length, attempt, lastErr)
         }
         const waitMs = Math.max(0, nextMs - Date.now()) + 50
         if (waitMs > this.cfg.maxCooldownWaitMs) {
           logger.warn(
             `[${this.poolName} pool] all keys on cooldown for ${Math.round(waitMs / 1_000)}s; exceeds maxCooldownWaitMs — failing fast`,
           )
-          throw new AllKeysExhaustedError(this.poolName, this.keys.length, attempt)
+          throw new AllKeysExhaustedError(this.poolName, this.keys.length, attempt, lastErr)
         }
         logger.warn(
           `[${this.poolName} pool] all keys on cooldown; waiting ${Math.round(waitMs / 1_000)}s for next available key`,
@@ -224,7 +230,9 @@ export class KeyPool<C> {
           throw err // surface immediately — our bug or non-recoverable
         }
 
-        const snippet = (err instanceof Error ? err.message : String(err)).slice(0, 120)
+        // Full provider message (not truncated) so the exact cause — e.g. the
+        // Gemini 429 quota text or an invalid-key reason — is visible in logs.
+        const rawMsg = err instanceof Error ? err.message : String(err)
 
         if (errClass === 'rate-limit') {
           const cooldownMs = parseRetryAfterMs(err) ?? this.cfg.defaultCooldownMs
@@ -232,12 +240,13 @@ export class KeyPool<C> {
           keyState.consecutiveFailures++
           logger.warn(
             `[${this.poolName} pool] key #${keyState.index} rate-limited; cooldown ${Math.round(cooldownMs / 1_000)}s — rotating`,
-            { count: attempt + 1 },
+            { count: attempt + 1, detail: rawMsg },
           )
         } else if (errClass === 'invalid-key') {
           keyState.disabled = true
           logger.warn(
             `[${this.poolName} pool] key #${keyState.index} rejected with 401 — permanently disabled; rotating`,
+            { detail: rawMsg },
           )
         } else if (errClass === 'forbidden') {
           const cooldownMs = 15 * 60 * 1_000
@@ -245,14 +254,14 @@ export class KeyPool<C> {
           keyState.consecutiveFailures++
           logger.warn(
             `[${this.poolName} pool] key #${keyState.index} got 403/PERMISSION_DENIED; applying 15-min cooldown`,
-            { count: attempt + 1 },
+            { count: attempt + 1, detail: rawMsg },
           )
         } else {
           // transient or unknown — try next key without a cooldown
           keyState.consecutiveFailures++
           logger.warn(
             `[${this.poolName} pool] key #${keyState.index} transient error`,
-            { count: attempt + 1, detail: snippet },
+            { count: attempt + 1, detail: rawMsg },
           )
         }
 
@@ -263,6 +272,6 @@ export class KeyPool<C> {
       }
     }
 
-    throw new AllKeysExhaustedError(this.poolName, this.keys.length, maxAttempts)
+    throw new AllKeysExhaustedError(this.poolName, this.keys.length, maxAttempts, lastErr)
   }
 }

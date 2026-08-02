@@ -25,15 +25,23 @@ import { answerWithContext } from '@/lib/gemini/answer'
 import { checkMeetingAccess, checkFolderAccess } from '@/lib/access'
 import { logActivity } from '@/lib/activity/logActivity'
 import { applyQuotaMovement } from '@/lib/quota/applyQuotaMovement'
-import { deriveMeetingIds, validateChatScope } from '@/lib/rag/scope'
+import { deriveMeetingIds, validateChatScope, classifyChatOutcome } from '@/lib/rag/scope'
 import { getGenerationConfig } from '@/lib/ai/config'
-import { logger } from '@/lib/logger'
+import { logger, describeError } from '@/lib/logger'
 import type { HistoryMessage } from '@/lib/gemini/answer'
 import type { Database } from '@/types/database'
 
 const NO_CONTEXT_REPLY =
   "I couldn't find relevant information in the meeting transcript to answer that question. " +
   'Try rephrasing, or check that the meeting has finished processing.'
+
+// Shown when retrieval itself fails (embedding provider / vector-search error).
+// Deliberately distinct from NO_CONTEXT_REPLY so a real outage is never mistaken
+// for "the transcript has nothing relevant".
+const RETRIEVAL_ERROR_REPLY =
+  "Sorry — I couldn't search this meeting right now due to a temporary problem with the " +
+  'search service. This is not a problem with the meeting content. Please try again in a moment; ' +
+  'if it persists, an administrator can check the AI provider keys and logs.'
 
 const EMPTY_FOLDER_REPLY =
   'This folder has no meetings with transcripts yet. ' +
@@ -347,19 +355,56 @@ export async function POST(req: NextRequest) {
   // of shared meetings/folders can use RAG automatically.
   const userClient = createUserClient(jwt)
   const usageCtx = { meetingId, userId }
-  let chunks: Awaited<ReturnType<typeof retrieveContext>>
+  let chunks: Awaited<ReturnType<typeof retrieveContext>> = []
+  let retrievalFailed = false
   try {
     chunks = await retrieveContext({ query: message, userClient, meetingIds, userId })
   } catch (err) {
-    logger.error('[chat] retrieval error', { detail: String(err) })
-    chunks = []
+    // A thrown error here means the search itself broke (embedding provider key,
+    // vector-search RPC, etc.) — NOT that the transcript has nothing relevant.
+    // Flag it so we surface an honest message instead of NO_CONTEXT_REPLY.
+    // describeError unwraps Gemini/Postgres errors that String(err) would turn
+    // into a useless "[object Object]".
+    retrievalFailed = true
+    logger.error('[chat] retrieval error', {
+      meetingId: meetingId ?? undefined,
+      userId,
+      detail: describeError(err),
+    })
+  }
+  logger.info('[chat] retrieval produced chunks', {
+    meetingId: meetingId ?? undefined,
+    count: chunks.length,
+    retrievalFailed,
+  })
+
+  // Refund the 1 agent query charged upfront — the user got no real answer.
+  async function refundQuery(reason: string): Promise<void> {
+    await applyQuotaMovement({
+      userId,
+      deltaAudioSeconds:  0,
+      deltaAgentQueries: +1,
+      reason:   'refund',
+      dedupKey: `agent:${userMsgId}:refund`,
+      allowOverdraw: false,
+      meetingId,
+      metadata: { reason, session_id: resolvedSessionId },
+    }).catch((e: unknown) =>
+      logger.error('[chat] quota refund failed (non-fatal)', { detail: String(e) }),
+    )
   }
 
   // ── Generate answer ────────────────────────────────────────────────────────
   let answer: string
   let citations: Awaited<ReturnType<typeof answerWithContext>>['citations'] = []
 
-  if (chunks.length === 0) {
+  const outcome = classifyChatOutcome(retrievalFailed, chunks.length)
+
+  if (outcome === 'retrieval_error') {
+    // Technical failure before any answer could be attempted — refund + be honest.
+    await refundQuery('retrieval_failed')
+    answer = RETRIEVAL_ERROR_REPLY
+  } else if (outcome === 'no_context') {
     answer = NO_CONTEXT_REPLY
   } else {
     try {
@@ -372,20 +417,8 @@ export async function POST(req: NextRequest) {
       answer    = result.answer
       citations = result.citations
     } catch (err) {
-      // Technical failure — refund the 1 agent query so the user isn't charged.
-      await applyQuotaMovement({
-        userId,
-        deltaAudioSeconds:  0,
-        deltaAgentQueries: +1,
-        reason:   'refund',
-        dedupKey: `agent:${userMsgId}:refund`,
-        allowOverdraw: false,
-        meetingId,
-        metadata: { reason: 'answer_generation_failed', session_id: resolvedSessionId },
-      }).catch((e: unknown) =>
-        logger.error('[chat] quota refund failed (non-fatal)', { detail: String(e) }),
-      )
-
+      // Technical failure during synthesis — refund the 1 agent query.
+      await refundQuery('answer_generation_failed')
       logger.error('[chat] answer generation error', { detail: String(err) })
       answer = 'I encountered an error while generating an answer. Please try again.'
     }
