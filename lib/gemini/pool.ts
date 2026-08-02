@@ -48,12 +48,17 @@ import { getActiveKeysWithMeta } from '@/lib/keys/provider'
 // ---------------------------------------------------------------------------
 
 export class AllGeminiKeysExhaustedError extends PipelineError {
-  constructor(keyCount: number, attempts: number) {
+  constructor(keyCount: number, attempts: number, cause?: unknown) {
+    const causeMsg =
+      cause instanceof Error ? cause.message : cause != null ? String(cause) : ''
     super(
       `All ${keyCount} Gemini key(s) exhausted after ${attempts} attempt(s). ` +
-        `Check key validity and quota. The meeting will be marked failed and can be re-run.`,
+        `Check key validity and quota. The meeting will be marked failed and can be re-run.` +
+        (causeMsg ? ` Last Gemini error: ${causeMsg}` : ''),
     )
     this.name = 'AllGeminiKeysExhaustedError'
+    // Preserve the raw Gemini error for describeError() upstream.
+    if (cause != null) (this as { cause?: unknown }).cause = cause
   }
 }
 
@@ -110,7 +115,11 @@ class GeminiKeyPool {
       return await this.pool.call(fn)
     } catch (err) {
       if (err instanceof AllKeysExhaustedError) {
-        throw new AllGeminiKeysExhaustedError(err.keyCount, err.attempts)
+        throw new AllGeminiKeysExhaustedError(
+          err.keyCount,
+          err.attempts,
+          (err as { cause?: unknown }).cause,
+        )
       }
       throw err
     }

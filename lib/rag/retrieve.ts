@@ -9,6 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import { embedChunks } from '@/lib/gemini/embed'
 import { EMBEDDING_DIMENSION } from '@/lib/gemini/client'
+import { logger, describeError } from '@/lib/logger'
 
 export const MATCH_COUNT = 8
 // Chunks below this cosine similarity are dropped as off-topic noise.
@@ -45,12 +46,26 @@ export async function retrieveContext({
   // For usage attribution, pass meetingId only when scoped to exactly one meeting.
   const singleMeetingId = meetingIds?.length === 1 ? meetingIds[0] : undefined
 
-  const embeddings = await embedChunks([query], {
-    operation: 'embed-query',
-    meetingId: singleMeetingId,
-    userId,
-  })
-  const queryEmbedding = embeddings[0]
+  // ── Step 1: embed the query (Gemini) ───────────────────────────────────────
+  let queryEmbedding: number[]
+  try {
+    const embeddings = await embedChunks([query], {
+      operation: 'embed-query',
+      meetingId: singleMeetingId,
+      userId,
+    })
+    queryEmbedding = embeddings[0]
+  } catch (err) {
+    // Surface the EXACT Gemini error (unwrapped) — otherwise it stringifies to
+    // "[object Object]" and the real cause (429, key, quota, model) is lost.
+    logger.error('[rag] query embed failed', {
+      step: 'embed-query',
+      meetingId: singleMeetingId,
+      userId: userId ?? undefined,
+      detail: describeError(err),
+    })
+    throw err
+  }
 
   if (queryEmbedding.length !== EMBEDDING_DIMENSION) {
     throw new Error(
@@ -58,13 +73,37 @@ export async function retrieveContext({
     )
   }
 
+  // ── Step 2: vector search (Postgres RPC, RLS-scoped) ───────────────────────
   const { data, error } = await userClient.rpc('match_transcript_chunks', {
     query_embedding: queryEmbedding,
     match_count: MATCH_COUNT,
     filter_meeting_ids: meetingIds ?? null,
   })
 
-  if (error) throw new Error(`Retrieval RPC failed: ${error.message}`)
+  if (error) {
+    logger.error('[rag] match_transcript_chunks RPC failed', {
+      step: 'rpc',
+      meetingId: singleMeetingId,
+      detail: describeError(error),
+    })
+    throw new Error(`Retrieval RPC failed: ${error.message}`)
+  }
 
-  return (data ?? []).filter((c) => c.similarity >= SIMILARITY_FLOOR)
+  // ── Step 3: apply similarity floor ─────────────────────────────────────────
+  const rows = data ?? []
+  const kept = rows.filter((c) => c.similarity >= SIMILARITY_FLOOR)
+
+  // Diagnostic: distinguish "RPC returned nothing" (no chunks / wrong scope)
+  // from "everything cut by the floor" (retrieval quality / floor too high).
+  logger.info('[rag] retrieval result', {
+    step: 'retrieve',
+    meetingId: singleMeetingId,
+    scope: meetingIds === null ? 'global' : `${meetingIds.length} meeting(s)`,
+    rpcRows: rows.length,
+    kept: kept.length,
+    floor: SIMILARITY_FLOOR,
+    topSimilarities: rows.slice(0, 5).map((c) => Number(c.similarity.toFixed(3))),
+  })
+
+  return kept
 }

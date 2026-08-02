@@ -16,7 +16,14 @@
       "Bash(ls \"/c/Users/ttnminh/AppData/Local/Microsoft/WinGet/Packages/\"Gyan.FFmpeg*/ffmpeg*/bin/*.exe)",
       "Bash(ls \"/c/Users/ttnminh/AppData/Local/Microsoft/WindowsApps/\"ff*.exe)",
       "Bash(echo \"tsc: $?\")",
-      "Bash(npm test *)"
+      "Bash(npm test *)",
+      "Bash(node --import tsx --test tests/key-healthcheck.test.ts)",
+      "Bash(npx eslint *)",
+      "Bash(node --import tsx --test tests/transcript-export.test.ts)",
+      "Bash(npx tsx *)",
+      "Bash(node --import tsx --test tests/rag-folder.test.ts)",
+      "WebFetch(domain:docs.x.ai)",
+      "WebSearch"
     ]
   }
 }

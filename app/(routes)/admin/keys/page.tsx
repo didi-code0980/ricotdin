@@ -6,6 +6,7 @@ import { getCurrentRole, getAccessToken } from '@/lib/supabase/auth'
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type EntryStatus = 'active' | 'disabled'
+type HealthStatus = 'healthy' | 'unhealthy' | 'unknown'
 
 type ConfigEntry = {
   id: string
@@ -16,7 +17,12 @@ type ConfigEntry = {
   status: EntryStatus
   disabled_reason: string | null
   last_used_at: string | null
+  health_status: HealthStatus | null
+  health_checked_at: string | null
+  health_detail: string | null
 }
+
+type HealthSummary = { total: number; healthy: number; unhealthy: number; unknown: number }
 
 // Known config keys and their display names
 const CONFIG_KEYS = [
@@ -42,6 +48,23 @@ function fmtDate(iso: string | null): string {
   })
 }
 
+const HEALTH_STYLE: Record<HealthStatus, { bg: string; fg: string; label: string }> = {
+  healthy:   { bg: '#dcfce7', fg: '#16a34a', label: 'Healthy' },
+  unhealthy: { bg: '#fee2e2', fg: '#dc2626', label: 'Unhealthy' },
+  unknown:   { bg: '#fef9c3', fg: '#a16207', label: 'Unknown' },
+}
+
+// Most recent health_checked_at across all entries, or null if never checked.
+function latestCheckedAt(entries: ConfigEntry[]): string | null {
+  let latest: string | null = null
+  for (const e of entries) {
+    if (e.health_checked_at && (!latest || e.health_checked_at > latest)) {
+      latest = e.health_checked_at
+    }
+  }
+  return latest
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function KeysPage() {
@@ -53,6 +76,10 @@ export default function KeysPage() {
   const [busyId, setBusyId]           = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete]   = useState<ConfigEntry | null>(null)
   const [confirmDisable, setConfirmDisable] = useState<ConfigEntry | null>(null)
+
+  // Health check
+  const [healthBusy, setHealthBusy]       = useState(false)
+  const [healthSummary, setHealthSummary] = useState<HealthSummary | null>(null)
 
   // Add-key form
   const [formConfigKey, setFormConfigKey] = useState<ConfigKeyValue>('gemini_api_key')
@@ -69,9 +96,17 @@ export default function KeysPage() {
       headers: { Authorization: `Bearer ${token}` },
       signal,
     })
-    if (!res.ok || signal.aborted) return
-    const data = await res.json() as { keys: ConfigEntry[] }
+    if (signal.aborted) return
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({})) as { error?: string }
+      setError(data.error ?? `Failed to load keys (HTTP ${res.status}).`)
+      return
+    }
+    const data = await res.json() as { keys: ConfigEntry[]; healthColumnsMissing?: boolean }
     setEntries(data.keys)
+    if (data.healthColumnsMissing) {
+      setError('Health-check columns are missing — apply migration 029_admin_config_health.sql to enable key health checks.')
+    }
   }, [])
 
   const refresh = useCallback(async () => {
@@ -186,6 +221,35 @@ export default function KeysPage() {
     }
   }
 
+  // ── Health check ─────────────────────────────────────────────────────────────
+
+  async function handleHealthCheck() {
+    setHealthBusy(true)
+    setError(null)
+    setSuccess(null)
+    setHealthSummary(null)
+    try {
+      const token = await getAccessToken()
+      if (!token) { setError('Not authenticated.'); return }
+      const res = await fetch('/api/admin/keys/healthcheck', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error ?? 'Health check failed.'); return }
+      if (Array.isArray(data.keys)) setEntries(data.keys as ConfigEntry[])
+      setHealthSummary(data.summary as HealthSummary)
+      setSuccess(
+        `Health check complete — ${data.summary.healthy} healthy, ` +
+        `${data.summary.unhealthy} unhealthy, ${data.summary.unknown} unknown.`,
+      )
+    } catch {
+      setError('Network error running health check.')
+    } finally {
+      setHealthBusy(false)
+    }
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   if (loading) return <div style={{ padding: 32, color: '#888' }}>Loading…</div>
@@ -218,6 +282,29 @@ export default function KeysPage() {
         </div>
       )}
 
+      {/* Health check bar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '14px 18px', marginBottom: 28 }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>Key health</div>
+          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+            Last checked: {fmtDate(latestCheckedAt(entries))}
+            <span style={{ marginLeft: 8, color: '#94a3b8' }}>· runs automatically once a day</span>
+          </div>
+          {healthSummary && (
+            <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
+              {healthSummary.healthy} healthy · {healthSummary.unhealthy} unhealthy · {healthSummary.unknown} unknown
+            </div>
+          )}
+        </div>
+        <button
+          onClick={handleHealthCheck}
+          disabled={healthBusy}
+          style={{ fontSize: 13, fontWeight: 600, padding: '8px 18px', borderRadius: 6, border: 'none', cursor: healthBusy ? 'default' : 'pointer', background: healthBusy ? '#93c5fd' : '#2563eb', color: '#fff', whiteSpace: 'nowrap' }}
+        >
+          {healthBusy ? 'Checking…' : 'Run health check now'}
+        </button>
+      </div>
+
       {/* Per-config-key tables */}
       {groupedEntries.map(({ configKey, display, entries: group }) => (
         <section key={configKey} style={{ marginBottom: 36 }}>
@@ -239,7 +326,7 @@ export default function KeysPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginTop: 8 }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid #e5e7eb' }}>
-                  {['Label', 'Key', 'Status', 'Last used', 'Actions'].map(h => (
+                  {['Label', 'Key', 'Status', 'Health', 'Last used', 'Actions'].map(h => (
                     <th key={h} style={{ textAlign: 'left', padding: '6px 10px', color: '#6b7280', fontWeight: 500, fontSize: 12 }}>{h}</th>
                   ))}
                 </tr>
@@ -257,6 +344,18 @@ export default function KeysPage() {
                       </span>
                       {e.disabled_reason && (
                         <span style={{ marginLeft: 6, fontSize: 11, color: '#9ca3af' }}>({e.disabled_reason})</span>
+                      )}
+                    </td>
+                    <td style={{ padding: '10px 10px' }}>
+                      {e.health_status ? (
+                        <span
+                          title={`${e.health_detail ?? ''}${e.health_checked_at ? `\nChecked: ${fmtDate(e.health_checked_at)}` : ''}`}
+                          style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99, background: HEALTH_STYLE[e.health_status].bg, color: HEALTH_STYLE[e.health_status].fg, cursor: 'help' }}
+                        >
+                          {HEALTH_STYLE[e.health_status].label}
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 11, color: '#9ca3af' }}>Not checked</span>
                       )}
                     </td>
                     <td style={{ padding: '10px 10px', color: '#6b7280' }}>{fmtDate(e.last_used_at)}</td>

@@ -188,6 +188,38 @@ Supabase dashboard:
      After applying, configure R2 at `/admin/storage`. R2 is DB-configured only — there is no `R2_*` env-var fallback.
      Requires `KEY_ENCRYPTION_SECRET` (same secret used for API keys) to encrypt/decrypt the secret access key.
 
+8. **Apply API key health-check migration:**
+   - `migrations/029_admin_config_health.sql` — adds `health_status` / `health_checked_at` / `health_detail`
+     to `admin_config`. Powers the key health check on `/admin/keys` (see §9i). No env/config prerequisites.
+
+## 9i. API key health check design
+
+**Goal:** Detect dead/revoked provider keys (the `key #N rejected with 401 — permanently disabled` case)
+before they break a user request. Surfaced on `/admin/keys`.
+
+- **Probe:** a cheap authenticated request per provider using the decrypted key.
+  Gemini/OpenAI `GET /models`, Speechmatics `GET /v2/jobs?limit=1` (free — list resources).
+  Gemini carries the key as a query param; the others use `Authorization: Bearer`.
+  **Grok (xAI) is special:** xAI keys use per-endpoint ACLs and by default lack the
+  `api-key:endpoint:models` ACL, so `GET /v1/models` returns a misleading 403 for keys that
+  work fine for chat. Grok is therefore probed with a minimal `POST /v1/chat/completions`
+  (`max_tokens: 1`, model `grok-3-mini`) — the endpoint the app actually uses — so the verdict
+  reflects real usability. Costs ~1 output token per check. `ProbeConfig` supports `method`/`body`.
+- **Verdict** (`lib/keys/healthcheck.ts`, pure + tested in `tests/key-healthcheck.test.ts`):
+  2xx/429 → `healthy` (429 = valid but rate-limited); 401/403 → `unhealthy`; 5xx/other/network → `unknown`.
+  A decrypt failure (KEY_ENCRYPTION_SECRET mismatch) is recorded as `unhealthy`.
+- **Runner** (`lib/keys/healthcheck-runner.ts`, server-only): loads all `admin_config` key rows
+  (active + disabled), decrypts in-memory, probes, writes `health_status/detail/health_checked_at`.
+  Plaintext/ciphertext are never logged or returned.
+- **Automation:** `lib/keys/healthScheduler.ts` — in-process daily scheduler started from
+  `instrumentation.ts` (single `next start` process, no external cron). Runs on startup only if the
+  last recorded run is stale (>24h), then every 24h. Timer is `unref()`ed.
+- **Manual trigger:** `POST /api/admin/keys/healthcheck` (admin; audit-logged `admin_config.healthcheck`).
+  `GET` returns the last run timestamp. `GET /api/admin/keys` now returns the health columns.
+- **UI:** `/admin/keys` shows a Health badge + hover detail per key, a "Run health check now" button,
+  and the latest run time (`= max(health_checked_at)`). Env-var fallback keys are not rows, so they
+  are not health-checked.
+
 ## 9b. Auth/roles — Phase 7 design
 
 **Role storage (NEVER in user_metadata):**

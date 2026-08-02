@@ -10,6 +10,12 @@ import { browserClient } from '@/lib/supabase/browser'
 import { getAccessToken } from '@/lib/supabase/auth'
 import { getMeetingRole, canEdit } from '@/lib/access/roles'
 import { formatModelLabel } from '@/lib/ai/modelLabel'
+import {
+  buildTranscript,
+  transcriptFilename,
+  transcriptMime,
+  type TranscriptFormat,
+} from '@/lib/transcript/export'
 import ChatPanel from '@/components/ChatPanel'
 import type {
   Meeting,
@@ -1012,7 +1018,10 @@ function DoneView({
       )}
 
       {/* Transcript */}
-      <SectionCard label={`Transcript${segments.length > 0 ? ` · ${segments.length} segments` : ''}`}>
+      <SectionCard
+        label={`Transcript${segments.length > 0 ? ` · ${segments.length} segments` : ''}`}
+        action={segments.length > 0 ? <TranscriptExportButton meeting={meeting} segments={segments} /> : undefined}
+      >
         {segments.length === 0 ? (
           <p className="text-sm text-b-fg/40 font-sans italic">No transcript is available for this meeting.</p>
         ) : (
@@ -1107,11 +1116,91 @@ function TranscriptView({
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
-function SectionCard({ label, children }: { label: string; children: React.ReactNode }) {
+function SectionCard({ label, action, children }: { label: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="card-botanical">
-      <div className="section-label">{label}</div>
+      <div className="flex items-center justify-between gap-3">
+        <div className="section-label">{label}</div>
+        {action && <div className="flex-shrink-0">{action}</div>}
+      </div>
       {children}
+    </div>
+  )
+}
+
+// ── Transcript export ───────────────────────────────────────────────────────
+
+const EXPORT_FORMATS: { value: TranscriptFormat; label: string }[] = [
+  { value: 'txt', label: 'Plain text (.txt)' },
+  { value: 'md', label: 'Markdown (.md)' },
+  { value: 'srt', label: 'Subtitles (.srt)' },
+]
+
+function TranscriptExportButton({
+  meeting, segments,
+}: {
+  meeting: Meeting
+  segments: TranscriptSegment[]
+}) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onClick(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [open])
+
+  function download(format: TranscriptFormat) {
+    setOpen(false)
+    const text = buildTranscript(
+      { title: meeting.title, created_at: meeting.created_at },
+      segments,
+      format,
+    )
+    const blob = new Blob([text], { type: transcriptMime(format) })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = transcriptFilename(meeting.title, format)
+    document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border border-b-border text-b-fg/60 bg-transparent cursor-pointer hover:text-b-primary hover:border-b-primary transition-colors font-sans"
+        title="Export transcript"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-3.5 h-3.5">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+        </svg>
+        Export
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 mt-1.5 z-20 w-48 rounded-2xl border border-b-border bg-white shadow-lg overflow-hidden py-1"
+        >
+          {EXPORT_FORMATS.map((f) => (
+            <button
+              key={f.value}
+              role="menuitem"
+              onClick={() => download(f.value)}
+              className="w-full text-left px-4 py-2 text-sm font-sans text-b-fg/80 hover:bg-b-clay transition-colors cursor-pointer bg-transparent border-0"
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

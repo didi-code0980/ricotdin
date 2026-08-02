@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { deriveMeetingIds, validateChatScope } from '../lib/rag/scope'
+import { deriveMeetingIds, validateChatScope, classifyChatOutcome } from '../lib/rag/scope'
 
 describe('deriveMeetingIds', () => {
   it('single meeting → one-element array', () => {
@@ -44,6 +44,28 @@ describe('validateChatScope', () => {
   it('both set → returns error string', () => {
     const err = validateChatScope('m1', 'f1')
     assert.ok(typeof err === 'string' && err.length > 0)
+  })
+})
+
+describe('classifyChatOutcome', () => {
+  it('retrieval threw → retrieval_error (regardless of chunk count)', () => {
+    assert.strictEqual(classifyChatOutcome(true, 0), 'retrieval_error')
+    assert.strictEqual(classifyChatOutcome(true, 5), 'retrieval_error')
+  })
+
+  it('retrieval OK but zero chunks → no_context', () => {
+    assert.strictEqual(classifyChatOutcome(false, 0), 'no_context')
+  })
+
+  it('retrieval OK with chunks → answer', () => {
+    assert.strictEqual(classifyChatOutcome(false, 1), 'answer')
+    assert.strictEqual(classifyChatOutcome(false, 8), 'answer')
+  })
+
+  it('a technical failure is NEVER reported as no_context (the masking bug)', () => {
+    // Even though chunkCount is 0 after a failure, the outcome must be the
+    // technical-error branch, not the "no relevant information" branch.
+    assert.notStrictEqual(classifyChatOutcome(true, 0), 'no_context')
   })
 })
 

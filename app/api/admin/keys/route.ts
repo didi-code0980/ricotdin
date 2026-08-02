@@ -29,7 +29,12 @@ const CONFIG_KEY_TO_PROVIDER: Record<string, string> = {
 }
 
 // Columns safe to return — never include value_ciphertext, value_iv, value_auth_tag.
-const SAFE_SELECT =
+// Keep each as a single string literal so supabase-js can infer the row type.
+// FULL_SELECT includes the migration-029 health columns; BASE_SELECT is the
+// pre-029 fallback used when those columns don't exist yet (migration not applied).
+const FULL_SELECT =
+  'id, created_at, updated_at, config_key, label, last4, status, disabled_reason, last_used_at, health_status, health_checked_at, health_detail'
+const BASE_SELECT =
   'id, created_at, updated_at, config_key, label, last4, status, disabled_reason, last_used_at'
 
 export async function GET(req: NextRequest) {
@@ -40,14 +45,29 @@ export async function GET(req: NextRequest) {
   const db = createServerClient()
   const { data, error } = await db
     .from('admin_config')
-    .select(SAFE_SELECT)
+    .select(FULL_SELECT)
     .in('config_key', ALLOWED_CONFIG_KEYS)
     .order('config_key', { ascending: true })
     .order('created_at', { ascending: true })
 
   if (error) {
-    logger.error('[admin/keys] list failed', { detail: error.message })
-    return NextResponse.json({ error: 'Failed to list keys.' }, { status: 500 })
+    // Most likely the health columns don't exist yet (migration 029 not applied).
+    // Fall back to the base columns so the keys page keeps working regardless.
+    logger.error('[admin/keys] list with health columns failed — retrying without them', {
+      detail: error.message,
+    })
+    const { data: baseData, error: baseError } = await db
+      .from('admin_config')
+      .select(BASE_SELECT)
+      .in('config_key', ALLOWED_CONFIG_KEYS)
+      .order('config_key', { ascending: true })
+      .order('created_at', { ascending: true })
+
+    if (baseError) {
+      logger.error('[admin/keys] list failed', { detail: baseError.message })
+      return NextResponse.json({ error: 'Failed to list keys.' }, { status: 500 })
+    }
+    return NextResponse.json({ keys: baseData ?? [], healthColumnsMissing: true })
   }
 
   return NextResponse.json({ keys: data ?? [] })
@@ -110,7 +130,7 @@ export async function POST(req: NextRequest) {
       status:           'active',
       created_by:       caller.id,
     })
-    .select(SAFE_SELECT)
+    .select(BASE_SELECT)
     .single()
 
   if (insertErr || !row) {
