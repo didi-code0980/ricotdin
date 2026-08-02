@@ -29,9 +29,9 @@ import { getR2Config } from './config'
 const SUPABASE_BUCKET = 'recordings'
 
 // ---------------------------------------------------------------------------
-// R2 client — resolved from storage_config (DB) with env fallback.
+// R2 client — resolved from storage_config (DB) only.
 //
-// Credentials now come from getR2Config() (admin-managed, 30s TTL cache). The
+// Credentials come from getR2Config() (admin-managed, 30s TTL cache). The
 // S3Client is memoised per account+key so we don't rebuild it on every call, and
 // automatically rebuilt when the resolved credentials change (config edit).
 // ---------------------------------------------------------------------------
@@ -43,10 +43,7 @@ let _r2Fingerprint = ''
 async function r2(): Promise<S3Client> {
   const cfg = await getR2Config()
   if (!cfg) {
-    throw new Error(
-      'R2 storage is not configured. Add a storage config at /admin/storage, ' +
-        'or set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and R2_BUCKET (server-only).',
-    )
+    throw new Error('R2 storage is not configured. Add a storage config at /admin/storage.')
   }
   // Rebuild the client only when the resolved credentials actually change.
   const fingerprint = `${cfg.accountId}:${cfg.accessKeyId}`
@@ -65,10 +62,7 @@ async function r2(): Promise<S3Client> {
 async function r2Bucket(): Promise<string> {
   const cfg = await getR2Config()
   if (!cfg) {
-    throw new Error(
-      'R2 storage is not configured. Add a storage config at /admin/storage, ' +
-        'or set the R2_* env vars (server-only).',
-    )
+    throw new Error('R2 storage is not configured. Add a storage config at /admin/storage.')
   }
   return cfg.bucket
 }

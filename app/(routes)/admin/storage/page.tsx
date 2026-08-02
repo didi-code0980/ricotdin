@@ -144,8 +144,8 @@ export default function StoragePage() {
       <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Object Storage</h1>
       <p style={{ fontSize: 13, color: '#666', marginBottom: 24 }}>
         Cloudflare R2 credentials for audio storage. The secret access key is stored
-        encrypted (AES-256-GCM) and cannot be viewed after saving. When no active
-        config exists, the app falls back to the <code>R2_*</code> environment variables.
+        encrypted (AES-256-GCM) and cannot be viewed after saving. An active config is
+        required — audio storage does not work until one is added here.
       </p>
 
       {error && <Banner kind="error" onClose={() => setError(null)}>{error}</Banner>}
@@ -154,7 +154,7 @@ export default function StoragePage() {
       {/* Existing configs */}
       <section style={{ marginBottom: 32 }}>
         {configs.length === 0 ? (
-          <p style={{ fontSize: 13, color: '#999' }}>No DB config — using <code>R2_*</code> env fallback.</p>
+          <p style={{ fontSize: 13, color: '#999' }}>No storage config yet — add one below to enable audio storage.</p>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
@@ -229,7 +229,7 @@ export default function StoragePage() {
             <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>Delete storage config?</h3>
             <p style={{ fontSize: 13, color: '#555', marginBottom: 18 }}>
               &ldquo;{confirmDelete.label}&rdquo; will be permanently removed. If it was the active
-              config, the app falls back to the <code>R2_*</code> env vars (or storage stops working if none are set).
+              config, audio storage stops working until another active config is added.
             </p>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
               <button onClick={() => setConfirmDelete(null)} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer' }}>Cancel</button>

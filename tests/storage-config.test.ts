@@ -3,7 +3,7 @@
 
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { maskStorageRow, r2ConfigFromEnv, STORAGE_SAFE_SELECT } from '../lib/storage/config.js'
+import { maskStorageRow, STORAGE_SAFE_SELECT } from '../lib/storage/config.js'
 
 describe('maskStorageRow', () => {
   const raw = {
@@ -41,35 +41,5 @@ describe('maskStorageRow', () => {
     assert.ok(!STORAGE_SAFE_SELECT.includes('auth_tag'))
     assert.ok(STORAGE_SAFE_SELECT.includes('secret_last4'))
     assert.ok(STORAGE_SAFE_SELECT.includes('bucket'))
-  })
-})
-
-describe('r2ConfigFromEnv', () => {
-  const full = {
-    R2_ACCOUNT_ID: 'acct', R2_ACCESS_KEY_ID: 'akid',
-    R2_SECRET_ACCESS_KEY: 'secret', R2_BUCKET: 'bkt',
-  } as unknown as NodeJS.ProcessEnv
-
-  it('returns a config with source=env when all vars present', () => {
-    const cfg = r2ConfigFromEnv(full)
-    assert.ok(cfg)
-    assert.equal(cfg!.accountId, 'acct')
-    assert.equal(cfg!.accessKeyId, 'akid')
-    assert.equal(cfg!.secretAccessKey, 'secret')
-    assert.equal(cfg!.bucket, 'bkt')
-    assert.equal(cfg!.source, 'env')
-  })
-
-  it('returns null when any required var is missing', () => {
-    for (const drop of ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET']) {
-      const env = { ...full } as Record<string, string>
-      delete env[drop]
-      assert.equal(r2ConfigFromEnv(env as NodeJS.ProcessEnv), null, `missing ${drop} → null`)
-    }
-  })
-
-  it('trims whitespace and treats blank as missing', () => {
-    const env = { ...full, R2_BUCKET: '   ' } as unknown as NodeJS.ProcessEnv
-    assert.equal(r2ConfigFromEnv(env), null)
   })
 })

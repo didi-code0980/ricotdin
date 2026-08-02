@@ -185,7 +185,7 @@ Supabase dashboard:
 7. **Apply AIP-06 + storage-config migrations:**
    - `migrations/027_model_control.sql` — `app_settings` table (model allow-list + system default) + `profiles.default_provider/model`.
    - `migrations/028_storage_config.sql` — `storage_config` table (admin-managed R2 credentials; secret AES-256-GCM encrypted).
-     After applying, configure R2 at `/admin/storage`; `R2_*` env vars remain a fallback when no active DB config exists.
+     After applying, configure R2 at `/admin/storage`. R2 is DB-configured only — there is no `R2_*` env-var fallback.
      Requires `KEY_ENCRYPTION_SECRET` (same secret used for API keys) to encrypt/decrypt the secret access key.
 
 ## 9b. Auth/roles — Phase 7 design

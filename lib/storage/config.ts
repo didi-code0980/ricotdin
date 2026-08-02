@@ -1,7 +1,8 @@
 // SERVER ONLY — resolves R2 object-storage credentials from the DB (storage_config),
-// with a 30s in-memory cache and env-var fallback. Never expose secrets to the client.
+// with a 30s in-memory cache. Never expose secrets to the client.
 //
-// Precedence: newest active storage_config row (provider='r2') → R2_* env vars.
+// Source of truth: the newest active storage_config row (provider='r2'), managed
+// from /admin/storage. There is no env-var fallback — R2 is DB-configured only.
 // Mirrors the API-key resolution pattern in lib/keys/provider.ts.
 
 import { createServerClient } from '@/lib/supabase/server'
@@ -17,8 +18,8 @@ export interface R2Config {
   accessKeyId: string
   secretAccessKey: string
   bucket: string
-  /** Where the config came from — for diagnostics only. */
-  source: 'db' | 'env'
+  /** Where the config came from — for diagnostics only. Always 'db'. */
+  source: 'db'
 }
 
 /** Raw storage_config row shape (server-side only — includes ciphertext). */
@@ -88,18 +89,8 @@ export function maskStorageRow(
   }
 }
 
-/** Read R2 credentials from the environment, or null if incompletely configured. */
-export function r2ConfigFromEnv(env: NodeJS.ProcessEnv = process.env): R2Config | null {
-  const accountId = env.R2_ACCOUNT_ID?.trim()
-  const accessKeyId = env.R2_ACCESS_KEY_ID?.trim()
-  const secretAccessKey = env.R2_SECRET_ACCESS_KEY?.trim()
-  const bucket = env.R2_BUCKET?.trim()
-  if (!accountId || !accessKeyId || !secretAccessKey || !bucket) return null
-  return { accountId, accessKeyId, secretAccessKey, bucket, source: 'env' }
-}
-
 // ---------------------------------------------------------------------------
-// Cached resolver (DB → env fallback)
+// Cached resolver (DB only)
 // ---------------------------------------------------------------------------
 
 const CACHE_TTL_MS = 30_000
@@ -111,9 +102,9 @@ export function invalidateStorageConfigCache(): void {
 }
 
 /**
- * Resolve the active R2 configuration.
- * Newest active storage_config row wins; falls back to R2_* env vars; null if
- * neither is configured (callers surface a clear "storage not configured" error).
+ * Resolve the active R2 configuration from the newest active storage_config row.
+ * Returns null if none is configured (callers surface a clear "storage not
+ * configured" error). There is no env-var fallback.
  */
 export async function getR2Config(): Promise<R2Config | null> {
   const now = Date.now()
@@ -148,11 +139,10 @@ export async function getR2Config(): Promise<R2Config | null> {
       }
     }
   } catch {
-    // DB unreachable or decrypt failed — fall through to env so the app keeps working.
+    // DB unreachable or decrypt failed — leave unresolved; callers surface a
+    // clear "storage not configured" error.
     resolved = null
   }
-
-  if (!resolved) resolved = r2ConfigFromEnv()
 
   _cache = { config: resolved, expiresAt: now + CACHE_TTL_MS }
   return resolved
