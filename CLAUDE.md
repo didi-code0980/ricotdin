@@ -144,20 +144,38 @@ npm run test       # run tests (not yet configured)
 
 ## 9k. Release process
 
-- Branches: day-to-day work on `dev` (every push → Docker image `ricotdin:dev` via
-  `release-dev.yml`); `main` holds released code (PRs into `main` run `ci.yml`).
-- Versioning: SemVer. `package.json` `version` MUST equal the git tag without the `v`.
-- Steps for a release `X.Y.Z`:
-  1. On `dev`: `npm run lint && npm run typecheck && npm run test && npm run build`.
-  2. `npm version X.Y.Z --no-git-tag-version`; add a `## [X.Y.Z]` section to `CHANGELOG.md`
-     (features + deploy checklist: new migrations, new env vars, dashboard steps + known issues).
-  3. Commit `chore(release): vX.Y.Z`, open PR `dev` → `main`, merge after CI is green.
-  4. On `main`: `git tag -a vX.Y.Z -m "Release vX.Y.Z"` and `git push origin vX.Y.Z`.
-     `release.yml` re-runs lint/typecheck/test, checks tag == package.json version, then
-     pushes Docker images `ricotdin:X.Y.Z` + `ricotdin:latest`.
-  5. Create the GitHub Release from the `CHANGELOG.md` section.
-- Production deploys the pinned `ricotdin:X.Y.Z` tag (never `dev`/`latest`); roll back by
-  redeploying the previous tag. Apply new migrations BEFORE starting the new image.
+**Branches:**
+- `dev` — day-to-day work; every push → Docker image `ricotdin:dev` (`release-dev.yml`).
+- `main` — stable integration branch; only receives PRs from `dev` (and hotfix merge-backs).
+- `release/X.Y` — one branch per minor version line, cut from `main`. Receives **bugfixes
+  only**, never new features. All `vX.Y.Z` tags live here (`v1.0.0`, `v1.0.1`… on `release/1.0`).
+- `ci.yml` runs on push/PR to `main` and `release/**`.
+
+**Versioning:** SemVer. `package.json` `version` MUST equal the tag without the `v`.
+`release.yml` rejects a tag that does not match `package.json` or whose commit is not on
+`release/X.Y` (the branch matching the tag's major.minor).
+
+**New minor/major release `X.Y.0`:**
+1. On `dev`: `npm run lint && npm run typecheck && npm run test && npm run build`.
+2. `npm version X.Y.0 --no-git-tag-version`; add a `## [X.Y.0]` section to `CHANGELOG.md`
+   (features + deploy checklist: new migrations, new env vars, dashboard steps + known issues).
+3. Commit `chore(release): vX.Y.0`, PR `dev` → `main`, merge (merge commit, not squash) after CI is green.
+4. Cut the branch: `git checkout main && git pull && git checkout -b release/X.Y && git push -u origin release/X.Y`.
+5. Tag on it: `git tag -a vX.Y.0 -m "Release vX.Y.0" && git push origin vX.Y.0`
+   → `release.yml` pushes Docker images `ricotdin:X.Y.0` + `ricotdin:latest`.
+6. Create the GitHub Release from the `CHANGELOG.md` section.
+
+**Hotfix `X.Y.(Z+1)` for an existing line:**
+1. Branch from `release/X.Y` (e.g. `hotfix/<topic>`), fix + test, bump version, add CHANGELOG entry.
+2. PR into `release/X.Y`; after merge, tag `vX.Y.(Z+1)` on `release/X.Y` and push the tag.
+3. Merge `release/X.Y` back into `main` and `dev` so the fix is not lost in the next release.
+   `ricotdin:latest` only moves when the pushed tag is the highest version, so a hotfix on
+   an old line never drags `latest` backwards.
+
+**Deploy (manual):** production runs a pinned image `ricotdin:X.Y.Z` — choose the version by
+choosing the tag (available versions = `git tag -l 'v*'` / Docker Hub tags / GitHub Releases).
+Never deploy `dev` or `latest`. Apply that release's new migrations BEFORE starting the new
+image. Rollback = redeploy the previous tag (only safe if no destructive migration ran in between).
 
 ## 9a. Manual Supabase dashboard actions required
 
