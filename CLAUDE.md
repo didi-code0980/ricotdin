@@ -142,6 +142,23 @@ npm run check      # connectivity check: Gemini + Supabase (reads .env.local)
 npm run test       # run tests (not yet configured)
 ```
 
+## 9k. Release process
+
+- Branches: day-to-day work on `dev` (every push → Docker image `ricotdin:dev` via
+  `release-dev.yml`); `main` holds released code (PRs into `main` run `ci.yml`).
+- Versioning: SemVer. `package.json` `version` MUST equal the git tag without the `v`.
+- Steps for a release `X.Y.Z`:
+  1. On `dev`: `npm run lint && npm run typecheck && npm run test && npm run build`.
+  2. `npm version X.Y.Z --no-git-tag-version`; add a `## [X.Y.Z]` section to `CHANGELOG.md`
+     (features + deploy checklist: new migrations, new env vars, dashboard steps + known issues).
+  3. Commit `chore(release): vX.Y.Z`, open PR `dev` → `main`, merge after CI is green.
+  4. On `main`: `git tag -a vX.Y.Z -m "Release vX.Y.Z"` and `git push origin vX.Y.Z`.
+     `release.yml` re-runs lint/typecheck/test, checks tag == package.json version, then
+     pushes Docker images `ricotdin:X.Y.Z` + `ricotdin:latest`.
+  5. Create the GitHub Release from the `CHANGELOG.md` section.
+- Production deploys the pinned `ricotdin:X.Y.Z` tag (never `dev`/`latest`); roll back by
+  redeploying the previous tag. Apply new migrations BEFORE starting the new image.
+
 ## 9a. Manual Supabase dashboard actions required
 
 Before Phase 2 features work end-to-end, you must do the following once in the
@@ -649,6 +666,6 @@ Kept as a static reference for human reading. NOT read at runtime. No runtime co
 
 14. ~~**Feature registry (Phase 15)**~~ **DONE** (Phase 15 complete — `migrations/017_features.sql` features table (UNIQUE key, module_prefix/name, title, user_story, description, content markdown, status/priority/note_tags/depends_on/blocks/key_files arrays, metadata jsonb, updated_by, change_note; admin SELECT RLS; auto-bump trigger); `lib/features/parser.ts` pure parsing functions (parseStatus, parseFeatureSection, parseModuleFile, parseTrackingMd, mergeWithTracking — no I/O, fully tested); `scripts/seed-features.ts` reads ai-instruction/features/*.md + tracking.md ONE TIME and UPSERTs 65 features by key (idempotent); `lib/features/index.ts` DB-access service (listFeatures, getFeature, updateFeature — service-role, no filesystem access); `GET/PATCH /api/admin/features` + `GET/PATCH /api/admin/features/:id` admin-enforced, PATCH writes audit log (action: feature.update); `/admin/features` split-pane UI: grouped filterable list + inline edit panel with all fields + markdown content textarea; "Features" (Layers icon) added to admin sidebar; 33 unit tests in `tests/features.test.ts`. Apply migration 017, then run `npx tsx scripts/seed-features.ts` once. See section 9h for design. After seeding, ai-instruction/features/ is a static reference only — DB is the source of truth.)
 
-**Pending — Area 3 (Audit Log UI) remains.**
+**v1.0.0 released** (2026-09-19) — see `CHANGELOG.md`. Audit Log UI (Area 3 / ADM-07) is live at `/admin/audit`.
 
 Keep this section in sync with actual progress; mark phases done as we go.
