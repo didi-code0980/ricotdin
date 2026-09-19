@@ -21,6 +21,8 @@ const SAFE_SELECT =
 const CONFIG_KEY_TO_PROVIDER: Record<string, string> = {
   gemini_api_key:       'gemini',
   speechmatics_api_key: 'speechmatics',
+  openai_api_key:       'openai',
+  grok_api_key:         'grok',
 }
 
 export async function PATCH(

@@ -78,6 +78,8 @@ export type Profile = {
   display_name?: string | null
   avatar_key?: string | null
   theme_preference?: 'luxury' | 'default' | 'playful' | null
+  default_provider?: string | null // AIP-06 (PRF-08)
+  default_model?: string | null     // AIP-06 (PRF-08)
 }
 
 // Use `type` aliases (not `interface`) for Row shapes so that when supabase-js v2
@@ -100,6 +102,8 @@ export type Meeting = {
   started_at: string | null
   pinned_at: string | null
   folder_id: string | null
+  generation_provider: string | null
+  generation_model: string | null
   created_at: string
   updated_at: string
 }
@@ -156,6 +160,7 @@ export type ChatSession = {
   id: string
   user_id: string
   meeting_id: string | null
+  folder_id: string | null   // set for folder-scoped sessions (RAG-04)
   title: string | null
   created_at: string
   updated_at: string
@@ -206,7 +211,13 @@ export type AdminConfigRow = {
   disabled_reason: string | null
   last_used_at: string | null
   created_by: string | null
+  health_status: HealthCheckStatus | null    // 029: last health-check verdict
+  health_checked_at: string | null           // 029: when the verdict was recorded
+  health_detail: string | null               // 029: human-readable verdict detail
 }
+
+// Per-key health-check verdict (migration 029). See lib/keys/healthcheck.ts.
+export type HealthCheckStatus = 'healthy' | 'unhealthy' | 'unknown'
 
 // Safe display shape — never contains ciphertext or plaintext value.
 export type MaskedAdminConfig = {
@@ -218,6 +229,9 @@ export type MaskedAdminConfig = {
   status: ConfigEntryStatus
   disabled_reason: string | null
   last_used_at: string | null
+  health_status: HealthCheckStatus | null
+  health_checked_at: string | null
+  health_detail: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -289,6 +303,8 @@ export interface Database {
           started_at?: string | null
           pinned_at?: string | null
           folder_id?: string | null
+          generation_provider?: string | null
+          generation_model?: string | null
           created_at?: string
           updated_at?: string
         }

@@ -26,5 +26,8 @@ export function maskAdminConfig(row: AdminConfigRow): MaskedAdminConfig {
     status:          row.status,
     disabled_reason: row.disabled_reason,
     last_used_at:    row.last_used_at,
+    health_status:     row.health_status,
+    health_checked_at: row.health_checked_at,
+    health_detail:     row.health_detail,
   }
 }

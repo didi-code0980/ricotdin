@@ -13,6 +13,8 @@ const KEY_CACHE_TTL_MS = 30_000
 const PROVIDER_CONFIG_KEY: Record<string, string> = {
   gemini:       'gemini_api_key',
   speechmatics: 'speechmatics_api_key',
+  openai:       'openai_api_key',
+  grok:         'grok_api_key',
 }
 
 function toConfigKey(provider: string): string {
@@ -41,6 +43,14 @@ function envKeys(provider: string): KeyWithMeta[] {
   }
   if (provider === 'speechmatics') {
     const k = process.env.SPEECHMATICS_API_KEY?.trim()
+    return k ? [{ id: null, key: k }] : []
+  }
+  if (provider === 'openai') {
+    const k = process.env.OPENAI_API_KEY?.trim()
+    return k ? [{ id: null, key: k }] : []
+  }
+  if (provider === 'grok') {
+    const k = process.env.GROK_API_KEY?.trim() || process.env.XAI_API_KEY?.trim()
     return k ? [{ id: null, key: k }] : []
   }
   return []

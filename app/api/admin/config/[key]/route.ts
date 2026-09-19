@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { requireAdmin } from '@/lib/auth/server'
 import { isValidConfigValue } from '@/lib/admin/config'
+import { invalidateAppConfigCache } from '@/lib/config/appConfig'
 import { writeAuditLog, requestContext } from '@/lib/admin/audit'
 import { logger } from '@/lib/logger'
 
@@ -69,6 +70,9 @@ export async function PATCH(
     logger.error('[admin/config/:key] update failed', { detail: updateErr.message })
     return NextResponse.json({ error: 'Failed to update config.' }, { status: 500 })
   }
+
+  // Drop the cached value so the new setting applies on the next read, not in 30s.
+  invalidateAppConfigCache(key)
 
   const { ipAddress, userAgent } = requestContext(req)
   void writeAuditLog({

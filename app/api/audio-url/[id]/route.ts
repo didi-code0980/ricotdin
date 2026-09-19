@@ -1,6 +1,8 @@
 // GET /api/audio-url/[id]   ([id] = meetingId)
 //
-// Returns a short-lived signed URL for streaming the meeting's audio recording.
+// Returns a short-lived signed URL for streaming the meeting's audio recording,
+// plus the `user_hack_audio_render` flag the player needs to decide whether to
+// force a seekable duration (see lib/audio/durationFix.ts).
 // Access: viewer+ (meeting owner, folder owner, or shared member with any role).
 // The recordings bucket is private — this route is the ONLY authorised way the
 // browser gets a playback URL. Never expose permanent URLs.
@@ -10,10 +12,14 @@ import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@/lib/supabase/server'
 import { createSignedDownloadUrl } from '@/lib/storage'
 import { checkMeetingAccess } from '@/lib/access'
+import { getAppConfigBool } from '@/lib/config/appConfig'
 import { logger } from '@/lib/logger'
 import type { Database } from '@/types/database'
 
 const SIGNED_URL_EXPIRY_SECS = 3_600 // 1 hour
+
+/** app_config key: force a full-stream scan so unseekable WebM becomes seekable. */
+const AUDIO_RENDER_HACK_KEY = 'user_hack_audio_render'
 
 async function requireUser(req: NextRequest): Promise<string> {
   const token = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim()
@@ -73,5 +79,9 @@ export async function GET(
     return NextResponse.json({ error: 'Failed to create signed URL.' }, { status: 500 })
   }
 
-  return NextResponse.json({ url: signedUrl })
+  // app_config is admin-read under RLS, so the flag is resolved here (service role)
+  // and handed to the player rather than fetched by the browser.
+  const hackAudioRender = await getAppConfigBool(AUDIO_RENDER_HACK_KEY, false)
+
+  return NextResponse.json({ url: signedUrl, hackAudioRender })
 }

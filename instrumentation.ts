@@ -36,5 +36,9 @@ export async function register() {
     // 3. Start the durable job worker after TLS + monitoring are ready.
     const { startWorker } = await import('./lib/jobs/startup')
     startWorker()
+
+    // 4. Start the daily API key health-check scheduler.
+    const { startHealthCheckScheduler } = await import('./lib/keys/healthScheduler')
+    startHealthCheckScheduler()
   }
 }

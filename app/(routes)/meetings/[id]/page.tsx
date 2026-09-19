@@ -9,6 +9,14 @@ import rehypeSanitize from 'rehype-sanitize'
 import { browserClient } from '@/lib/supabase/browser'
 import { getAccessToken } from '@/lib/supabase/auth'
 import { getMeetingRole, canEdit } from '@/lib/access/roles'
+import { useAudioDurationFix } from '@/lib/audio/useAudioDurationFix'
+import { formatModelLabel } from '@/lib/ai/modelLabel'
+import {
+  buildTranscript,
+  transcriptFilename,
+  transcriptMime,
+  type TranscriptFormat,
+} from '@/lib/transcript/export'
 import ChatPanel from '@/components/ChatPanel'
 import type {
   Meeting,
@@ -87,6 +95,7 @@ export default function MeetingDetailPage() {
   const [dismissedIds, setDismissedIds]         = useState<Set<string>>(new Set())
   const [dismissedTodoIds, setDismissedTodoIds] = useState<Set<string>>(new Set())
   const [audioUrl, setAudioUrl]                 = useState<string | null>(null)
+  const [hackAudioRender, setHackAudioRender]   = useState(false)
   const [highlightedSegIndex, setHighlightedSegIndex] = useState<number | null>(null)
   const [rerunning, setRerunning]               = useState(false)
   const [regenLoading, setRegenLoading]         = useState(false)
@@ -102,6 +111,11 @@ export default function MeetingDetailPage() {
 
   const audioRef = useRef<HTMLAudioElement>(null)
   const audioPath = data.tag === 'done' ? data.meeting.audio_path : null
+
+  // Browser recordings are unseekable live-mode WebM. When the admin flag
+  // `user_hack_audio_render` is on, force a full-stream scan so the scrub bar
+  // covers the whole recording. No-op for already-seekable files (mp3/m4a).
+  const { scanning: audioScanning } = useAudioDurationFix(audioRef, hackAudioRender, audioUrl)
 
   // ── Data loading with polling ───────────────────────────────────────────────
 
@@ -187,8 +201,10 @@ export default function MeetingDetailPage() {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (!res.ok || cancelled) return
-        const body = (await res.json()) as { url?: string }
-        if (!cancelled && body.url) setAudioUrl(body.url)
+        const body = (await res.json()) as { url?: string; hackAudioRender?: boolean }
+        if (cancelled) return
+        setHackAudioRender(body.hackAudioRender === true)
+        if (body.url) setAudioUrl(body.url)
       } catch { /* non-fatal */ }
     }
     void fetchUrl()
@@ -433,6 +449,7 @@ export default function MeetingDetailPage() {
             dismissedTodoIds={dismissedTodoIds}
             audioUrl={audioUrl}
             audioRef={audioRef}
+            audioScanning={audioScanning}
             highlightedSegIndex={highlightedSegIndex}
             onToggleTodo={toggleTodo}
             onDismissTodo={dismissTodo}
@@ -668,6 +685,8 @@ interface DoneViewProps {
   dismissedTodoIds: Set<string>
   audioUrl: string | null
   audioRef: RefObject<HTMLAudioElement | null>
+  /** True while the render hack is scanning the stream to make it seekable. */
+  audioScanning: boolean
   highlightedSegIndex: number | null
   onToggleTodo: (id: string, current: TodoStatus) => void
   onDismissTodo: (id: string) => void
@@ -687,7 +706,7 @@ interface DoneViewProps {
 function DoneView({
   meeting, segments, todos, calSugs,
   todoStatuses, dismissedIds, dismissedTodoIds,
-  audioUrl, audioRef, highlightedSegIndex,
+  audioUrl, audioRef, audioScanning, highlightedSegIndex,
   onToggleTodo, onDismissTodo, onDismissCalSug, onDownloadIcs, onSeekTo, onScrollToSegment, onCitationClick,
   regenLoading, regenError, onRegenerate,
   folders, onMoveFolder, currentUserId,
@@ -788,6 +807,9 @@ function DoneView({
           {meeting.duration_seconds != null && <><span>·</span><span>{formatDuration(meeting.duration_seconds)}</span></>}
           {meeting.language && <><span>·</span><span>{meeting.language.toUpperCase()}</span></>}
           <span>·</span><StatusBadge status={meeting.status} />
+          {meeting.generation_provider && meeting.generation_model && (
+            <ModelBadge provider={meeting.generation_provider} model={meeting.generation_model} />
+          )}
         </div>
 
         {/* Folder row */}
@@ -844,8 +866,14 @@ function DoneView({
       {meeting.audio_path && (
         <SectionCard label="Recording">
           {audioUrl ? (
-            /* eslint-disable-next-line jsx-a11y/media-has-caption */
-            <audio ref={audioRef} controls src={audioUrl} className="w-full rounded-xl" />
+            <>
+              <audio ref={audioRef} controls preload="metadata" src={audioUrl} className="w-full rounded-xl" />
+              {audioScanning && (
+                <p className="mt-2 text-xs text-b-fg/40 font-sans animate-pulse">
+                  Preparing the timeline so you can jump to any moment…
+                </p>
+              )}
+            </>
           ) : (
             <div className="h-11 rounded-xl bg-b-clay flex items-center justify-center text-sm text-b-fg/40 font-sans animate-pulse">
               Loading audio player…
@@ -1008,7 +1036,10 @@ function DoneView({
       )}
 
       {/* Transcript */}
-      <SectionCard label={`Transcript${segments.length > 0 ? ` · ${segments.length} segments` : ''}`}>
+      <SectionCard
+        label={`Transcript${segments.length > 0 ? ` · ${segments.length} segments` : ''}`}
+        action={segments.length > 0 ? <TranscriptExportButton meeting={meeting} segments={segments} /> : undefined}
+      >
         {segments.length === 0 ? (
           <p className="text-sm text-b-fg/40 font-sans italic">No transcript is available for this meeting.</p>
         ) : (
@@ -1103,11 +1134,91 @@ function TranscriptView({
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
-function SectionCard({ label, children }: { label: string; children: React.ReactNode }) {
+function SectionCard({ label, action, children }: { label: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="card-botanical">
-      <div className="section-label">{label}</div>
+      <div className="flex items-center justify-between gap-3">
+        <div className="section-label">{label}</div>
+        {action && <div className="flex-shrink-0">{action}</div>}
+      </div>
       {children}
+    </div>
+  )
+}
+
+// ── Transcript export ───────────────────────────────────────────────────────
+
+const EXPORT_FORMATS: { value: TranscriptFormat; label: string }[] = [
+  { value: 'txt', label: 'Plain text (.txt)' },
+  { value: 'md', label: 'Markdown (.md)' },
+  { value: 'srt', label: 'Subtitles (.srt)' },
+]
+
+function TranscriptExportButton({
+  meeting, segments,
+}: {
+  meeting: Meeting
+  segments: TranscriptSegment[]
+}) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onClick(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [open])
+
+  function download(format: TranscriptFormat) {
+    setOpen(false)
+    const text = buildTranscript(
+      { title: meeting.title, created_at: meeting.created_at },
+      segments,
+      format,
+    )
+    const blob = new Blob([text], { type: transcriptMime(format) })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = transcriptFilename(meeting.title, format)
+    document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border border-b-border text-b-fg/60 bg-transparent cursor-pointer hover:text-b-primary hover:border-b-primary transition-colors font-sans"
+        title="Export transcript"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-3.5 h-3.5">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+        </svg>
+        Export
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 mt-1.5 z-20 w-48 rounded-2xl border border-b-border bg-white shadow-lg overflow-hidden py-1"
+        >
+          {EXPORT_FORMATS.map((f) => (
+            <button
+              key={f.value}
+              role="menuitem"
+              onClick={() => download(f.value)}
+              className="w-full text-left px-4 py-2 text-sm font-sans text-b-fg/80 hover:bg-b-clay transition-colors cursor-pointer bg-transparent border-0"
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -1120,6 +1231,9 @@ function MeetingHeaderBase({ meeting }: { meeting: Meeting }) {
         <span>{formatDate(meeting.created_at)}</span>
         {meeting.duration_seconds != null && <><span>·</span><span>{formatDuration(meeting.duration_seconds)}</span></>}
         <span>·</span><StatusBadge status={meeting.status} />
+        {meeting.generation_provider && meeting.generation_model && (
+          <ModelBadge provider={meeting.generation_provider} model={meeting.generation_model} />
+        )}
       </div>
     </div>
   )
@@ -1133,4 +1247,18 @@ function StatusBadge({ status }: { status: MeetingStatus }) {
     failed:     'badge-failed',
   }
   return <span className={cls[status]}>{status}</span>
+}
+
+/** Badge showing which AI model generated the meeting note. Renders nothing if unset. */
+function ModelBadge({ provider, model }: { provider: string | null; model: string | null }) {
+  if (!provider || !model) return null
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full border border-b-border px-2 py-0.5 text-xs font-medium text-b-fg/60"
+      title={`Generated with ${provider}:${model}`}
+    >
+      <span aria-hidden="true">✨</span>
+      {formatModelLabel(provider, model)}
+    </span>
+  )
 }

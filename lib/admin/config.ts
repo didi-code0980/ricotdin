@@ -27,3 +27,27 @@ export function parseConfigInput(
     case 'null':    return null
   }
 }
+
+/**
+ * Read an `app_config` jsonb value as a boolean.
+ *
+ * The value column is jsonb, so a flag can arrive as a real boolean, as the
+ * string form the config editor produces, or as 1/0. Anything unrecognised
+ * (including a missing row) yields `fallback` — a malformed flag must never
+ * silently flip a feature on.
+ */
+export function coerceConfigBool(value: unknown, fallback: boolean): boolean {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') {
+    if (value === 1) return true
+    if (value === 0) return false
+    return fallback
+  }
+  if (typeof value === 'string') {
+    const v = value.trim().toLowerCase()
+    if (v === 'true')  return true
+    if (v === 'false') return false
+    return fallback
+  }
+  return fallback
+}

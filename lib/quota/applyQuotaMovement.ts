@@ -4,6 +4,7 @@
 // do not duplicate balance logic in application code.
 
 import { createServerClient } from '@/lib/supabase/server'
+import { errorToMessage } from '@/lib/logger'
 
 export type QuotaMovementStatus = 'applied' | 'already_applied' | 'insufficient'
 
@@ -62,13 +63,20 @@ export async function applyQuotaMovement(
 ): Promise<QuotaMovementResult> {
   const supabase = createServerClient()
 
+  // The DB columns are bigint/int. A fractional delta (e.g. from Speechmatics'
+  // fractional end_time) makes Postgres reject the value with 22P02. Coerce to
+  // whole units here as a defensive backstop so no caller can trigger that —
+  // callers should still pass integers with the correct rounding intent.
+  const deltaAudio = Math.round(params.deltaAudioSeconds)
+  const deltaAgent = Math.round(params.deltaAgentQueries)
+
   const { data, error } = await supabase.rpc('quota_apply_movement', {
     p_user_id: params.userId,
     // PostgREST serialises numbers as JSON numbers, which Postgres accepts for
     // bigint when the value is within Number.MAX_SAFE_INTEGER (~9 quadrillion
     // seconds). Audio second values are always well within this range.
-    p_delta_audio_seconds: params.deltaAudioSeconds,
-    p_delta_agent_queries: params.deltaAgentQueries,
+    p_delta_audio_seconds: deltaAudio,
+    p_delta_agent_queries: deltaAgent,
     p_reason: params.reason,
     p_dedup_key: params.dedupKey ?? null,
     p_allow_overdraw: params.allowOverdraw ?? false,
@@ -77,7 +85,9 @@ export async function applyQuotaMovement(
     p_metadata: params.metadata ?? {},
   })
 
-  if (error) throw error
+  // Wrap the raw Supabase PostgrestError (a plain object) in a real Error so it
+  // never logs as "[object Object]" upstream and carries the code/details.
+  if (error) throw new Error(`apply_quota_movement RPC failed: ${errorToMessage(error)}`)
 
   // RETURNS TABLE functions come back as an array; we always get exactly one row.
   const rows = data as Array<{

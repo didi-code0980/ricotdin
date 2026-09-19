@@ -142,6 +142,41 @@ npm run check      # connectivity check: Gemini + Supabase (reads .env.local)
 npm run test       # run tests (not yet configured)
 ```
 
+## 9k. Release process
+
+**Branches:**
+- `dev` — day-to-day work; every push → Docker image `ricotdin:dev` (`release-dev.yml`).
+- `main` — stable integration branch; only receives PRs from `dev` (and hotfix merge-backs).
+- `release/X.Y` — one branch per minor version line, cut from `main`. Receives **bugfixes
+  only**, never new features. All `vX.Y.Z` tags live here (`v1.0.0`, `v1.0.1`… on `release/1.0`).
+- `ci.yml` runs on push/PR to `main` and `release/**`.
+
+**Versioning:** SemVer. `package.json` `version` MUST equal the tag without the `v`.
+`release.yml` rejects a tag that does not match `package.json` or whose commit is not on
+`release/X.Y` (the branch matching the tag's major.minor).
+
+**New minor/major release `X.Y.0`:**
+1. On `dev`: `npm run lint && npm run typecheck && npm run test && npm run build`.
+2. `npm version X.Y.0 --no-git-tag-version`; add a `## [X.Y.0]` section to `CHANGELOG.md`
+   (features + deploy checklist: new migrations, new env vars, dashboard steps + known issues).
+3. Commit `chore(release): vX.Y.0`, PR `dev` → `main`, merge (merge commit, not squash) after CI is green.
+4. Cut the branch: `git checkout main && git pull && git checkout -b release/X.Y && git push -u origin release/X.Y`.
+5. Tag on it: `git tag -a vX.Y.0 -m "Release vX.Y.0" && git push origin vX.Y.0`
+   → `release.yml` pushes Docker images `ricotdin:X.Y.0` + `ricotdin:latest`.
+6. Create the GitHub Release from the `CHANGELOG.md` section.
+
+**Hotfix `X.Y.(Z+1)` for an existing line:**
+1. Branch from `release/X.Y` (e.g. `hotfix/<topic>`), fix + test, bump version, add CHANGELOG entry.
+2. PR into `release/X.Y`; after merge, tag `vX.Y.(Z+1)` on `release/X.Y` and push the tag.
+3. Merge `release/X.Y` back into `main` and `dev` so the fix is not lost in the next release.
+   `ricotdin:latest` only moves when the pushed tag is the highest version, so a hotfix on
+   an old line never drags `latest` backwards.
+
+**Deploy (manual):** production runs a pinned image `ricotdin:X.Y.Z` — choose the version by
+choosing the tag (available versions = `git tag -l 'v*'` / Docker Hub tags / GitHub Releases).
+Never deploy `dev` or `latest`. Apply that release's new migrations BEFORE starting the new
+image. Rollback = redeploy the previous tag (only safe if no destructive migration ran in between).
+
 ## 9a. Manual Supabase dashboard actions required
 
 Before Phase 2 features work end-to-end, you must do the following once in the
@@ -181,6 +216,80 @@ Supabase dashboard:
    - `migrations/012_folder_shares.sql` — `folder_shares` table + `can_access_meeting()` SQL function
      + updated per-verb RLS on all meeting-related tables and `folders`. Must run AFTER 011.
    - `migrations/013_folders_position.sql` — `position` column on `folders` for drag-and-drop ordering.
+
+7. **Apply AIP-06 + storage-config migrations:**
+   - `migrations/027_model_control.sql` — `app_settings` table (model allow-list + system default) + `profiles.default_provider/model`.
+   - `migrations/028_storage_config.sql` — `storage_config` table (admin-managed R2 credentials; secret AES-256-GCM encrypted).
+     After applying, configure R2 at `/admin/storage`. R2 is DB-configured only — there is no `R2_*` env-var fallback.
+     Requires `KEY_ENCRYPTION_SECRET` (same secret used for API keys) to encrypt/decrypt the secret access key.
+
+8. **Apply API key health-check migration:**
+   - `migrations/029_admin_config_health.sql` — adds `health_status` / `health_checked_at` / `health_detail`
+     to `admin_config`. Powers the key health check on `/admin/keys` (see §9i). No env/config prerequisites.
+
+9. **Apply audio-render flag migration:**
+   - `migrations/031_audio_render_hack_flag.sql` — seeds the `user_hack_audio_render` row in `app_config`
+     (default `false`). Toggle it at `/admin/config`. See §9j.
+
+## 9i. API key health check design
+
+**Goal:** Detect dead/revoked provider keys (the `key #N rejected with 401 — permanently disabled` case)
+before they break a user request. Surfaced on `/admin/keys`.
+
+- **Probe:** a cheap authenticated request per provider using the decrypted key.
+  Gemini/OpenAI `GET /models`, Speechmatics `GET /v2/jobs?limit=1` (free — list resources).
+  Gemini carries the key as a query param; the others use `Authorization: Bearer`.
+  **Grok (xAI) is special:** xAI keys use per-endpoint ACLs and by default lack the
+  `api-key:endpoint:models` ACL, so `GET /v1/models` returns a misleading 403 for keys that
+  work fine for chat. Grok is therefore probed with a minimal `POST /v1/chat/completions`
+  (`max_tokens: 1`, model `grok-3-mini`) — the endpoint the app actually uses — so the verdict
+  reflects real usability. Costs ~1 output token per check. `ProbeConfig` supports `method`/`body`.
+- **Verdict** (`lib/keys/healthcheck.ts`, pure + tested in `tests/key-healthcheck.test.ts`):
+  2xx/429 → `healthy` (429 = valid but rate-limited); 401/403 → `unhealthy`; 5xx/other/network → `unknown`.
+  A decrypt failure (KEY_ENCRYPTION_SECRET mismatch) is recorded as `unhealthy`.
+- **Runner** (`lib/keys/healthcheck-runner.ts`, server-only): loads all `admin_config` key rows
+  (active + disabled), decrypts in-memory, probes, writes `health_status/detail/health_checked_at`.
+  Plaintext/ciphertext are never logged or returned.
+- **Automation:** `lib/keys/healthScheduler.ts` — in-process daily scheduler started from
+  `instrumentation.ts` (single `next start` process, no external cron). Runs on startup only if the
+  last recorded run is stale (>24h), then every 24h. Timer is `unref()`ed.
+- **Manual trigger:** `POST /api/admin/keys/healthcheck` (admin; audit-logged `admin_config.healthcheck`).
+  `GET` returns the last run timestamp. `GET /api/admin/keys` now returns the health columns.
+- **UI:** `/admin/keys` shows a Health badge + hover detail per key, a "Run health check now" button,
+  and the latest run time (`= max(health_checked_at)`). Env-var fallback keys are not rows, so they
+  are not health-checked.
+
+## 9j. Audio seek / `user_hack_audio_render` flag
+
+**Problem:** browser recordings come from `MediaRecorder` as **live-mode WebM/Opus**
+(`lib/audio/support.ts`) and are uploaded byte-for-byte to R2 (`lib/upload/upload.ts`).
+A live-mode WebM has an *unknown* Duration in its Segment Info header and **no Cues**
+(seek index). So in `<audio>`: `duration === Infinity`, no total length is displayed,
+there is no time→byte map for a Range seek, and the scrub bar only covers already-buffered
+bytes. The `43m 46s` shown in the meeting header comes from `meetings.duration_seconds`
+(client-measured at record time), **not** from the audio file. Uploaded mp3/m4a files are
+unaffected — they seek normally.
+
+**Mitigation (this flag, NOT a cure):** `app_config.user_hack_audio_render` (migration 031,
+default `false`). When on, the player seeks once to `HACK_SEEK_TARGET` (`1e101`) after
+`loadedmetadata`; the media engine scans to end-of-stream, fires `durationchange` with a real
+duration, and exposes a full seekable range. The playhead is then restored.
+**Cost: the entire file is downloaded up front.** Leave it off unless users complain about
+seeking; the durable fix is remuxing on upload into a container with Duration + Cues
+(ffmpeg is already a dependency — see `lib/audio/transcode.ts`). Remux is not built.
+
+- Pure logic: `lib/audio/durationFix.ts` — `needsDurationFix`, `isRecoveredDuration`,
+  `shouldRunDurationFix`, `resolveDuration`, `HACK_SEEK_TARGET`. Tested in
+  `tests/audio-duration-fix.test.ts`.
+- Client hook: `lib/audio/useAudioDurationFix.ts` — arms once per source; no-op when the file
+  is already seekable, so turning the flag on is safe for mp3/m4a meetings.
+- Flag delivery: `app_config` is admin-SELECT under RLS, so the browser can never read it.
+  `GET /api/audio-url/:id` resolves it server-side (service role) and returns
+  `{ url, hackAudioRender }` — no extra round-trip.
+- Server reader: `lib/config/appConfig.ts` — `getAppConfigBool(key, fallback)`, 30s TTL cache,
+  `invalidateAppConfigCache()` called from `PATCH /api/admin/config/:key` for immediate effect.
+  A failed lookup returns the caller's fallback; a malformed value never flips a flag on
+  (`coerceConfigBool` in `lib/admin/config.ts`).
 
 ## 9b. Auth/roles — Phase 7 design
 
@@ -575,6 +684,6 @@ Kept as a static reference for human reading. NOT read at runtime. No runtime co
 
 14. ~~**Feature registry (Phase 15)**~~ **DONE** (Phase 15 complete — `migrations/017_features.sql` features table (UNIQUE key, module_prefix/name, title, user_story, description, content markdown, status/priority/note_tags/depends_on/blocks/key_files arrays, metadata jsonb, updated_by, change_note; admin SELECT RLS; auto-bump trigger); `lib/features/parser.ts` pure parsing functions (parseStatus, parseFeatureSection, parseModuleFile, parseTrackingMd, mergeWithTracking — no I/O, fully tested); `scripts/seed-features.ts` reads ai-instruction/features/*.md + tracking.md ONE TIME and UPSERTs 65 features by key (idempotent); `lib/features/index.ts` DB-access service (listFeatures, getFeature, updateFeature — service-role, no filesystem access); `GET/PATCH /api/admin/features` + `GET/PATCH /api/admin/features/:id` admin-enforced, PATCH writes audit log (action: feature.update); `/admin/features` split-pane UI: grouped filterable list + inline edit panel with all fields + markdown content textarea; "Features" (Layers icon) added to admin sidebar; 33 unit tests in `tests/features.test.ts`. Apply migration 017, then run `npx tsx scripts/seed-features.ts` once. See section 9h for design. After seeding, ai-instruction/features/ is a static reference only — DB is the source of truth.)
 
-**Pending — Area 3 (Audit Log UI) remains.**
+**v1.0.0 released** (2026-09-19) — see `CHANGELOG.md`. Audit Log UI (Area 3 / ADM-07) is live at `/admin/audit`.
 
 Keep this section in sync with actual progress; mark phases done as we go.

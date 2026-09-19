@@ -17,6 +17,7 @@ import {
   BookOpen,
   History,
   Layers,
+  HardDrive,
 } from 'lucide-react'
 
 // ── Nav item definition ───────────────────────────────────────────────────────
@@ -34,6 +35,7 @@ const NAV: NavItem[] = [
   { label: 'Activity',  href: '/admin/activity',  icon: <History   size={16} /> },
   { label: 'Usage',     href: '/admin/usage',     icon: <BarChart2 size={16} /> },
   { label: 'Keys',      href: '/admin/keys',      icon: <Key       size={16} /> },
+  { label: 'Storage',   href: '/admin/storage',   icon: <HardDrive size={16} /> },
   { label: 'Audit Log', href: '/admin/audit',     icon: <FileText  size={16} /> },
   { label: 'Health',    href: '/admin/health',    icon: <Heart     size={16} /> },
   { label: 'Config',    href: '/admin/config',    icon: <Settings  size={16} /> },

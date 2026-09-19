@@ -8,11 +8,10 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Type, type Schema } from '@google/genai'
-import { log, logger } from '@/lib/logger'
-import { GEMINI_MODEL } from './client'
-import { geminiPool } from './pool'
+import { log } from '@/lib/logger'
 import { PipelineError } from './errors'
-import { logUsage } from '@/lib/usage/logUsage'
+import { resolveModel, getDefaultGenerationModel } from '@/lib/ai/registry'
+import type { ModelCtx } from '@/lib/ai/types'
 import {
   GeminiAnalysisSchema,
   type AnalysisResult,
@@ -196,6 +195,8 @@ function parseResult(raw: string): AnalysisResult {
 export interface AnalyzeContext {
   meetingId?: string | null
   userId?: string | null
+  /** AIP-03: reuse the per-meeting locked model instead of the system default. */
+  modelCtx?: ModelCtx
 }
 
 /**
@@ -220,54 +221,20 @@ export async function analyzeTranscript(
     (meetingDate ? ` (meeting date: ${meetingDate})` : ''))
 
   const systemPrompt = await loadSystemPrompt()
+  const { adapter, model } = ctx?.modelCtx
+    ? resolveModel(ctx.modelCtx.provider, ctx.modelCtx.model)
+    : getDefaultGenerationModel()
 
-  return geminiPool.call(async (ai, keyId) => {
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: buildUserContent(transcript.segments, false, meetingDate),
-      config: {
-        systemInstruction: systemPrompt,
-        responseMimeType: 'application/json',
-        responseSchema: ANALYSIS_RESPONSE_SCHEMA,
-      },
-    })
-
-    const meta = response.usageMetadata
-    logUsage({
-      provider: 'gemini', model: GEMINI_MODEL, operation: 'analyze',
-      unit: 'tokens', quantity: meta?.totalTokenCount ?? 0,
-      input_tokens: meta?.promptTokenCount ?? undefined,
-      output_tokens: meta?.candidatesTokenCount ?? undefined,
-      total_tokens: meta?.totalTokenCount ?? undefined,
-      meeting_id: ctx?.meetingId, user_id: ctx?.userId, key_id: keyId,
-    })
-
-    try {
-      return parseResult(response.text ?? '')
-    } catch (parseErr) {
-      // Prompt-level retry with a stricter instruction on the same key.
-      // PipelineError from parseResult is 'bad-request' in the pool, so a
-      // second parse failure surfaces immediately without key rotation.
-      logger.warn('[analyze] first parse failed; retrying with strict prompt', { detail: String(parseErr) })
-      const response2 = await ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: buildUserContent(transcript.segments, true, meetingDate),
-        config: {
-          systemInstruction: systemPrompt,
-          responseMimeType: 'application/json',
-          responseSchema: ANALYSIS_RESPONSE_SCHEMA,
-        },
-      })
-      const meta2 = response2.usageMetadata
-      logUsage({
-        provider: 'gemini', model: GEMINI_MODEL, operation: 'analyze',
-        unit: 'tokens', quantity: meta2?.totalTokenCount ?? 0,
-        input_tokens: meta2?.promptTokenCount ?? undefined,
-        output_tokens: meta2?.candidatesTokenCount ?? undefined,
-        total_tokens: meta2?.totalTokenCount ?? undefined,
-        meeting_id: ctx?.meetingId, user_id: ctx?.userId, key_id: keyId,
-      })
-      return parseResult(response2.text ?? '')
-    }
+  const result = await adapter.generateStructured({
+    messages:      buildUserContent(transcript.segments, false, meetingDate),
+    retryMessages: buildUserContent(transcript.segments, true,  meetingDate),
+    schema: ANALYSIS_RESPONSE_SCHEMA,
+    model,
+    systemInstruction: systemPrompt,
+    parse: parseResult,
+    operation: 'analyze',
+    ctx,
   })
+
+  return result.data
 }

@@ -405,6 +405,13 @@ export default function ProfilePage() {
   const [avatarError, setAvatarError] = useState<string | null>(null)
   const [confirmRemoveAvatar, setConfirmRemoveAvatar] = useState(false)
 
+  // ── Model preference (PRF-08) ─────────────────────────────────────────────
+  const [modelPick, setModelPick]         = useState<string>('') // "provider:model" or "" = system default
+  const [allowedModels, setAllowedModels] = useState<Array<{ provider: string; model: string; label: string }>>([])
+  const [modelSaving, setModelSaving]     = useState(false)
+  const [modelError, setModelError]       = useState<string | null>(null)
+  const [modelSuccess, setModelSuccess]   = useState<string | null>(null)
+
   // ── Notifications (local state only — PRF-10 deferred) ────────────────────
   const [notif, setNotif] = useState({ summaries: true, shares: true, updates: false })
 
@@ -426,6 +433,14 @@ export default function ProfilePage() {
         if (data.theme_preference && data.theme_preference !== currentTheme) {
           setTheme(data.theme_preference)
         }
+
+        // Load model preference in parallel (non-blocking)
+        authFetch('/api/profile/preferences').then(async (prefRes) => {
+          if (!prefRes.ok) return
+          const pref = await prefRes.json() as { provider: string | null; model: string | null; allowedModels: Array<{ provider: string; model: string; label: string }> }
+          setAllowedModels(pref.allowedModels)
+          setModelPick(pref.provider && pref.model ? `${pref.provider}:${pref.model}` : '')
+        }).catch(() => {})
       } catch {
         setLoadError('Failed to load profile.')
       } finally {
@@ -508,6 +523,24 @@ export default function ProfilePage() {
       setConfirmRemoveAvatar(false)
     } catch { setAvatarError('Network error.') }
     finally { setAvatarSaving(false) }
+  }
+
+  // ── Model preference ─────────────────────────────────────────────────────
+  async function handleModelPrefSave() {
+    setModelError(null); setModelSuccess(null); setModelSaving(true)
+    try {
+      const [provider, ...rest] = modelPick ? modelPick.split(':') : [null]
+      const model = modelPick ? rest.join(':') : null
+      const res = await authFetch('/api/profile/preferences', {
+        method: 'PATCH',
+        body: JSON.stringify({ provider: provider ?? null, model: model ?? null }),
+      })
+      const j = await res.json().catch(() => ({})) as { error?: string }
+      if (!res.ok) { setModelError(j.error ?? 'Failed to save.'); return }
+      setModelSuccess('Saved.')
+      setTimeout(() => setModelSuccess(null), 3000)
+    } catch { setModelError('Network error.') }
+    finally { setModelSaving(false) }
   }
 
   // ── Theme ─────────────────────────────────────────────────────────────────
@@ -773,7 +806,7 @@ export default function ProfilePage() {
           */}
 
           {/* Language (deferred) */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: allowedModels.length > 0 ? 20 : 0 }}>
             <div>
               <div style={{ fontSize: 14, fontWeight: 600, color: FG, fontFamily: FONT }}>Language</div>
               <div style={{ fontSize: 12.5, fontWeight: 500, color: MUTED, marginTop: 2, fontFamily: FONT }}>Used across menus and email.</div>
@@ -782,6 +815,41 @@ export default function ProfilePage() {
               English (US) <span style={{ color: MUTED, fontSize: 10, marginLeft: 4 }}>▾</span>
             </div>
           </div>
+
+          {/* AI Model default (PRF-08) — shown only when allow-list has > 1 option */}
+          {allowedModels.length > 1 && (
+            <>
+              <div style={{ height: 1, background: BORDER, marginBottom: 20 }} />
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: FG, fontFamily: FONT }}>AI model</div>
+                  <div style={{ fontSize: 12.5, fontWeight: 500, color: MUTED, marginTop: 2, fontFamily: FONT }}>Default model used when processing your recordings.</div>
+                  {modelError   && <div style={{ fontSize: 12, color: '#c0415a', marginTop: 6 }}>{modelError}</div>}
+                  {modelSuccess && <div style={{ fontSize: 12, color: '#2a7a4e', marginTop: 6 }}>{modelSuccess}</div>}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexShrink: 0 }}>
+                  <select
+                    value={modelPick}
+                    onChange={(e) => setModelPick(e.target.value)}
+                    style={{ padding: '10px 14px', borderRadius: 'var(--t-radius-input)', border: `1px solid ${BORDER}`, background: INPUT_BG, fontSize: 13.5, fontWeight: 600, color: FG, fontFamily: FONT, cursor: 'pointer' }}
+                  >
+                    <option value="">System default (auto)</option>
+                    {allowedModels.map((m) => (
+                      <option key={`${m.provider}:${m.model}`} value={`${m.provider}:${m.model}`}>{m.label}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => { void handleModelPrefSave() }}
+                    disabled={modelSaving}
+                    style={{ padding: '10px 18px', borderRadius: 'var(--t-radius-input)', border: `1px solid ${BORDER}`, background: BG, cursor: modelSaving ? 'not-allowed' : 'pointer', fontFamily: FONT, fontSize: 13.5, fontWeight: 700, color: FG, opacity: modelSaving ? 0.6 : 1 }}
+                  >
+                    {modelSaving ? '…' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </Card>
 
         {/* ── NOTIFICATIONS (PRF-10 deferred — local state only) ────────────── */}

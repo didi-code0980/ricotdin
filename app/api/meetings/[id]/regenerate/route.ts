@@ -32,7 +32,7 @@ export async function POST(
 
   const { data: meeting } = await db
     .from('meetings')
-    .select('id, user_id, language, started_at')
+    .select('id, user_id, language, started_at, generation_provider, generation_model')
     .eq('id', meetingId)
     .maybeSingle()
 
@@ -65,11 +65,15 @@ export async function POST(
     })),
   }
 
+  const modelCtx = meeting.generation_provider && meeting.generation_model
+    ? { provider: meeting.generation_provider, model: meeting.generation_model }
+    : undefined
+
   try {
     const analysis = await analyzeTranscript(
       transcript,
       meeting.started_at ?? undefined,
-      { meetingId, userId: meeting.user_id ?? undefined },
+      { meetingId, userId: meeting.user_id ?? undefined, modelCtx },
     )
 
     const { error: updateErr } = await db

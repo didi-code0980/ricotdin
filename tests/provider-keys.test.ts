@@ -93,6 +93,9 @@ describe('maskAdminConfig', () => {
     disabled_reason: null,
     last_used_at: null,
     created_by: 'admin-uuid-do-not-expose',
+    health_status: 'healthy',
+    health_checked_at: '2024-01-02T00:00:00Z',
+    health_detail: 'OK (200)',
   }
 
   it('never exposes value_ciphertext', () => {

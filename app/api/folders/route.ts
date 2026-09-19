@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
 
   // Count members (folder_shares rows) for each owned folder
   const ownedIds = (ownedData ?? []).map((f) => f.id)
-  let memberCounts: Record<string, number> = {}
+  const memberCounts: Record<string, number> = {}
   if (ownedIds.length > 0) {
     const { data: shareCountRows } = await db
       .from('folder_shares')

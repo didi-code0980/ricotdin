@@ -27,6 +27,8 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(true)
+  const [rateLimitedUntil, setRateLimitedUntil] = useState<number | null>(null)
+  const [countdown, setCountdown] = useState(0)
 
   useEffect(() => {
     browserClient.auth.getSession().then(({ data: { session } }) => {
@@ -38,8 +40,24 @@ export default function LoginPage() {
     })
   }, [router])
 
+  // Countdown ticker while rate-limited.
+  useEffect(() => {
+    if (!rateLimitedUntil) return
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((rateLimitedUntil - Date.now()) / 1_000))
+      setCountdown(remaining)
+      if (remaining === 0) setRateLimitedUntil(null)
+    }
+    tick()
+    const id = setInterval(tick, 1_000)
+    return () => clearInterval(id)
+  }, [rateLimitedUntil])
+
+  const isRateLimited = rateLimitedUntil !== null && countdown > 0
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (isRateLimited) return
     setError(null)
     setLoading(true)
 
@@ -53,6 +71,13 @@ export default function LoginPage() {
         access_token?: string
         refresh_token?: string
         error?: string
+      }
+
+      if (res.status === 429) {
+        const retryAfter = parseInt(res.headers.get('Retry-After') ?? '900', 10)
+        setRateLimitedUntil(Date.now() + retryAfter * 1_000)
+        setError(data.error ?? 'Too many failed attempts. Please try again later.')
+        return
       }
 
       if (!res.ok || !data.access_token || !data.refresh_token) {
@@ -138,11 +163,11 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || isRateLimited}
             className="btn-primary mt-1 w-full"
-            style={{ opacity: loading ? 0.65 : 1 }}
+            style={{ opacity: loading || isRateLimited ? 0.65 : 1 }}
           >
-            {loading ? 'Signing in…' : 'Sign in'}
+            {loading ? 'Signing in…' : isRateLimited ? `Try again in ${countdown}s` : 'Sign in'}
           </button>
         </form>
 
